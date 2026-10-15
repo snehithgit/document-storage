@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 
 @Composable fun PremiumSettings(
     hasPin:Boolean,languages:List<String>,currentScript:String,privacyScreen:Boolean,
+    darkMode:Boolean,onDarkModeChanged:(Boolean)->Unit,
     onPrivacyScreenChanged:(Boolean)->Unit,onPin:(String,String)->Unit,onClearPin:(String)->Unit,
     onProfiles:()->Unit,onTemplates:()->Unit,onBackups:()->Unit,onRecovery:()->Unit,
     onImportLanguage:()->Unit,onScript:(String)->Unit,onRemindDays:(Int)->Unit
@@ -89,15 +90,29 @@ import androidx.compose.ui.unit.dp
         item{NavySettingRow(Icons.Outlined.DocumentScanner,"Scanner quality","Offline auto-detect, perspective correction and manual crop",{dialog=""})}
         item{
             Spacer(Modifier.height(5.dp))
-            Text("PRIVACY & REMINDERS",color=VaultSky,fontWeight=FontWeight.Bold)
+            Text("APPEARANCE & PRIVACY",color=VaultSky,fontWeight=FontWeight.Bold)
         }
         item{
-            Surface(color=VaultPanel,shape=RoundedCornerShape(14.dp)){
-                Row(Modifier.fillMaxWidth().padding(13.dp),verticalAlignment=Alignment.CenterVertically){
+            Surface(color=VaultPanel,shape=RoundedCornerShape(10.dp),
+                border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
+                Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically){
+                    Icon(Icons.Outlined.DarkMode,null,tint=VaultSky)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)){
+                        Text("Dark mode",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Medium)
+                        Text("Off: clean white • On: soft charcoal",color=VaultMuted,style=MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(checked=darkMode,onCheckedChange=onDarkModeChanged)
+                }
+            }
+        }
+        item{
+            Surface(color=VaultPanel,shape=RoundedCornerShape(10.dp),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
+                Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically){
                     Icon(Icons.Outlined.VisibilityOff,null,tint=VaultSky)
                     Spacer(Modifier.width(13.dp))
                     Column(Modifier.weight(1f)){
-                        Text("Block screenshots",color=Color.White,fontWeight=FontWeight.SemiBold)
+                        Text("Block screenshots",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.SemiBold)
                         Text("Optional · off allows normal screenshots",color=VaultMuted,style=MaterialTheme.typography.bodySmall)
                     }
                     Switch(checked=privacyScreen,onCheckedChange=onPrivacyScreenChanged)
@@ -115,12 +130,12 @@ import androidx.compose.ui.unit.dp
 }
 @Composable private fun NavySettingRow(
     icon:androidx.compose.ui.graphics.vector.ImageVector,title:String,subtitle:String,onClick:()->Unit){
-    Card(onClick=onClick,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=RoundedCornerShape(14.dp)){
+    Card(onClick=onClick,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=RoundedCornerShape(10.dp),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
         Row(Modifier.fillMaxWidth().padding(13.dp),verticalAlignment=Alignment.CenterVertically){
             Icon(icon,null,tint=VaultSky)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)){
-                Text(title,color=Color.White,fontWeight=FontWeight.SemiBold)
+                Text(title,color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.SemiBold)
                 Text(subtitle,color=VaultMuted,style=MaterialTheme.typography.bodySmall)
             }
             Icon(Icons.Outlined.ChevronRight,null,tint=VaultSky)
