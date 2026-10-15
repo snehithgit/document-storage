@@ -118,7 +118,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     }
     fun importUris(uris:List<Uri>,targetId:String?=null) {
         if(uris.isEmpty())return
-        busy="Importing "+uris.size+" documents"
+        busy="Importing "+VaultCounts.format(uris.size,"document")
         scope.launch {
             var lastCard:VaultCard?=null
             try {
