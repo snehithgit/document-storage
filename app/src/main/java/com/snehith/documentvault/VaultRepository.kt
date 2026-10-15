@@ -182,6 +182,8 @@ class VaultRepository(private val context: Context) {
             files=(0 until files.length()).map { val f=files.getJSONObject(it);VaultFile(f.getString("id"),f.optString("name"),f.optString("mime"),f.optLong("bytes"),f.optString("sha256"),f.optString("extractedText"),f.optString("ocrStatus","pending")) }
         )
     }
+    fun encodeCard(card:VaultCard):String=writeCard(card).toString()
+    fun decodeCard(json:String):VaultCard=readCard(JSONObject(json))
     private fun writeCard(c:VaultCard):JSONObject=JSONObject()
         .put("id",c.id).put("title",c.title).put("kind",c.kind).put("category",c.category)
         .put("profile",c.profile).put("tags",c.tags).put("notes",c.notes).put("expiry",c.expiry)
@@ -211,6 +213,11 @@ class VaultRepository(private val context: Context) {
     @Synchronized fun saveCard(card:VaultCard) {
         val i=cards.indexOfFirst{it.id==card.id}
         val old=if(i<0)null else cards[i]
+        if(card.expiry!=old?.expiry && card.expiry.isNotBlank()) {
+            require(VaultExpiry.isIsoDate(card.expiry)) {
+                "Expiry date must be a valid ISO date (YYYY-MM-DD); got: "+card.expiry
+            }
+        }
         if(i<0)cards.add(0,card) else cards[i]=card
         try{persist()}catch(e:Exception){
             if(i<0)cards.removeAll{it.id==card.id}
@@ -383,8 +390,15 @@ class VaultRepository(private val context: Context) {
                     while(true){
                         val entry=zip.nextEntry?:break
                         if(entry.name=="index.json"){
-                            val buffer=ByteArrayOutputStream();zip.copyTo(buffer)
-                            if(buffer.size()>25_000_000)throw IOException("Backup index exceeds 25 MB; split your backup into smaller vaults")
+                            val buffer=ByteArrayOutputStream()
+                            val bytes=ByteArray(65536)
+                            while(true) {
+                                val count=zip.read(bytes)
+                                if(count<0)break
+                                if(buffer.size().toLong()+count>25_000_000L)
+                                    throw IOException("Backup index exceeds 25 MB; split your backup into smaller vaults")
+                                buffer.write(bytes,0,count)
+                            }
                             root=buffer.toString("UTF-8")
                         }else if(entry.name.matches(Regex("blobs/[a-f0-9-]{36}"))) {
                             val id=entry.name.substringAfter("/")
