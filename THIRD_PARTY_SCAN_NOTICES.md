@@ -30,3 +30,23 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+## Phase 2: MakeACopy DocQuadNet-256 and ONNX Runtime
+
+- **Document corner model:** `docquad/docquadnet256_trained_opset17.ort` from
+  [egdels/makeacopy](https://github.com/egdels/makeacopy),
+  Copyright 2026 Christian Kierdorf, **Apache License 2.0**.
+  Pinned upstream Git blob SHA-1: `1cfaaf7ff3fdc04c29749f62051e961fe60accdc`.
+  The model is downloaded *during build* by GitHub Actions or
+  `bash scripts/fetch_docquad_model.sh`, hash checked and bundled locally into the APK.
+  The installed app never requests network permission or downloads weights.
+- **Model preprocessing:** 256x256 black letterbox, RGB float32 NCHW, four 64x64 heatmaps,
+  deterministic postprocessing, and convexity/area validation.
+- **ONNX Runtime Android:** `com.microsoft.onnxruntime:onnxruntime-android:1.24.1`,
+  Microsoft, **MIT License**. Published AAR approximately 39 MB before ABI filtering/compression;
+  the app's ABI filter includes ARM architectures only.
+- **OpenCV:** existing `org.opencv:opencv:4.10.0`, **Apache License 2.0**.
+- **Fallback:** existing `Cleanup.detectCorners` multi-pass contour/Hough pipeline,
+  used if model is unavailable or yields a low-confidence quad.
+- Expect additional APK size due to ONNX Runtime native libraries and the offline model.
+
