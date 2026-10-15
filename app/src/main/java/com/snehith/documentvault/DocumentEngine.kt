@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import androidx.exifinterface.media.ExifInterface
+import android.provider.OpenableColumns
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -40,7 +42,11 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
         return mlScripts+names.map{"Tesseract: "+it}
     }
     fun installLanguage(uri:Uri):String {
-        val name=uri.lastPathSegment?.substringAfterLast('/')?.substringAfterLast(':') ?: "custom.traineddata"
+        var name="custom.traineddata"
+        context.contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use { cursor ->
+            if(cursor.moveToFirst())name=cursor.getString(0)?:name
+        }
+        name=name.substringAfterLast('/').substringAfterLast(':')
         require(name.matches(Regex("[a-zA-Z0-9_]+\\.traineddata"))){"Choose a valid .traineddata language file"}
         val dir=File(context.filesDir,"tessdata").apply{mkdirs()}
         val output=File(dir,name)
@@ -91,7 +97,7 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
                             pages=renderer.pageCount
                             for(i in 0 until renderer.pageCount) {
                                 renderer.openPage(i).use{page->
-                                    val scale=(1800f/page.width).coerceIn(1f,2f)
+                                    val scale=(2100f/page.width).coerceIn(1f,3.25f)
                                     val w=(page.width*scale).toInt().coerceIn(1,2400)
                                     val h=(page.height*scale).toInt().coerceIn(1,3200)
                                     val bitmap=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888)
@@ -127,9 +133,26 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
         val options=BitmapFactory.Options().apply{inJustDecodeBounds=true}
         BitmapFactory.decodeFile(file.absolutePath,options)
         if(options.outWidth<=0||options.outHeight<=0)throw IOException("Cannot decode image")
-        val sample=(maxOf(options.outWidth,options.outHeight)/largest).coerceAtLeast(1)
-        return BitmapFactory.decodeFile(file.absolutePath,BitmapFactory.Options().apply{inSampleSize=sample})
+        var sample=1
+        while(maxOf(options.outWidth,options.outHeight)/sample>largest)sample*=2
+        val bitmap=BitmapFactory.decodeFile(file.absolutePath,BitmapFactory.Options().apply{inSampleSize=sample})
             ?:throw IOException("Cannot decode image")
+        val orientation=try{ExifInterface(file).getAttributeInt(ExifInterface.TAG_ORIENTATION,ExifInterface.ORIENTATION_NORMAL)}
+            catch(_:Exception){ExifInterface.ORIENTATION_NORMAL}
+        val matrix=Matrix()
+        when(orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f,1f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f,-1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {matrix.postScale(-1f,1f);matrix.postRotate(270f)}
+            ExifInterface.ORIENTATION_TRANSVERSE -> {matrix.postScale(-1f,1f);matrix.postRotate(90f)}
+        }
+        if(matrix.isIdentity)return bitmap
+        val transformed=Bitmap.createBitmap(bitmap,0,0,bitmap.width,bitmap.height,matrix,true)
+        if(transformed!==bitmap)bitmap.recycle()
+        return transformed
     }
     private fun docxText(file:File):String {
         ZipFile(file).use{zip->
@@ -139,8 +162,8 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
                 .replace(Regex("<w:tab[^>]*/>"),"\t")
                 .replace(Regex("<w:br[^>]*/>"),"\n")
                 .replace(Regex("<[^>]*>"),"")
-            return normalized.replace("&amp;","&").replace("&lt;","<").replace("&gt;",">")
-                .replace("&quot;","\"").replace("&apos;","'")
+            return normalized.replace("&lt;","<").replace("&gt;",">")
+                .replace("&quot;","\"").replace("&apos;","'").replace("&amp;","&")
         }
     }
     fun pdfPageImage(file:File,pageIndex:Int,maxWidth:Int=1440):Pair<Bitmap,Int> {
@@ -149,7 +172,7 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
                 val index=pageIndex.coerceIn(0,renderer.pageCount-1)
                 renderer.openPage(index).use{page->
                     val scale=maxWidth.toFloat()/page.width
-                    val image=Bitmap.createBitmap(maxWidth,(page.height*scale).toInt().coerceAtLeast(1),Bitmap.Config.ARGB_8888)
+                    val image=Bitmap.createBitmap(maxWidth,(page.height*scale).toInt().coerceIn(1,4200),Bitmap.Config.ARGB_8888)
                     image.eraseColor(android.graphics.Color.WHITE)
                     page.render(image,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                     return image to renderer.pageCount
@@ -160,18 +183,21 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
     fun merge(files:List<VaultFile>,target:Uri) {
         require(files.size>=2){"Select at least two PDFs"}
         val temps=mutableListOf<File>()
+        val sources=mutableListOf<PDDocument>()
         try {
             PDDocument().use{out ->
                 files.forEach{f ->
-                    require(f.name.endsWith(".pdf",true)){"All inputs must be PDFs"}
+                    require(f.name.endsWith(".pdf",true)||f.mime=="application/pdf"){"All inputs must be PDFs"}
                     val plain=repo.openDecrypted(f);temps.add(plain)
-                    PDDocument.load(plain).use{doc ->
-                        for(page in doc.pages) out.importPage(page)
-                    }
+                    val doc=PDDocument.load(plain)
+                    sources.add(doc)
+                    for(page in doc.pages)out.importPage(page)
                 }
+                // Keep source documents open until the imported font/image resources
+                // have been serialized to the merged output.
                 context.contentResolver.openOutputStream(target)!!.use{out.save(it)}
             }
-        } finally {temps.forEach{it.delete()}}
+        }finally{sources.forEach{try{it.close()}catch(_:Exception){}};temps.forEach{it.delete()}}
     }
     fun pages(file:VaultFile,start:Int,end:Int,target:Uri) {
         val plain=repo.openDecrypted(file)

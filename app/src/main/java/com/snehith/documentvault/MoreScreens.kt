@@ -30,26 +30,37 @@ import java.util.UUID
     var pageCount by remember(file.id){mutableIntStateOf(1)}
     var bitmap by remember(file.id){mutableStateOf<Bitmap?>(null)}
     var previewText by remember(file.id){mutableStateOf(file.extractedText)}
-    var showText by remember(file.id){mutableStateOf(!file.name.endsWith(".pdf",true)&& !file.mime.startsWith("image/"))}
+    var showText by remember(file.id){mutableStateOf(!file.name.endsWith(".pdf",true)&&!file.mime.startsWith("image/"))}
     var error by remember(file.id){mutableStateOf("")}
     var zoom by remember(file.id){mutableFloatStateOf(1f)}
-    LaunchedEffect(file.id,page,showText) {
-        if(showText && previewText.isBlank()) {
-            try {previewText=withContext(Dispatchers.IO){engine.extract(file).text}}
-            catch(e:Exception){error=e.message?:"Text extraction failed"}
-        }
-        if(showText)return@LaunchedEffect
-        try{
-            val result=withContext(Dispatchers.IO) {
-                val plain=repo.openDecrypted(file)
-                try{
-                    if(file.name.endsWith(".pdf",true))engine.pdfPageImage(plain,page)
-                    else engine.scaledBitmap(plain,2100) to 1
-                }finally{plain.delete()}
+    var panX by remember(file.id){mutableFloatStateOf(0f)}
+    var panY by remember(file.id){mutableFloatStateOf(0f)}
+    var plaintext by remember(file.id){mutableStateOf<File?>(null)}
+    DisposableEffect(file.id) {
+        onDispose { plaintext?.delete() }
+    }
+    LaunchedEffect(file.id) {
+        try {
+            // Decrypt once per viewer session, not on every page turn.
+            plaintext=withContext(Dispatchers.IO){repo.openDecrypted(file)}
+        }catch(e:Exception){error=e.message?:"Cannot open document"}
+    }
+    LaunchedEffect(file.id,page,showText,plaintext) {
+        val temp=plaintext ?:return@LaunchedEffect
+        if(showText) {
+            if(previewText.isBlank()) {
+                try {previewText=withContext(Dispatchers.IO){engine.extract(file).text}}
+                catch(e:Exception){error=e.message?:"Text extraction failed"}
             }
-            bitmap=result.first
-            pageCount=result.second
-            error=""
+            return@LaunchedEffect
+        }
+        bitmap=null
+        try {
+            val result=withContext(Dispatchers.IO) {
+                if(file.name.endsWith(".pdf",true)||file.mime=="application/pdf")engine.pdfPageImage(temp,page,1150)
+                else engine.scaledBitmap(temp,1800) to 1
+            }
+            bitmap=result.first;pageCount=result.second;error=""
         }catch(e:Exception){error=e.message?:"Unsupported preview"}
     }
     Column(Modifier.fillMaxSize().padding(12.dp),verticalArrangement=Arrangement.spacedBy(9.dp)) {
@@ -69,29 +80,30 @@ import java.util.UUID
                     else SelectionContainer {Text(previewText)}
                 }
             }
-        } else {
+        }else{
             Surface(modifier=Modifier.weight(1f).fillMaxWidth(),shape=RoundedCornerShape(14.dp),
                 color=MaterialTheme.colorScheme.surfaceContainerLow) {
                 Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) {
                     if(bitmap!=null) {
                         Image(bitmap!!.asImageBitmap(),contentDescription="Document page",
-                            modifier=Modifier.fillMaxSize().graphicsLayer(scaleX=zoom,scaleY=zoom)
-                                .pointerInput(file.id,page){detectTransformGestures{_,_,factor,_->zoom=(zoom*factor).coerceIn(1f,5f)}},
+                            modifier=Modifier.fillMaxSize()
+                                .pointerInput(file.id,page){detectTransformGestures{_,move,factor,_->
+                                    zoom=(zoom*factor).coerceIn(1f,5f)
+                                    panX=(panX+move.x).coerceIn(-1100f,1100f)
+                                    panY=(panY+move.y).coerceIn(-1800f,1800f)
+                                }}
+                                .graphicsLayer(scaleX=zoom,scaleY=zoom,translationX=panX,translationY=panY),
                             contentScale=androidx.compose.ui.layout.ContentScale.Fit)
-                    } else CircularProgressIndicator()
+                    }else CircularProgressIndicator()
                 }
             }
-            if(file.name.endsWith(".pdf",true)){
-                Row(modifier=Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,
-                    horizontalArrangement=Arrangement.SpaceBetween){
-                    OutlinedButton(onClick={page=(page-1).coerceAtLeast(0);zoom=1f},enabled=page>0){Text("Previous")}
+            if(file.name.endsWith(".pdf",true)||file.mime=="application/pdf"){
+                Row(modifier=Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
+                    OutlinedButton(onClick={page=(page-1).coerceAtLeast(0);zoom=1f;panX=0f;panY=0f},enabled=page>0){Text("Previous")}
                     Text((page+1).toString()+" / "+pageCount)
-                    OutlinedButton(onClick={page=(page+1).coerceAtMost(pageCount-1);zoom=1f},enabled=page<pageCount-1){Text("Next")}
+                    OutlinedButton(onClick={page=(page+1).coerceAtMost(pageCount-1);zoom=1f;panX=0f;panY=0f},enabled=page<pageCount-1){Text("Next")}
                 }
-            }else {
-                Text("Pinch to zoom. OCR enables copy and search of scanned text.",
-                    style=MaterialTheme.typography.labelSmall)
-            }
+            }else Text("Pinch to zoom and drag to pan.",style=MaterialTheme.typography.labelSmall)
         }
     }
 }
@@ -198,11 +210,13 @@ import java.util.UUID
         }}
     }
 }
-@Composable fun SettingsScreen(hasPin:Boolean,languages:List<String>,currentScript:String,onPin:(String)->Unit,onClearPin:(String)->Unit,
-    onProfiles:()->Unit,onTemplates:()->Unit,onBackups:()->Unit,onImportLanguage:()->Unit,onScript:(String)->Unit,
+@Composable fun SettingsScreen(hasPin:Boolean,languages:List<String>,currentScript:String,privacyScreen:Boolean,
+    onPrivacyScreenChanged:(Boolean)->Unit,onPin:(String,String)->Unit,onClearPin:(String)->Unit,
+    onProfiles:()->Unit,onTemplates:()->Unit,onBackups:()->Unit,onRecovery:()->Unit,onImportLanguage:()->Unit,onScript:(String)->Unit,
     onRemindDays:(Int)->Unit) {
     var pin by remember{mutableStateOf("")}
     var old by remember{mutableStateOf("")}
+    var confirmPin by remember{mutableStateOf("")}
     var languageOpen by remember{mutableStateOf(false)}
     var days by remember{mutableStateOf("30")}
     LazyColumn(contentPadding=PaddingValues(16.dp,12.dp,16.dp,90.dp),verticalArrangement=Arrangement.spacedBy(13.dp)) {
@@ -212,6 +226,7 @@ import java.util.UUID
             SettingAction("Family profiles","Create and manage people",Icons.Outlined.People,onProfiles)
             SettingAction("Card templates","Reusable information fields",Icons.Outlined.ViewAgenda,onTemplates)
             SettingAction("Encrypted backup & restore","Export a portable password-protected file",Icons.Outlined.Backup,onBackups)
+            SettingAction("Recover previous imports","Find encrypted attachments from failed older saves",Icons.Outlined.Restore,onRecovery)
         }
         item {
             SectionSettings("Offline OCR")
@@ -230,15 +245,27 @@ import java.util.UUID
                 style=MaterialTheme.typography.bodySmall)
         }
         item{
+            SectionSettings("Display privacy")
+            Row(verticalAlignment=Alignment.CenterVertically,modifier=Modifier.fillMaxWidth()) {
+                Column(Modifier.weight(1f)) {
+                    Text("Block screenshots and screen recording",fontWeight=FontWeight.SemiBold)
+                    Text("Turn off to allow screenshots. Turn on before showing sensitive documents.",style=MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked=privacyScreen,onCheckedChange=onPrivacyScreenChanged)
+            }
+        }
+        item{
             SectionSettings("App lock")
             Text(if(hasPin)"A PIN is configured. Device biometrics can unlock the app." else "Vault files are encrypted. Set a PIN for access control.",
                 style=MaterialTheme.typography.bodySmall)
-            OutlinedTextField(pin,{pin=it},label={Text("New PIN (at least 4 digits)")},modifier=Modifier.fillMaxWidth())
-            Button(onClick={onPin(pin);pin=""},enabled=pin.length>=4,modifier=Modifier.fillMaxWidth()){Text("Set / change PIN")}
-            if(hasPin) {
-                OutlinedTextField(old,{old=it},label={Text("Current PIN to remove lock")},modifier=Modifier.fillMaxWidth())
-                TextButton(onClick={onClearPin(old);old=""},enabled=old.isNotEmpty()){Text("Remove PIN lock")}
-            }
+            if(hasPin)OutlinedTextField(old,{old=it},label={Text("Current PIN")},modifier=Modifier.fillMaxWidth(),
+                visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation())
+            OutlinedTextField(pin,{pin=it},label={Text("New PIN (at least 4 digits)")},modifier=Modifier.fillMaxWidth(),
+                visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation())
+            OutlinedTextField(confirmPin,{confirmPin=it},label={Text("Confirm new PIN")},modifier=Modifier.fillMaxWidth(),
+                visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation())
+            Button(onClick={onPin(pin,old);pin="";confirmPin=""},enabled=pin.length>=4&&pin==confirmPin&&(!hasPin||old.isNotBlank()),modifier=Modifier.fillMaxWidth()){Text("Set / change PIN")}
+            if(hasPin)TextButton(onClick={onClearPin(old);old=""},enabled=old.isNotBlank()){Text("Remove PIN lock")}
         }
         item{
             SectionSettings("Notifications")
@@ -287,4 +314,37 @@ import java.util.UUID
             Icon(Icons.Outlined.Restore,null);Text(" Restore from backup")
         }
     }
+}
+
+@Composable fun RecoveryScreen(files:List<VaultFile>,recoveryError:String?,onRecover:(VaultFile,String)->Unit,onBackup:()->Unit) {
+    var name by remember{mutableStateOf("")}
+    var selected by remember{mutableStateOf<VaultFile?>(null)}
+    LazyColumn(contentPadding=PaddingValues(16.dp,12.dp,16.dp,90.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        item {Heading("Recover old imports","Preserve files from earlier failed saves")}
+        if(recoveryError!=null) item {
+            Text(recoveryError,color=MaterialTheme.colorScheme.error)
+            OutlinedButton(onClick=onBackup){Text("Open Backup & Restore")}
+        }
+        item{Text(files.size.toString()+" unattached encrypted files found. These are never automatically deleted. The original filename may not be recoverable from older app versions.",
+            style=MaterialTheme.typography.bodyMedium)}
+        items(files){file->
+            ElevatedCard {
+                Column(Modifier.padding(13.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+                    Text(file.name,fontWeight=FontWeight.SemiBold)
+                    Text(file.id,style=MaterialTheme.typography.labelSmall)
+                    OutlinedButton(onClick={selected=file;name="Recovered "+file.id.take(8)}){Text("Recover into new card")}
+                }
+            }
+        }
+    }
+    if(selected!=null)AlertDialog(onDismissRequest={selected=null},title={Text("Recover document")},
+        text={
+            OutlinedTextField(name,{name=it},label={Text("New card title")})
+        },
+        confirmButton={TextButton(onClick={
+            val file=selected
+            selected=null
+            if(file!=null)onRecover(file,name)
+        }){Text("Recover")}},
+        dismissButton={TextButton(onClick={selected=null}){Text("Cancel")}})
 }

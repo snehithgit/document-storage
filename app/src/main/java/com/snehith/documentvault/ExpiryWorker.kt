@@ -20,13 +20,14 @@ class ExpiryWorker(context:Context,params:WorkerParameters):Worker(context,param
             val store=VaultRepository(applicationContext)
             val today=LocalDate.now()
             val days=applicationContext.getSharedPreferences("vault_options",Context.MODE_PRIVATE).getInt("remindDays",30)
-            val expiring=store.cards.mapNotNull { card ->
+            val renewedIds=store.cards.map{it.previousId}.filter{it.isNotBlank()}.toSet()
+            val expiring=store.cards.filter{it.id !in renewedIds}.mapNotNull { card ->
                 try {
                     val date=LocalDate.parse(card.expiry)
                     val remaining=ChronoUnit.DAYS.between(today,date)
-                    if(remaining<=days)card to remaining else null
+                    if(remaining in -30L..days.toLong())card to remaining else null
                 } catch(_:Exception){null}
-            }
+            }.sortedBy{it.second}
             if(expiring.isNotEmpty()) {
                 val manager=applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 manager.createNotificationChannel(NotificationChannel("expiry","Document expiry",NotificationManager.IMPORTANCE_DEFAULT))
@@ -37,6 +38,7 @@ class ExpiryWorker(context:Context,params:WorkerParameters):Worker(context,param
                     card.title+": "+if(days<0)"expired" else days.toString()+"d left"
                 }
                 val notification=NotificationCompat.Builder(applicationContext,"expiry")
+                    .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
                     .setSmallIcon(android.R.drawable.ic_dialog_info)
                     .setContentTitle(expiring.size.toString()+" documents need attention")
                     .setContentText(body).setStyle(NotificationCompat.BigTextStyle().bigText(body))
