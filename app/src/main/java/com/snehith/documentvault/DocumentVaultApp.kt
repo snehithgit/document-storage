@@ -383,11 +383,11 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         "crop"->{
                             val image=cropBitmap;val result=cropResult
                             if(image!=null&&result!=null)CropReviewScreen(image,result,
-                                {corners->scope.launch{
+                                {imageToCrop,corners->scope.launch{
                                     busy="Applying perspective correction"
                                     try{
                                         val uri=withContext(Dispatchers.IO){
-                                            val corrected=DocumentCropEngine.crop(image,corners)
+                                            val corrected=DocumentCropEngine.crop(imageToCrop,corners)
                                             try{
                                                 val output=File(activity.cacheDir,"camera/scan-"+UUID.randomUUID()+".jpg")
                                                 DocumentCropEngine.save(corrected,output)
