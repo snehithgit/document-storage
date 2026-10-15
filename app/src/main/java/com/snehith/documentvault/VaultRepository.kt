@@ -278,7 +278,8 @@ class VaultRepository(private val context: Context) {
     fun isDuplicate(sha:String)=cards.any { c->c.files.any{it.sha256==sha} }
     fun importFile(uri:Uri):VaultFile {
         require(uri.scheme=="content"){"Import only from Android's file picker or share menu"}
-        val name=VaultNames.label(filename(uri))
+        val name=VaultNames.importLabel(filename(uri),
+            java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("dd MMM HH:mm",java.util.Locale.ENGLISH)))
         val mime=context.contentResolver.getType(uri) ?: when(name.substringAfterLast('.', "").lowercase()){
             "pdf"->"application/pdf";"txt"->"text/plain"
             "docx"->"application/vnd.openxmlformats-officedocument.wordprocessingml.document"
