@@ -105,7 +105,7 @@ class MainActivity : FragmentActivity() {
             val links=ArrayList<Uri>(files.size)
             for(file in files) {
                 val source=repo.documentFile(file)
-                links.add(FileProvider.getUriForFile(this,packageName+".provider",source,file.name))
+                links.add(FileProvider.getUriForFile(this,packageName+".provider",source,VaultNames.label(file.name)))
             }
             val send=Intent(if(links.size==1)Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE).apply {
                 type=if(files.size==1)files.first().mime.ifBlank{"application/octet-stream"}else "*/*"
