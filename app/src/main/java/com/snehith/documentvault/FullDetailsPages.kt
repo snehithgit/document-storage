@@ -17,7 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
-private val dBlue=Color(0xFF2563EB)
+private val dBlue=VaultColors.primaryText
 private val dNavy:Color @Composable get()=MaterialTheme.colorScheme.background
 private val dPanel:Color @Composable get()=MaterialTheme.colorScheme.surface
 private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVariant
@@ -78,7 +78,7 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
         LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(horizontal=14.dp,vertical=4.dp),
             verticalArrangement=Arrangement.spacedBy(8.dp)){
             items(rows,key={it.second.id}){(index,f)->
-                Surface(color=dPanel,shape=RoundedCornerShape(10.dp),
+                Surface(color=dPanel,shape=RoundedCornerShape(24.dp),
                     border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
                     Column(Modifier.padding(10.dp)){
                         Row(verticalAlignment=Alignment.CenterVertically){
@@ -115,7 +115,7 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                             }){Text("Move down")}
                             TextButton(onClick={
                                 onSave(card.copy(fields=fields.filterIndexed{i,_->i!=index}));selected=selected-f.id
-                            }){Text("Remove",color=Color(0xFFFFB86A))}
+                            }){Text("Remove",color=VaultColors.expiring)}
                         }
                     }
                 }

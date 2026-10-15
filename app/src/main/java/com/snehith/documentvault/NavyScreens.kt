@@ -31,11 +31,11 @@ import java.time.temporal.ChronoUnit
 val VaultNavy:Color @Composable get()=MaterialTheme.colorScheme.background
 val VaultPanel:Color @Composable get()=MaterialTheme.colorScheme.surface
 val VaultRaised:Color @Composable get()=MaterialTheme.colorScheme.surface
-val VaultBlue=Color(0xFF2563EB)
+val VaultBlue=VaultColors.primaryText
 val VaultSky:Color @Composable get()=MaterialTheme.colorScheme.primary
 val VaultMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVariant
-val bgBrush:Brush @Composable get()=Brush.verticalGradient(listOf(VaultNavy,VaultNavy))
-private val rounded=RoundedCornerShape(15.dp)
+val bgBrush:Brush @Composable get()=vaultWarmBrush(MaterialTheme.colorScheme.background==VaultColors.darkBg)
+private val rounded=RoundedCornerShape(24.dp)
 
 @Composable fun VaultHeader(title:String,subtitle:String?=null) {
     Column {
@@ -77,23 +77,22 @@ private val thumbnailCache=object:LruCache<String,Bitmap>(16*1024*1024){
 fun vaultValidity(card:VaultCard):Pair<String,Color> {
     val days=try{ChronoUnit.DAYS.between(LocalDate.now(),LocalDate.parse(card.expiry))}catch(_:Exception){null}
     return when {
-        days==null && card.expiry.isNotBlank()->"Check expiry" to Color(0xFFB45309)
+        days==null && card.expiry.isNotBlank()->"Check expiry" to VaultColors.expiring
         days==null->"Saved" to Color(0xFF64748B)
-        days<0->"Expired" to Color(0xFFFF7E85)
-        days<=30->"Expiring" to Color(0xFFFFC26A)
-        else->"Valid" to Color(0xFF53DDA8)
+        days<0->"Expired" to VaultColors.expired
+        days<=30->"Expiring" to VaultColors.expiring
+        else->"Valid" to VaultColors.valid
     }
 }
 @Composable fun VaultPill(text:String,color:Color=VaultBlue){
-    Surface(color=MaterialTheme.colorScheme.surface,shape=RoundedCornerShape(8.dp),
-        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
+    Surface(color=color.copy(alpha=.12f),shape=RoundedCornerShape(50)){
         Text(text,color=if(color==VaultBlue)VaultSky else color,style=MaterialTheme.typography.labelSmall,
             modifier=Modifier.padding(horizontal=8.dp,vertical=4.dp),maxLines=1)
     }
 }
 @Composable fun VaultTile(card:VaultCard,repo:VaultRepository,onClick:()->Unit){
     Card(onClick=onClick,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=rounded,
-        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
+        elevation=CardDefaults.cardElevation(defaultElevation=3.dp)){
         Column(Modifier.fillMaxWidth().padding(9.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
             Box {
                 VaultThumbnail(card.files.firstOrNull(),repo,Modifier.fillMaxWidth().height(140.dp))
@@ -112,7 +111,7 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
 @Composable fun VaultRow(card:VaultCard,repo:VaultRepository,onClick:()->Unit){
     val(v,c)=vaultValidity(card)
     Card(onClick=onClick,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=rounded,
-        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
+        elevation=CardDefaults.cardElevation(defaultElevation=3.dp)){
         Row(Modifier.padding(9.dp).fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
             VaultThumbnail(card.files.firstOrNull(),repo,Modifier.size(65.dp,72.dp))
             Spacer(Modifier.width(11.dp))
@@ -176,7 +175,7 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
 }
 @Composable fun VaultMetric(n:String,label:String,modifier:Modifier,onClick:()->Unit={}){
     Card(onClick=onClick,modifier=modifier,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=rounded,
-        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
+        elevation=CardDefaults.cardElevation(defaultElevation=3.dp)){
         Column(Modifier.padding(11.dp)){
             Text(n,color=VaultSky,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.headlineSmall)
             Text(label,color=VaultMuted,style=MaterialTheme.typography.labelSmall)
@@ -192,8 +191,9 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
         }
     }
 }
-@Composable fun VaultNavCards(cards:List<VaultCard>,repo:VaultRepository,onOpen:(VaultCard)->Unit,onNew:()->Unit){
+@Composable fun VaultNavCards(cards:List<VaultCard>,repo:VaultRepository,onOpen:(VaultCard)->Unit,onNew:()->Unit,selectedCategory:String="All"){
     var filter by rememberSaveable{mutableStateOf("All")}
+    LaunchedEffect(selectedCategory){ if(selectedCategory!="All")filter=selectedCategory }
     Column(Modifier.fillMaxSize().background(bgBrush)){
         Row(Modifier.padding(16.dp),verticalAlignment=Alignment.CenterVertically){
             Column(Modifier.weight(1f)){VaultHeader("Document cards",VaultCounts.format(cards.size,"card")+" saved")}
@@ -201,14 +201,14 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
         }
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal=15.dp),
             horizontalArrangement=Arrangement.spacedBy(7.dp)){
-            (listOf("All")+cards.map{it.kind}.distinct()).forEach{t->
+            (listOf("All")+cards.map{it.kind}.distinct()+cards.map{it.category}.distinct()).distinct().forEach{t->
                 FilterChip(selected=t==filter,onClick={filter=t},label={Text(t)})
             }
         }
         LazyVerticalGrid(columns=GridCells.Fixed(2),
             contentPadding=PaddingValues(15.dp,10.dp,15.dp,95.dp),
             verticalArrangement=Arrangement.spacedBy(11.dp),horizontalArrangement=Arrangement.spacedBy(11.dp)){
-            items(cards.filter{filter=="All"||it.kind==filter},key={it.id}){c->VaultTile(c,repo){onOpen(c)}}
+            items(cards.filter{filter=="All"||it.kind==filter||it.category==filter},key={it.id}){c->VaultTile(c,repo){onOpen(c)}}
         }
     }
 }

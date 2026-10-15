@@ -19,7 +19,7 @@ import androidx.compose.ui.unit.dp
 
 @Composable fun PremiumSettings(
     hasPin:Boolean,languages:List<String>,currentScript:String,privacyScreen:Boolean,
-    darkMode:Boolean,onDarkModeChanged:(Boolean)->Unit,
+    themeMode:String,onThemeModeChanged:(String)->Unit,
     onPrivacyScreenChanged:(Boolean)->Unit,onPin:(String,String)->Unit,onClearPin:(String)->Unit,
     onProfiles:()->Unit,onTemplates:()->Unit,onBackups:()->Unit,onRecovery:()->Unit,
     onImportLanguage:()->Unit,onScript:(String)->Unit,onRemindDays:(Int)->Unit
@@ -96,21 +96,26 @@ import androidx.compose.ui.unit.dp
             Text("APPEARANCE & PRIVACY",color=VaultSky,fontWeight=FontWeight.Bold)
         }
         item{
-            Surface(color=VaultPanel,shape=RoundedCornerShape(10.dp),
-                border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
-                Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically){
-                    Icon(Icons.Outlined.DarkMode,null,tint=VaultSky)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)){
-                        Text("Dark mode",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Medium)
-                        Text("Off: clean white • On: soft charcoal",color=VaultMuted,style=MaterialTheme.typography.bodySmall)
+            HubCard(Modifier.fillMaxWidth()){
+                Row(verticalAlignment=Alignment.CenterVertically){
+                    HubIcon(Icons.Outlined.DarkMode)
+                    Spacer(Modifier.width(10.dp))
+                    Column {
+                        Text("Appearance",fontWeight=FontWeight.SemiBold)
+                        Text("Follow system by default",color=MaterialTheme.colorScheme.onSurfaceVariant,
+                            style=MaterialTheme.typography.bodySmall)
                     }
-                    Switch(checked=darkMode,onCheckedChange=onDarkModeChanged)
+                }
+                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    listOf("system" to "System","light" to "Light","dark" to "Dark").forEach{(mode,label)->
+                        FilterChip(selected=themeMode==mode,onClick={onThemeModeChanged(mode)},
+                            label={Text(label)})
+                    }
                 }
             }
         }
         item{
-            Surface(color=VaultPanel,shape=RoundedCornerShape(10.dp),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
+            Surface(color=VaultPanel,shape=RoundedCornerShape(24.dp)){
                 Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically){
                     Icon(Icons.Outlined.VisibilityOff,null,tint=VaultSky)
                     Spacer(Modifier.width(13.dp))
