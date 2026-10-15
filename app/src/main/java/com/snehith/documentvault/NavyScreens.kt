@@ -212,20 +212,33 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
         }
     }
 }
+private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
+
 @Composable fun VaultNavSearch(cards:List<VaultCard>,repo:VaultRepository,onOpen:(VaultCard)->Unit){
     var query by rememberSaveable{mutableStateOf("")}
     var mode by rememberSaveable{mutableStateOf("All")}
-    val filtered by produceState(initialValue=cards,query,mode,cards) {
+    val hits by produceState(initialValue=cards.map{VaultSearchHit(it,null)},query,mode,cards){
         delay(250)
         val snapshot=cards.toList()
-        value=withContext(Dispatchers.Default) {
-            snapshot.filter{card->
+        value=withContext(Dispatchers.Default){
+            snapshot.mapNotNull{card->
                 val text=card.title+" "+card.category+" "+card.kind+" "+
                     card.fields.joinToString(" "){it.name+" "+it.value}+" "+
                     card.files.joinToString(" "){it.name+" "+it.extractedText}
-                (query.isBlank()||text.contains(query,true))&&
-                (mode=="All"||(mode=="Fields"&&card.fields.any{it.value.contains(query,true)})||
-                    (mode=="OCR"&&card.files.any{it.extractedText.contains(query,true)}))
+                val matches=(query.isBlank()||text.contains(query,true))&&
+                    (mode=="All"||(mode=="Fields"&&card.fields.any{it.value.contains(query,true)})||
+                        (mode=="OCR"&&card.files.any{it.extractedText.contains(query,true)}))
+                if(!matches)null else{
+                    val snippet=if(query.isBlank())null else
+                        card.fields.firstOrNull{it.value.contains(query,true)}?.let{"${it.name}: ${it.value}"}
+                            ?:card.files.firstNotNullOfOrNull{f->
+                                val start=f.extractedText.indexOf(query,ignoreCase=true)
+                                if(start<0)null else f.extractedText.substring(
+                                    (start-25).coerceAtLeast(0),
+                                    (start+query.length+55).coerceAtMost(f.extractedText.length))
+                            }
+                    VaultSearchHit(card,snippet)
+                }
             }
         }
     }
@@ -240,18 +253,12 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
                 FilterChip(selected=mode==m,onClick={mode=m},label={Text(m)})
             }
         }
-        Text(VaultCounts.format(filtered.size,"matching record"),color=VaultMuted,modifier=Modifier.padding(vertical=12.dp))
+        Text(VaultCounts.format(hits.size,"matching record"),color=VaultMuted,modifier=Modifier.padding(vertical=12.dp))
         LazyColumn(verticalArrangement=Arrangement.spacedBy(10.dp),contentPadding=PaddingValues(bottom=85.dp)){
-            items(filtered,key={it.id}){c->
-                VaultRow(c,repo){onOpen(c)}
-                if(query.isNotBlank()) {
-                    val snippet=c.fields.firstOrNull{it.value.contains(query,true)}?.let{"${it.name}: ${it.value}"}
-                        ?:c.files.firstNotNullOfOrNull{f->
-                            val p=f.extractedText.indexOf(query,ignoreCase=true)
-                            if(p<0)null else f.extractedText.substring((p-25).coerceAtLeast(0),
-                                (p+query.length+55).coerceAtMost(f.extractedText.length))
-                        }
-                    if(snippet!=null)Text(snippet,color=VaultSky,style=MaterialTheme.typography.bodySmall,
+            items(hits,key={it.card.id}){hit->
+                VaultRow(hit.card,repo){onOpen(hit.card)}
+                hit.snippet?.let{value->
+                    Text(value,color=VaultSky,style=MaterialTheme.typography.bodySmall,
                         modifier=Modifier.padding(horizontal=8.dp))
                 }
             }
