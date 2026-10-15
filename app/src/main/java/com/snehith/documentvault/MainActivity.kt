@@ -10,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.biometric.BiometricPrompt
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.fragment.app.FragmentActivity
@@ -22,6 +23,7 @@ import java.io.File
 class MainActivity : FragmentActivity() {
     val incoming = mutableStateListOf<Uri>()
     val unlocked = mutableStateOf(true)
+    val loaded = mutableStateOf(false)
     lateinit var repo:VaultRepository
     lateinit var engine:DocumentEngine
     private var lastBackgroundAt=0L
@@ -50,14 +52,37 @@ class MainActivity : FragmentActivity() {
             isAppearanceLightNavigationBars=false
         }
         setPrivacyScreenEnabled(isPrivacyScreenEnabled())
-        repo=VaultRepository(applicationContext)
-        engine=DocumentEngine(applicationContext,repo)
-        unlocked.value=!repo.hasPin()
-        repo.cleanupPreviews()
-        if(savedInstanceState==null)receive(intent)
-        lifecycleScope.launch(Dispatchers.IO) { repo.sweepOrphanBlobs() }
-        ExpiryWorker.schedule(applicationContext)
-        setContent { DocumentVaultApp(this) }
+        setContent {
+            if(loaded.value) DocumentVaultApp(this)
+            else androidx.compose.material3.Surface {
+                androidx.compose.foundation.layout.Box(
+                    androidx.compose.ui.Modifier
+                        .fillMaxSize(),
+                    contentAlignment=androidx.compose.ui.Alignment.Center) {
+                    androidx.compose.material3.CircularProgressIndicator()
+                }
+            }
+        }
+        lifecycleScope.launch {
+            try {
+                val pair=withContext(Dispatchers.IO) {
+                    val loadedRepo=VaultRepository(applicationContext)
+                    val loadedEngine=DocumentEngine(applicationContext,loadedRepo)
+                    loadedRepo.cleanupPreviews()
+                    loadedRepo.sweepOrphanBlobs()
+                    loadedRepo to loadedEngine
+                }
+                repo=pair.first
+                engine=pair.second
+                unlocked.value=!repo.hasPin()
+                if(savedInstanceState==null)receive(intent)
+                ExpiryWorker.schedule(applicationContext)
+                loaded.value=true
+            }catch(e:Exception) {
+                Toast.makeText(this@MainActivity,
+                    "Unable to open vault: "+(e.message?:"Storage error"),Toast.LENGTH_LONG).show()
+            }
+        }
     }
     override fun onNewIntent(intent:Intent) {
         super.onNewIntent(intent)
