@@ -39,7 +39,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import java.util.concurrent.TimeUnit
 
-data class ExtractedDocument(val text:String, val fields:List<DataField>, val method:String, val pageCount:Int)
+data class ExtractedDocument(val text:String,val fields:List<DataField>,
+    val method:String,val pageCount:Int,val document:SmartDocument?=null)
 
 // Single PDF renderer per viewer session, with a small 2-page bitmap cache.
 // Opening the renderer on every page turn was noticeably slow on low-end phones.
@@ -175,7 +176,9 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
             } else {
                 throw IOException("This file format has no built-in text extractor")
             }
-            ExtractedDocument(text,FieldSuggestions.parse(text),method,pages)
+            val structured=SmartDocuments.parse(text)
+            ExtractedDocument(text,structured?.fields?.takeIf{it.isNotEmpty()}
+                ?:FieldSuggestions.parse(text),method,pages,structured)
         } finally { /* original is retained in private storage */ }
     }
     fun scaledBitmap(file:File,largest:Int):Bitmap=ImageDecode.decode(file,largest)
