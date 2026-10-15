@@ -309,7 +309,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         if(!activity.unlocked.value) {
             UnlockScreen(onPin={pin->
                 if(repo.checkPin(pin)){activity.unlocked.value=true;true}else false
-            },onBiometric={activity.authenticate({activity.unlocked.value=true},{activity.notify(it)})})
+            },waitSeconds={repo.pinWaitSeconds()},
+                onBiometric={activity.authenticate({activity.unlocked.value=true},{activity.notify(it)})})
         } else {
             androidx.activity.compose.BackHandler(enabled=!regular||route!="home"){goBack()}
             Scaffold(
@@ -537,7 +538,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     }
 }
 
-@Composable fun UnlockScreen(onPin:(String)->Boolean,onBiometric:()->Unit) {
+@Composable fun UnlockScreen(onPin:(String)->Boolean,waitSeconds:()->Long,onBiometric:()->Unit) {
     var pin by remember{mutableStateOf("")}
     var invalid by remember{mutableStateOf(false)}
     Column(Modifier.fillMaxSize().padding(28.dp),verticalArrangement=Arrangement.Center,horizontalAlignment=Alignment.CenterHorizontally) {
@@ -548,7 +549,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         Spacer(Modifier.height(30.dp))
         OutlinedTextField(pin,{pin=it;invalid=false},label={Text("Vault PIN")},visualTransformation=PasswordVisualTransformation(),
             singleLine=true,modifier=Modifier.fillMaxWidth())
-        if(invalid)Text("Incorrect PIN",color=MaterialTheme.colorScheme.error)
+        if(invalid)Text(if(waitSeconds()>0)"Too many attempts. Try again in "+waitSeconds()+" seconds."
+            else "Incorrect PIN",color=MaterialTheme.colorScheme.error)
         Spacer(Modifier.height(12.dp))
         Button(onClick={if(!onPin(pin))invalid=true},modifier=Modifier.fillMaxWidth(),enabled=pin.isNotBlank()){Text("Unlock")}
         OutlinedButton(onClick=onBiometric,modifier=Modifier.fillMaxWidth()) {
