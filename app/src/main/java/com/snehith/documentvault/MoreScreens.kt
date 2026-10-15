@@ -234,13 +234,13 @@ import java.util.UUID
     var languageOpen by remember{mutableStateOf(false)}
     var days by remember{mutableStateOf("30")}
     LazyColumn(contentPadding=PaddingValues(16.dp,12.dp,16.dp,90.dp),verticalArrangement=Arrangement.spacedBy(13.dp)) {
-        item{Heading("Vault Settings","Offline-first, encrypted storage and local device processing")}
+        item{Heading("Vault Settings","Offline-first, plain local files and on-device processing")}
         item{
             SectionSettings("Organization")
             SettingAction("Family profiles","Create and manage people",Icons.Outlined.People,onProfiles)
             SettingAction("Card templates","Reusable information fields",Icons.Outlined.ViewAgenda,onTemplates)
-            SettingAction("Encrypted backup & restore","Export a portable password-protected file",Icons.Outlined.Backup,onBackups)
-            SettingAction("Recover previous imports","Find encrypted attachments from failed older saves",Icons.Outlined.Restore,onRecovery)
+            SettingAction("Backup & restore","Export an ordinary, unencrypted ZIP",Icons.Outlined.Backup,onBackups)
+            SettingAction("Recover previous imports","Find unattached files from failed saves in this installation",Icons.Outlined.Restore,onRecovery)
         }
         item {
             SectionSettings("Offline OCR")
@@ -270,7 +270,7 @@ import java.util.UUID
         }
         item{
             SectionSettings("App lock")
-            Text(if(hasPin)"A PIN is configured. Device biometrics can unlock the app." else "Vault files are encrypted. Set a PIN for access control.",
+            Text(if(hasPin)"App access PIN enabled. Documents are not encrypted." else "Files are stored unencrypted in private app storage. You can add an optional app-access PIN.",
                 style=MaterialTheme.typography.bodySmall)
             if(hasPin)OutlinedTextField(old,{old=it},label={Text("Current PIN")},modifier=Modifier.fillMaxWidth(),
                 visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation())
@@ -289,7 +289,7 @@ import java.util.UUID
             }
         }
         item {
-            Text("No account or server required. Documents remain encrypted in app-private storage. Sharing and export temporarily decrypt only the files you choose.",
+            Text("No account or server required. Documents and ZIP backups are not encrypted. Files remain in app-private storage, and sharing grants access only to the selected files.",
                 style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -308,28 +308,24 @@ import java.util.UUID
     Spacer(Modifier.height(8.dp))
 }
 @Composable fun BackupScreen(onBackup:(String)->Unit,onRestore:(String)->Unit) {
-    var password by remember{mutableStateOf("")}
-    var confirm by remember{mutableStateOf("")}
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp),verticalArrangement=Arrangement.spacedBy(15.dp)) {
-        Heading("Encrypted Backup","Portable archive for transferring or recovering the entire vault")
-        AccentChip("AES-256-GCM + PBKDF2 password protection",Color(0xFF0F9488))
-        Text("Backup contains cards, custom templates, family profiles, attachments and saved OCR text. The original documents remain private.",style=MaterialTheme.typography.bodyMedium)
-        OutlinedTextField(password,{password=it},label={Text("Backup password (8+ characters)")},
-            modifier=Modifier.fillMaxWidth(),visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation())
-        OutlinedTextField(confirm,{confirm=it},label={Text("Confirm backup password")},modifier=Modifier.fillMaxWidth(),
-            visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation())
-        Button(onClick={onBackup(password)},modifier=Modifier.fillMaxWidth(),enabled=password.length>=8&&password==confirm) {
-            Icon(Icons.Outlined.FileUpload,null);Text(" Export protected backup")
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp),
+        verticalArrangement=Arrangement.spacedBy(15.dp)) {
+        Heading("Backup & Restore","Export your cards and documents as a standard ZIP file")
+        Text("Backups are NOT encrypted. Anyone with the ZIP can read its documents and personal details.",
+            color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)
+        Text("The ZIP includes card fields, OCR text, templates, family profiles and original attachments.",
+            style=MaterialTheme.typography.bodyMedium)
+        Button(onClick={onBackup("")},modifier=Modifier.fillMaxWidth()) {
+            Icon(Icons.Outlined.FileUpload,null);Text(" Export ZIP backup")
         }
         HorizontalDivider()
-        Text("Restoring replaces the current vault. Create a backup first. Losing the backup password means the archive cannot be decrypted.",
+        Text("Restoring replaces the card list. Create a ZIP backup first. Older encrypted .dvault backups are not supported in this plaintext test version.",
             style=MaterialTheme.typography.bodyMedium)
-        OutlinedButton(onClick={onRestore(password)},modifier=Modifier.fillMaxWidth(),enabled=password.isNotBlank()){
-            Icon(Icons.Outlined.Restore,null);Text(" Restore from backup")
+        OutlinedButton(onClick={onRestore("")},modifier=Modifier.fillMaxWidth()) {
+            Icon(Icons.Outlined.Restore,null);Text(" Restore ZIP backup")
         }
     }
 }
-
 @Composable fun RecoveryScreen(files:List<VaultFile>,recoveryError:String?,onRecover:(VaultFile,String)->Unit,onBackup:()->Unit) {
     var name by remember{mutableStateOf("")}
     var selected by remember{mutableStateOf<VaultFile?>(null)}
@@ -339,7 +335,7 @@ import java.util.UUID
             Text(recoveryError,color=MaterialTheme.colorScheme.error)
             OutlinedButton(onClick=onBackup){Text("Open Backup & Restore")}
         }
-        item{Text(files.size.toString()+" unattached encrypted files found. These are never automatically deleted. The original filename may not be recoverable from older app versions.",
+        item{Text(files.size.toString()+" unattached files found. These are not automatically deleted. Recovery only applies to this installation.",
             style=MaterialTheme.typography.bodyMedium)}
         items(files){file->
             ElevatedCard {
