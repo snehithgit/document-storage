@@ -58,7 +58,7 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
     Column(Modifier.fillMaxSize().background(dNavy)){
         Column(Modifier.padding(16.dp)){
             Text("Full Details",color=MaterialTheme.colorScheme.onSurface,style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
-            Text(card.title+" · "+fields.size+" fields",color=dMuted)
+            Text(VaultNames.title(card.title)+" · "+VaultCounts.format(fields.size,"field"),color=dMuted)
             Spacer(Modifier.height(11.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(7.dp)){
                 listOf("All","Selected","OCR","Custom").forEach{t->
