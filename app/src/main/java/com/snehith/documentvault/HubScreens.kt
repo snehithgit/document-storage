@@ -56,7 +56,8 @@ private fun categoryIcon(category:String):ImageVector=when {
 }
 @Composable fun HubHome(cards:List<VaultCard>,repo:VaultRepository,profiles:List<VaultProfile>,profile:String,
     onProfile:(String)->Unit,onOpen:(VaultCard)->Unit,onSearch:()->Unit,onScan:()->Unit,
-    onImport:()->Unit,onNew:()->Unit,onPdf:()->Unit,onExpiries:()->Unit){
+    onImport:()->Unit,onNew:()->Unit,onPdf:()->Unit,onExpiries:()->Unit,
+    onCategory:(String)->Unit){
     val shown=remember(cards,profile){cards.filter{profile=="all"||it.profile==profile}}
     val expiring=shown.count{vaultValidity(it).first in listOf("Expired","Expiring","Check expiry")}
     val totalBytes=shown.sumOf{c->c.files.sumOf{it.bytes}}
@@ -121,7 +122,7 @@ private fun categoryIcon(category:String):ImageVector=when {
                     categories.chunked(2).forEach{row->
                         Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){
                             row.forEach{(title,list)->
-                                HubCard(Modifier.weight(1f),onClick={onOpen(list.first())}){
+                                HubCard(Modifier.weight(1f),onClick={onCategory(title)}){
                                     HubIcon(categoryIcon(title))
                                     Text(title,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
                                     Text(VaultCounts.format(list.size,"item"),color=MaterialTheme.colorScheme.onSurfaceVariant,
