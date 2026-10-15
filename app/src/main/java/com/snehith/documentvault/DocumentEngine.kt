@@ -34,6 +34,37 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 data class ExtractedDocument(val text:String, val fields:List<DataField>, val method:String, val pageCount:Int)
+
+// Single PDF renderer per viewer session, with a small 2-page bitmap cache.
+// Opening the renderer on every page turn was noticeably slow on low-end phones.
+class PdfPageSession(private val source:File):Closeable {
+    private val descriptor=ParcelFileDescriptor.open(source,ParcelFileDescriptor.MODE_READ_ONLY)
+    private val renderer=try{PdfRenderer(descriptor)}catch(e:Exception){descriptor.close();throw e}
+    val pageCount:Int get()=renderer.pageCount
+    private val cached=object:LinkedHashMap<Int,Bitmap>(3,0.75f,true){
+        override fun removeEldestEntry(eldest:MutableMap.MutableEntry<Int,Bitmap>?):Boolean=size>2
+    }
+    @Synchronized fun render(index:Int,maxWidth:Int=1050):Bitmap {
+        cached[index]?.let{return it}
+        renderer.openPage(index.coerceIn(0,renderer.pageCount-1)).use{page->
+            val scale=(maxWidth.toFloat()/page.width).coerceIn(0.5f,2.25f)
+            val w=(page.width*scale).toInt().coerceIn(1,1500)
+            val h=(page.height*scale).toInt().coerceIn(1,3200)
+            val image=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888)
+            try {
+                image.eraseColor(android.graphics.Color.WHITE)
+                page.render(image,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                cached[index]=image
+                return image
+            }catch(e:Exception){image.recycle();throw e}
+        }
+    }
+    @Synchronized override fun close(){
+        cached.clear()
+        renderer.close()
+        descriptor.close()
+    }
+}
 class DocumentEngine(private val context:Context, private val repo:VaultRepository) {
     init {PDFBoxResourceLoader.init(context)}
     val mlScripts=listOf("Latin","Devanagari (Hindi)","Chinese","Japanese","Korean")
@@ -75,7 +106,7 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
         finally {client.close()}
     }
     suspend fun extract(file:VaultFile,script:String="Latin",onProgress:((Int,Int)->Unit)?=null):ExtractedDocument=withContext(Dispatchers.IO) {
-        val temp=repo.openDecrypted(file)
+        val temp=repo.documentFile(file)
         try {
             val mime=file.mime.lowercase()
             val ext=file.name.substringAfterLast('.', "").lowercase()
@@ -127,7 +158,7 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
                 throw IOException("This file format has no built-in text extractor")
             }
             ExtractedDocument(text,FieldSuggestions.parse(text),method,pages)
-        } finally {temp.delete()}
+        } finally { /* original is retained in private storage */ }
     }
     fun scaledBitmap(file:File,largest:Int):Bitmap {
         val options=BitmapFactory.Options().apply{inJustDecodeBounds=true}
@@ -188,7 +219,7 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
             PDDocument().use{out ->
                 files.forEach{f ->
                     require(f.name.endsWith(".pdf",true)||f.mime=="application/pdf"){"All inputs must be PDFs"}
-                    val plain=repo.openDecrypted(f);temps.add(plain)
+                    val plain=repo.documentFile(f);temps.add(plain)
                     val doc=PDDocument.load(plain)
                     sources.add(doc)
                     for(page in doc.pages)out.importPage(page)
@@ -197,10 +228,10 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
                 // have been serialized to the merged output.
                 context.contentResolver.openOutputStream(target)!!.use{out.save(it)}
             }
-        }finally{sources.forEach{try{it.close()}catch(_:Exception){}};temps.forEach{it.delete()}}
+        }finally{sources.forEach{try{it.close()}catch(_:Exception){}};/* originals retained */}
     }
     fun pages(file:VaultFile,start:Int,end:Int,target:Uri) {
-        val plain=repo.openDecrypted(file)
+        val plain=repo.documentFile(file)
         try {
             PDDocument.load(plain).use{source ->
                 val from=(start-1).coerceAtLeast(0);val to=end.coerceAtMost(source.numberOfPages)
@@ -210,21 +241,21 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
                     context.contentResolver.openOutputStream(target)!!.use{out.save(it)}
                 }
             }
-        }finally{plain.delete()}
+        }finally{ /* original retained */ }
     }
     fun rotate(file:VaultFile,angle:Int,target:Uri) {
-        val plain=repo.openDecrypted(file)
+        val plain=repo.documentFile(file)
         try{PDDocument.load(plain).use{doc ->
             for(page in doc.pages)page.rotation=(page.rotation+angle+360)%360
             context.contentResolver.openOutputStream(target)!!.use{doc.save(it)}
-        }}finally{plain.delete()}
+        }}finally{ /* original retained */ }
     }
     fun imagesToPdf(files:List<VaultFile>,target:Uri,maxWidth:Int=1800) {
         val doc=PdfDocument()
         val temps=mutableListOf<File>()
         try {
             files.forEachIndexed{index,file ->
-                val plain=repo.openDecrypted(file);temps.add(plain)
+                val plain=repo.documentFile(file);temps.add(plain)
                 val image=scaledBitmap(plain,maxWidth)
                 try{
                     val info=PdfDocument.PageInfo.Builder(image.width,image.height,index+1).create()
@@ -235,11 +266,11 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
                 }finally{image.recycle()}
             }
             context.contentResolver.openOutputStream(target)!!.use{doc.writeTo(it)}
-        }finally{doc.close();temps.forEach{it.delete()}}
+        }finally{doc.close();/* originals retained */}
     }
     fun searchableCopy(file:VaultFile,target:Uri) {
         require(file.name.endsWith(".pdf",true))
-        val plain=repo.openDecrypted(file)
+        val plain=repo.documentFile(file)
         try{PDDocument.load(plain).use{doc ->
             // Retain the original pages. Append invisible searchable Latin text,
             // not a replacement raster image; OCR text is user-reviewable.
@@ -256,6 +287,6 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
                 }
             }
             context.contentResolver.openOutputStream(target)!!.use{doc.save(it)}
-        }}finally{plain.delete()}
+        }}finally{ /* original retained */ }
     }
 }

@@ -26,44 +26,54 @@ import java.io.File
 import java.util.UUID
 
 @Composable fun DocumentViewerScreen(file:VaultFile,repo:VaultRepository,engine:DocumentEngine,onShare:()->Unit,onOcr:()->Unit) {
+    val pdf=file.name.endsWith(".pdf",true)||file.mime=="application/pdf"
     var page by remember(file.id){mutableIntStateOf(0)}
-    var pageCount by remember(file.id){mutableIntStateOf(1)}
+    var pages by remember(file.id){mutableIntStateOf(1)}
     var bitmap by remember(file.id){mutableStateOf<Bitmap?>(null)}
+    var pdfSession by remember(file.id){mutableStateOf<PdfPageSession?>(null)}
     var previewText by remember(file.id){mutableStateOf(file.extractedText)}
-    var showText by remember(file.id){mutableStateOf(!file.name.endsWith(".pdf",true)&&!file.mime.startsWith("image/"))}
+    var showText by remember(file.id){mutableStateOf(!pdf&&!file.mime.startsWith("image/"))}
     var error by remember(file.id){mutableStateOf("")}
     var zoom by remember(file.id){mutableFloatStateOf(1f)}
     var panX by remember(file.id){mutableFloatStateOf(0f)}
     var panY by remember(file.id){mutableFloatStateOf(0f)}
-    var plaintext by remember(file.id){mutableStateOf<File?>(null)}
+    var loading by remember(file.id){mutableStateOf(false)}
+
     DisposableEffect(file.id) {
-        onDispose { plaintext?.delete() }
+        onDispose {pdfSession?.close()}
     }
     LaunchedEffect(file.id) {
-        try {
-            // Decrypt once per viewer session, not on every page turn.
-            plaintext=withContext(Dispatchers.IO){repo.openDecrypted(file)}
-        }catch(e:Exception){error=e.message?:"Cannot open document"}
+        if(pdf)try{
+            loading=true
+            val session=withContext(Dispatchers.IO){PdfPageSession(repo.documentFile(file))}
+            pdfSession=session
+            pages=session.pageCount
+        }catch(e:Exception){error=e.message?:"Cannot read PDF"}
+        finally{loading=false}
     }
-    LaunchedEffect(file.id,page,showText,plaintext) {
-        val temp=plaintext ?:return@LaunchedEffect
-        if(showText) {
+    LaunchedEffect(file.id,page,showText,pdfSession) {
+        if(showText){
             if(previewText.isBlank()) {
-                try {previewText=withContext(Dispatchers.IO){engine.extract(file).text}}
+                try{loading=true;previewText=withContext(Dispatchers.IO){engine.extract(file).text}}
                 catch(e:Exception){error=e.message?:"Text extraction failed"}
+                finally{loading=false}
             }
             return@LaunchedEffect
         }
-        bitmap=null
-        try {
-            val result=withContext(Dispatchers.IO) {
-                if(file.name.endsWith(".pdf",true)||file.mime=="application/pdf")engine.pdfPageImage(temp,page,1150)
-                else engine.scaledBitmap(temp,1800) to 1
+        if(pdf && pdfSession==null)return@LaunchedEffect
+        try{
+            loading=true
+            val rendered=withContext(Dispatchers.IO){
+                if(pdf)pdfSession!!.render(page)
+                else engine.scaledBitmap(repo.documentFile(file),1550)
             }
-            bitmap=result.first;pageCount=result.second;error=""
-        }catch(e:Exception){error=e.message?:"Unsupported preview"}
+            bitmap=rendered
+            error=""
+        }catch(e:Exception){error=e.message?:"Unable to preview document"}
+        finally{loading=false}
     }
-    Column(Modifier.fillMaxSize().padding(12.dp),verticalArrangement=Arrangement.spacedBy(9.dp)) {
+
+    Column(Modifier.fillMaxSize().padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         Text(file.name,fontWeight=FontWeight.SemiBold,style=MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement=Arrangement.spacedBy(6.dp),verticalAlignment=Alignment.CenterVertically) {
             FilterChip(selected=!showText,onClick={showText=false},label={Text("Pages")})
@@ -72,20 +82,22 @@ import java.util.UUID
             IconButton(onClick=onShare){Icon(Icons.Outlined.Share,"Share")}
         }
         if(error.isNotBlank())Text(error,color=MaterialTheme.colorScheme.error)
-        if(showText) {
-            Surface(modifier=Modifier.weight(1f).fillMaxWidth(),shape=RoundedCornerShape(14.dp),
+        if(showText){
+            Surface(Modifier.weight(1f).fillMaxWidth(),shape=RoundedCornerShape(14.dp),
                 color=MaterialTheme.colorScheme.surfaceContainerLow) {
                 Column(Modifier.verticalScroll(rememberScrollState()).padding(14.dp)) {
+                    if(loading)LinearProgressIndicator(Modifier.fillMaxWidth())
                     if(previewText.isBlank())Text("No selectable text. Run OCR to extract it.")
-                    else SelectionContainer {Text(previewText)}
+                    else SelectionContainer{Text(previewText)}
                 }
             }
-        }else{
+        }else {
             Surface(modifier=Modifier.weight(1f).fillMaxWidth(),shape=RoundedCornerShape(14.dp),
                 color=MaterialTheme.colorScheme.surfaceContainerLow) {
                 Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) {
-                    if(bitmap!=null) {
-                        Image(bitmap!!.asImageBitmap(),contentDescription="Document page",
+                    val image=bitmap
+                    if(image!=null){
+                        Image(image.asImageBitmap(),contentDescription="Document page",
                             modifier=Modifier.fillMaxSize()
                                 .pointerInput(file.id,page){detectTransformGestures{_,move,factor,_->
                                     zoom=(zoom*factor).coerceIn(1f,5f)
@@ -94,14 +106,16 @@ import java.util.UUID
                                 }}
                                 .graphicsLayer(scaleX=zoom,scaleY=zoom,translationX=panX,translationY=panY),
                             contentScale=androidx.compose.ui.layout.ContentScale.Fit)
-                    }else CircularProgressIndicator()
+                    }
+                    if(loading||image==null)CircularProgressIndicator()
                 }
             }
-            if(file.name.endsWith(".pdf",true)||file.mime=="application/pdf"){
-                Row(modifier=Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
+            if(pdf){
+                Row(modifier=Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,
+                    horizontalArrangement=Arrangement.SpaceBetween){
                     OutlinedButton(onClick={page=(page-1).coerceAtLeast(0);zoom=1f;panX=0f;panY=0f},enabled=page>0){Text("Previous")}
-                    Text((page+1).toString()+" / "+pageCount)
-                    OutlinedButton(onClick={page=(page+1).coerceAtMost(pageCount-1);zoom=1f;panX=0f;panY=0f},enabled=page<pageCount-1){Text("Next")}
+                    Text((page+1).toString()+" / "+pages)
+                    OutlinedButton(onClick={page=(page+1).coerceAtMost(pages-1);zoom=1f;panX=0f;panY=0f},enabled=page<pages-1){Text("Next")}
                 }
             }else Text("Pinch to zoom and drag to pan.",style=MaterialTheme.typography.labelSmall)
         }
@@ -220,13 +234,13 @@ import java.util.UUID
     var languageOpen by remember{mutableStateOf(false)}
     var days by remember{mutableStateOf("30")}
     LazyColumn(contentPadding=PaddingValues(16.dp,12.dp,16.dp,90.dp),verticalArrangement=Arrangement.spacedBy(13.dp)) {
-        item{Heading("Vault Settings","Offline-first, encrypted storage and local device processing")}
+        item{Heading("Vault Settings","Offline-first, plain local files and on-device processing")}
         item{
             SectionSettings("Organization")
             SettingAction("Family profiles","Create and manage people",Icons.Outlined.People,onProfiles)
             SettingAction("Card templates","Reusable information fields",Icons.Outlined.ViewAgenda,onTemplates)
-            SettingAction("Encrypted backup & restore","Export a portable password-protected file",Icons.Outlined.Backup,onBackups)
-            SettingAction("Recover previous imports","Find encrypted attachments from failed older saves",Icons.Outlined.Restore,onRecovery)
+            SettingAction("Backup & restore","Export an ordinary, unencrypted ZIP",Icons.Outlined.Backup,onBackups)
+            SettingAction("Recover previous imports","Find unattached files from failed saves in this installation",Icons.Outlined.Restore,onRecovery)
         }
         item {
             SectionSettings("Offline OCR")
@@ -256,7 +270,7 @@ import java.util.UUID
         }
         item{
             SectionSettings("App lock")
-            Text(if(hasPin)"A PIN is configured. Device biometrics can unlock the app." else "Vault files are encrypted. Set a PIN for access control.",
+            Text(if(hasPin)"App access PIN enabled. Documents are not encrypted." else "Files are stored unencrypted in private app storage. You can add an optional app-access PIN.",
                 style=MaterialTheme.typography.bodySmall)
             if(hasPin)OutlinedTextField(old,{old=it},label={Text("Current PIN")},modifier=Modifier.fillMaxWidth(),
                 visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation())
@@ -275,7 +289,7 @@ import java.util.UUID
             }
         }
         item {
-            Text("No account or server required. Documents remain encrypted in app-private storage. Sharing and export temporarily decrypt only the files you choose.",
+            Text("No account or server required. Documents and ZIP backups are not encrypted. Files remain in app-private storage, and sharing grants access only to the selected files.",
                 style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -294,28 +308,24 @@ import java.util.UUID
     Spacer(Modifier.height(8.dp))
 }
 @Composable fun BackupScreen(onBackup:(String)->Unit,onRestore:(String)->Unit) {
-    var password by remember{mutableStateOf("")}
-    var confirm by remember{mutableStateOf("")}
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp),verticalArrangement=Arrangement.spacedBy(15.dp)) {
-        Heading("Encrypted Backup","Portable archive for transferring or recovering the entire vault")
-        AccentChip("AES-256-GCM + PBKDF2 password protection",Color(0xFF0F9488))
-        Text("Backup contains cards, custom templates, family profiles, attachments and saved OCR text. The original documents remain private.",style=MaterialTheme.typography.bodyMedium)
-        OutlinedTextField(password,{password=it},label={Text("Backup password (8+ characters)")},
-            modifier=Modifier.fillMaxWidth(),visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation())
-        OutlinedTextField(confirm,{confirm=it},label={Text("Confirm backup password")},modifier=Modifier.fillMaxWidth(),
-            visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation())
-        Button(onClick={onBackup(password)},modifier=Modifier.fillMaxWidth(),enabled=password.length>=8&&password==confirm) {
-            Icon(Icons.Outlined.FileUpload,null);Text(" Export protected backup")
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp),
+        verticalArrangement=Arrangement.spacedBy(15.dp)) {
+        Heading("Backup & Restore","Export your cards and documents as a standard ZIP file")
+        Text("Backups are NOT encrypted. Anyone with the ZIP can read its documents and personal details.",
+            color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)
+        Text("The ZIP includes card fields, OCR text, templates, family profiles and original attachments.",
+            style=MaterialTheme.typography.bodyMedium)
+        Button(onClick={onBackup("")},modifier=Modifier.fillMaxWidth()) {
+            Icon(Icons.Outlined.FileUpload,null);Text(" Export ZIP backup")
         }
         HorizontalDivider()
-        Text("Restoring replaces the current vault. Create a backup first. Losing the backup password means the archive cannot be decrypted.",
+        Text("Restoring replaces the card list. Create a ZIP backup first. Older encrypted .dvault backups are not supported in this plaintext test version.",
             style=MaterialTheme.typography.bodyMedium)
-        OutlinedButton(onClick={onRestore(password)},modifier=Modifier.fillMaxWidth(),enabled=password.isNotBlank()){
-            Icon(Icons.Outlined.Restore,null);Text(" Restore from backup")
+        OutlinedButton(onClick={onRestore("")},modifier=Modifier.fillMaxWidth()) {
+            Icon(Icons.Outlined.Restore,null);Text(" Restore ZIP backup")
         }
     }
 }
-
 @Composable fun RecoveryScreen(files:List<VaultFile>,recoveryError:String?,onRecover:(VaultFile,String)->Unit,onBackup:()->Unit) {
     var name by remember{mutableStateOf("")}
     var selected by remember{mutableStateOf<VaultFile?>(null)}
@@ -325,7 +335,7 @@ import java.util.UUID
             Text(recoveryError,color=MaterialTheme.colorScheme.error)
             OutlinedButton(onClick=onBackup){Text("Open Backup & Restore")}
         }
-        item{Text(files.size.toString()+" unattached encrypted files found. These are never automatically deleted. The original filename may not be recoverable from older app versions.",
+        item{Text(files.size.toString()+" unattached files found. These are not automatically deleted. Recovery only applies to this installation.",
             style=MaterialTheme.typography.bodyMedium)}
         items(files){file->
             ElevatedCard {

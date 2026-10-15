@@ -1,67 +1,39 @@
-# Document Vault for Android
+# Document Vault – Fast Plaintext Edition v1.2
 
-Offline-first Android smart document cards and reusable information manager.
+A native Android (Kotlin + Jetpack Compose) offline document card manager.
 
-## Features
+## What changed in v1.2
 
-- **Material 3 card dashboard**: customizable fields, personal/family profiles, categories, tags, templates, search and copy-all.
-- **Receive/Share**: import PDFs, DOC/DOCX, TXT, images or scans with the Android file picker or the Share menu (including CamScanner). Export selected originals to WhatsApp, email and other apps.
-- **In-app reading**: page-by-page PDF, zoomable images, selectable extracted text for PDF/Office/text formats.
-- **On-device text extraction**: digital PDF text via PDFBox, DOCX XML, legacy DOC via Apache POI, plain text; scanned PDFs/images via bundled ML Kit OCR models for Latin, Devanagari, Chinese, Japanese and Korean.
-- **Offline extra languages**: install your own Tesseract `.traineddata` language file, e.g. `tel.traineddata` for Telugu, from Settings. Language data are not shipped by default.
-- **OCR review**: extraction suggestions require review and confirmation; saved OCR text is searchable.
-- **Documents and renewals**: multiple attachments per card, document expiry dates, renewal lineage, local reminders.
-- **PDF tools**: merge, page range export, rotate, images to PDF, PDF with text layer for reviewed Latin OCR.
-- **Secure storage**: encrypted original files and encrypted card database (Android Keystore AES-256-GCM), optional app PIN/biometric lock, encrypted password-backed portable archive.
-- **No backend**: all app data stays on device unless user intentionally shares/exports it.
+- **No file or database encryption:** attachments are stored verbatim in app-private storage; card records are stored as a plain JSON index.
+- **Instant sharing:** use Android's read-only FileProvider URI directly. No decrypt-and-copy job before opening WhatsApp or Android's share chooser; repeat taps are coalesced.
+- **Fast viewer:** no temporary decrypted copy; reuses an in-app PDF renderer with a two-page render cache. PDF page rendering remains proportional to page complexity.
+- **Fast import:** only copy and index the incoming file. Scanned document OCR remains available with a dedicated OCR button and is intentionally not performed automatically at import time.
+- **Unencrypted ZIP backup and restore:** standard ZIP archive including index.json and original files, with no password. Do not upload or share the backup publicly.
+- Plaintext edition has its own Android test package (`com.snehith.documentvault.fast`) to avoid modifying older encrypted test installations.
 
-## Building
+## Included features
 
-Go to **Actions > Android APK > Run workflow**, then download the `DocumentVault-debug-apk` artifact.
+Card grids, freeform fields, custom card templates, profiles, search and copy buttons, camera capture, incoming Android share, native PDF and image viewer, selectable text display, bundled offline ML Kit OCR scripts, optional externally supplied Tesseract traineddata language packs, manual OCR review and source text, expiry notifications, PDF merge/split/rotation/image-to-PDF, plain ZIP backups.
 
-The workflow runs `gradle :app:assembleDebug`. Debug APK is installable for testing; not signed for Play Store distribution.
+## Build
 
-## Important constraints
+GitHub Actions → **Android APK** workflow → run or open latest successful job → download `DocumentVault-debug-apk`. CI runs JVM unit tests before `assembleDebug`.
 
-- All PDF/image processing is local. ML Kit OCR models for its five bundled scripts are in the APK. Tesseract requires a separate trained language file to be added by the user.
-- PDF/DOC/DOCX viewer provides readable extracted text; for Office files it is not a full-fidelity word processor rendering.
-- The built-in camera capture is a starting point for scanned pages. Advanced automatic border detection/perspective correction is **not included yet**.
-- Encrypted local data may be unrecoverable after uninstall or hardware-key loss without a password-protected exported backup. Back up first.
-- Biometric/PIN is an app UI lock. File content is encrypted with Android Keystore; user PIN does not itself derive the file key.
-- Legacy DOC extraction depends on Apache POI and some unusual files may fail. Preserve originals.
-- Exporting a searchable PDF currently only embeds reviewed text in an invisible Latin text layer (no per-word coordinate alignment).
-- Android may not guarantee the exact execution time of background expiry checks; notifications require notification permission on recent versions.
-- This is a personal data utility, not a government-certified ID verification tool.
+Release builds support an optional stable signing setup from `VAULT_SIGNING_KEYSTORE_BASE64`, `VAULT_STORE_PASSWORD`, `VAULT_KEY_ALIAS` and `VAULT_KEY_PASSWORD` GitHub Actions secrets. Keep the signing key backed up outside GitHub.
 
-## Privacy
+## Privacy and migration
 
-No internet permission, no cloud account, and no analytics SDK. Sharing produces a temporary decrypted file in app cache for Android's share sheet; cache is periodically cleaned. App screenshots are protected using FLAG_SECURE.
+**Plaintext means exactly that.** An optional PIN/biometric app lock controls the app UI only; it is not encryption, and rooted devices or backups with filesystem access may read these files. Android still keeps app-private files inaccessible to ordinary other apps, and the FileProvider exposes only an intentionally shared document.
 
+The v1.2 debug package **does not open or migrate data from the earlier encrypted debug/audit packages**, because Android isolates each app's private data. Preserve the earlier app if you want to keep its sample documents. An earlier password-protected `.dvault` backup is not supported by this plaintext ZIP restore path. You can separately share/export selected files from the old app and import them here.
 
+The app's camera capture currently uses the Android camera intent, not advanced automatic perspective correction. DOC/DOCX are read as extracted text, not full-fidelity rendered Office pages. OCR recognition quality varies with resolution and language pack. Files and PDF page rendering can still take time on very large or complex documents; there are no measured hardware latency guarantees.
 
-## Repeatable signing for safe updates
+## Android file lifecycle
 
-GitHub Actions always builds an **isolated test app** using package `com.snehith.documentvault.debug`.
-For a non-test app that updates safely without uninstalling, create a private signing keystore once and store these four GitHub Actions repository secrets:
+Import: SAF content URI → one copy into `files/blobs/<uuid>.dat` → SHA-256 duplicate check → atomic JSON index write.
+View: direct local file from `files/blobs`; PDF renderer created once per active viewer.
+Share: `FileProvider` URI for original file with the original display name; temporary read permission.
+Backup: regular ZIP with `index.json` and `blobs/<uuid>`.
 
-- `VAULT_SIGNING_KEYSTORE_BASE64`: base64-encoded keystore file (one line, no line breaks).
-- `VAULT_STORE_PASSWORD`: keystore password.
-- `VAULT_KEY_ALIAS`: key alias.
-- `VAULT_KEY_PASSWORD`: key password.
-
-Example using Java's `keytool` on your trusted machine:
-
-```bash
-keytool -genkeypair -keystore document-vault.jks -alias vault-release -keyalg RSA -keysize 3072 -validity 10000
-base64 -w0 document-vault.jks
-```
-
-Put the resulting single-line base64 string in GitHub Settings > Secrets and variables > Actions.
-Never commit the keystore or passwords to source control. Keep an offline backup of the keystore and passwords.
-With all four secrets set, GitHub Actions publishes `DocumentVault-signed-release-apk` in addition to the debug artifact. Reuse this exact keystore for every future release. An APK cannot update an installed app with the same package name if the signing key changes.
-
-**Do not store irreplaceable personal documents in the test build.** The test build and future signed release are separate applications. When moving your data between them, use the password-protected vault Backup and Restore feature. Try backup/restore with non-sensitive sample files first.
-
-## Dependencies / licenses
-
-AndroidX / Jetpack Compose, Google ML Kit, Tesseract4Android, Apache PDFBox-Android, Apache POI. Check each dependency's license before redistribution.
+No network permission or sync service is intentionally declared by the application itself. Validate the final merged Android manifest in CI if you need strict assurance about dependency permissions.

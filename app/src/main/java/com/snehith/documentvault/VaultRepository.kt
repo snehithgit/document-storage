@@ -8,20 +8,10 @@ import androidx.compose.runtime.mutableStateListOf
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.*
-import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.SecureRandom
-import javax.crypto.Cipher
-import javax.crypto.CipherInputStream
-import javax.crypto.CipherOutputStream
-import javax.crypto.KeyGenerator
-import javax.crypto.SecretKey
 import javax.crypto.SecretKeyFactory
-import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
-import javax.crypto.spec.SecretKeySpec
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
 import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
@@ -80,19 +70,22 @@ object FieldSuggestions {
     }
 }
 
+
 class VaultRepository(private val context: Context) {
     val cards = mutableStateListOf<VaultCard>()
     val profiles = mutableStateListOf<VaultProfile>()
     val customTemplates = mutableStateListOf<CardTemplate>()
-    private val data = File(context.filesDir,"vault.state")
-    private val blobDir = File(context.filesDir,"blobs").apply{mkdirs()}
-    private val random = SecureRandom()
+    private val data = File(context.filesDir,"vault.json")
+    private val blobDir = File(context.filesDir,"blobs").apply { mkdirs() }
     private val prefs = context.getSharedPreferences("vault_lock",Context.MODE_PRIVATE)
+    private val random=SecureRandom()
     var recoveryError: String? = null
         private set
     private fun uid() = UUID.randomUUID().toString()
 
     init { load() }
+
+    // Optional UI access lock. File contents and backups are NOT encrypted.
     fun hasPin() = prefs.contains("pinHash")
     fun setPin(pin:String,currentPin:String?=null) {
         require(pin.length>=4)
@@ -103,78 +96,56 @@ class VaultRepository(private val context: Context) {
     }
     fun clearPin() { prefs.edit().remove("pinSalt").remove("pinHash").apply() }
     fun checkPin(pin:String):Boolean {
-        if(!hasPin()) return true
-        val salt=android.util.Base64.decode(prefs.getString("pinSalt",""),2)
-        val expected=android.util.Base64.decode(prefs.getString("pinHash",""),2)
-        return MessageDigest.isEqual(expected,pinHash(pin,salt))
+        if(!hasPin())return true
+        return try {
+            val salt=android.util.Base64.decode(prefs.getString("pinSalt",""),2)
+            val expected=android.util.Base64.decode(prefs.getString("pinHash",""),2)
+            MessageDigest.isEqual(expected,pinHash(pin,salt))
+        }catch(_:Exception){false}
     }
-    private fun pinHash(pin:String,salt:ByteArray):ByteArray {
-        val spec=PBEKeySpec(pin.toCharArray(),salt,150000,256)
-        return SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+    private fun pinHash(pin:String,salt:ByteArray):ByteArray =
+        SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+            .generateSecret(PBEKeySpec(pin.toCharArray(),salt,150000,256)).encoded
+
+    private fun blob(id:String) = File(blobDir,id+".dat")
+    private fun meta(id:String) = File(blobDir,id+".meta")
+    fun documentFile(file:VaultFile):File = blob(file.id).also{
+        if(!it.isFile)throw FileNotFoundException("Attachment missing: "+file.name)
     }
-    private fun key():SecretKey {
-        val ks=KeyStore.getInstance("AndroidKeyStore").apply{load(null)}
-        (ks.getKey("vault-aes-v1",null) as? SecretKey)?.let{return it}
-        val gen=KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES,"AndroidKeyStore")
-        gen.init(KeyGenParameterSpec.Builder("vault-aes-v1",KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
-            .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-            .setKeySize(256).build())
-        return gen.generateKey()
-    }
-    private fun cipher(mode:Int, iv:ByteArray? = null):Cipher =
-        Cipher.getInstance("AES/GCM/NoPadding").apply {
-            if(iv==null) init(mode,key()) else init(mode,key(),GCMParameterSpec(128,iv))
-        }
-    private fun encrypt(input:InputStream, output:OutputStream) {
-        val enc=cipher(Cipher.ENCRYPT_MODE)
-        output.write(enc.iv)
-        CipherOutputStream(output,enc).use { sealed -> input.copyTo(sealed, 65536) }
-    }
-    private fun decrypt(input:InputStream, output:OutputStream) {
-        val iv=ByteArray(12)
-        if(input.read(iv)!=12) throw IOException("Invalid encrypted vault data")
-        CipherInputStream(input,cipher(Cipher.DECRYPT_MODE,iv)).use{sealed->sealed.copyTo(output,65536)}
-    }
-    fun load() {
-        cards.clear(); profiles.clear(); customTemplates.clear()
-        recoveryError = null
-        // The original v1.0 app could write a valid encrypted temporary index and
-        // then crash before rename because it closed its FD before fsync.
-        // Read the valid temporary index when the primary index is unavailable.
-        val candidateFiles = listOf(data, File(context.filesDir,"vault.state.tmp")).filter { it.exists() }.sortedByDescending { it.lastModified() }
-        var loadedFrom:File?=null
-        for (candidate in candidateFiles) {
+    fun hasDocument(file:VaultFile)=blob(file.id).isFile
+    fun removeOrphan(file:VaultFile){ blob(file.id).delete();meta(file.id).delete() }
+
+    @Synchronized fun load() {
+        cards.clear();profiles.clear();customTemplates.clear();recoveryError=null
+        val tmp=File(context.filesDir,"vault.json.tmp")
+        val candidates=listOf(data,tmp).filter { it.exists() }.sortedByDescending { it.lastModified() }
+        var accepted:File?=null
+        for (candidate in candidates) {
             try {
-                val bytes=ByteArrayOutputStream()
-                candidate.inputStream().use { decrypt(it,bytes) }
-                val root=JSONObject(bytes.toString("UTF-8"))
-                val newCards=mutableListOf<VaultCard>()
-                val newProfiles=mutableListOf<VaultProfile>()
-                val newTemplates=mutableListOf<CardTemplate>()
+                val root=JSONObject(candidate.readText(Charsets.UTF_8))
+                val loadedCards=mutableListOf<VaultCard>()
+                val loadedProfiles=mutableListOf<VaultProfile>()
+                val loadedTemplates=mutableListOf<CardTemplate>()
                 val c=root.optJSONArray("cards")?:JSONArray()
-                for(i in 0 until c.length()) newCards.add(readCard(c.getJSONObject(i)))
+                for(i in 0 until c.length())loadedCards.add(readCard(c.getJSONObject(i)))
                 val p=root.optJSONArray("profiles")?:JSONArray()
-                for(i in 0 until p.length()){val e=p.getJSONObject(i);newProfiles.add(VaultProfile(e.getString("id"),e.getString("name")))}
+                for(i in 0 until p.length()){
+                    val e=p.getJSONObject(i);loadedProfiles.add(VaultProfile(e.getString("id"),e.getString("name")))
+                }
                 val t=root.optJSONArray("templates")?:JSONArray()
                 for(i in 0 until t.length()){
                     val e=t.getJSONObject(i)
-                    newTemplates.add(CardTemplate(e.getString("id"),e.getString("name"),strings(e.optJSONArray("fields"))))
+                    loadedTemplates.add(CardTemplate(e.getString("id"),e.getString("name"),strings(e.optJSONArray("fields"))))
                 }
-                cards.addAll(newCards);profiles.addAll(newProfiles);customTemplates.addAll(newTemplates)
-                loadedFrom=candidate
-                break
-            }catch(_:Exception){ /* Try the other candidate; never delete either. */ }
+                cards.addAll(loadedCards);profiles.addAll(loadedProfiles);customTemplates.addAll(loadedTemplates)
+                accepted=candidate;break
+            }catch(_:Exception) { /* preserve all candidates for recovery */ }
         }
-        if(candidateFiles.isNotEmpty() && loadedFrom==null) {
-            recoveryError="Encrypted vault index could not be opened. Files are untouched. Restore a backup to recover the cards."
+        if(candidates.isNotEmpty() && accepted==null) {
+            recoveryError="The local vault index cannot be read. No documents were deleted."
         }
-        if(loadedFrom!=null && loadedFrom!=data) {
-            try {
-                if(data.exists())data.copyTo(File(context.filesDir,"vault.state.previous"),overwrite=true)
-                loadedFrom.copyTo(data,overwrite=true)
-            }catch(_:Exception){ /* Keep recoverable temporary file. */ }
-        }
-        if(profiles.none{it.id=="self"})profiles.add(0,VaultProfile("self","Me"))
+        if(accepted==tmp)try { tmp.copyTo(data,overwrite=true) }catch(_:Exception){}
+        if(profiles.none { it.id=="self" })profiles.add(0,VaultProfile("self","Me"))
     }
     private fun strings(a:JSONArray?):List<String> = (0 until (a?.length()?:0)).map{a!!.optString(it)}
     private fun readCard(o:JSONObject):VaultCard {
@@ -185,182 +156,162 @@ class VaultRepository(private val context: Context) {
             category=o.optString("category","Personal"),profile=o.optString("profile","self"),
             tags=o.optString("tags"),notes=o.optString("notes"),expiry=o.optString("expiry"),
             previousId=o.optString("previousId"),created=o.optLong("created",System.currentTimeMillis()),
-            fields=(0 until fields.length()).map { val f=fields.getJSONObject(it); DataField(f.optString("name"),f.optString("value"),f.optInt("page",-1),f.optString("source","manual")) },
-            files=(0 until files.length()).map{ val f=files.getJSONObject(it); VaultFile(f.getString("id"),f.optString("name"),f.optString("mime"),f.optLong("bytes"),f.optString("sha256"),f.optString("extractedText"),f.optString("ocrStatus","pending")) }
+            fields=(0 until fields.length()).map { val f=fields.getJSONObject(it);DataField(f.optString("name"),f.optString("value"),f.optInt("page",-1),f.optString("source","manual")) },
+            files=(0 until files.length()).map { val f=files.getJSONObject(it);VaultFile(f.getString("id"),f.optString("name"),f.optString("mime"),f.optLong("bytes"),f.optString("sha256"),f.optString("extractedText"),f.optString("ocrStatus","pending")) }
         )
     }
     private fun writeCard(c:VaultCard):JSONObject=JSONObject()
         .put("id",c.id).put("title",c.title).put("kind",c.kind).put("category",c.category)
         .put("profile",c.profile).put("tags",c.tags).put("notes",c.notes).put("expiry",c.expiry)
         .put("previousId",c.previousId).put("created",c.created)
-        .put("fields",JSONArray().apply { c.fields.forEach{put(JSONObject().put("name",it.name).put("value",it.value).put("page",it.page).put("source",it.source))} })
-        .put("files",JSONArray().apply { c.files.forEach{put(JSONObject().put("id",it.id).put("name",it.name).put("mime",it.mime).put("bytes",it.bytes).put("sha256",it.sha256).put("extractedText",it.extractedText).put("ocrStatus",it.ocrStatus))} })
-    private fun snapshot():String = JSONObject()
-        .put("cards",JSONArray().apply{cards.forEach{put(writeCard(it))}})
-        .put("profiles",JSONArray().apply{profiles.forEach{put(JSONObject().put("id",it.id).put("name",it.name))}})
-        .put("templates",JSONArray().apply{customTemplates.forEach{put(JSONObject().put("id",it.id).put("name",it.name).put("fields",JSONArray(it.fieldNames)))} })
+        .put("fields",JSONArray().apply { c.fields.forEach{ put(JSONObject().put("name",it.name).put("value",it.value).put("page",it.page).put("source",it.source)) } })
+        .put("files",JSONArray().apply { c.files.forEach{ put(JSONObject().put("id",it.id).put("name",it.name).put("mime",it.mime).put("bytes",it.bytes).put("sha256",it.sha256).put("extractedText",it.extractedText).put("ocrStatus",it.ocrStatus)) } })
+    private fun snapshot():String=JSONObject()
+        .put("cards",JSONArray().apply { cards.forEach{put(writeCard(it))} })
+        .put("profiles",JSONArray().apply { profiles.forEach{put(JSONObject().put("id",it.id).put("name",it.name))} })
+        .put("templates",JSONArray().apply { customTemplates.forEach{put(JSONObject().put("id",it.id).put("name",it.name).put("fields",JSONArray(it.fieldNames)))} })
         .toString()
 
     @Synchronized fun persist() {
-        check(recoveryError == null) { recoveryError ?: "Vault recovery required" }
-        val tmp=File(context.filesDir,"vault.state.tmp")
-        ByteArrayInputStream(snapshot().toByteArray(Charsets.UTF_8)).use { src ->
-            FileOutputStream(tmp).use { output ->
-                // CipherOutputStream.close() must not close the descriptor before fsync.
-                val nonClosing=object:FilterOutputStream(output) {
-                    override fun close() { flush() }
-                }
-                encrypt(src,nonClosing)
-                output.fd.sync()
-            }
+        check(recoveryError==null) { recoveryError ?: "Vault recovery required" }
+        val tmp=File(context.filesDir,"vault.json.tmp")
+        FileOutputStream(tmp).use { output ->
+            output.write(snapshot().toByteArray(Charsets.UTF_8))
+            output.fd.sync()
         }
-        if(!tmp.renameTo(data)) { tmp.copyTo(data,overwrite=true);tmp.delete() }
+        if(!tmp.renameTo(data))throw IOException("Unable to commit the vault index")
     }
     @Synchronized fun saveCard(card:VaultCard) {
-        val index=cards.indexOfFirst{it.id==card.id}
-        val old=if(index>=0)cards[index] else null
-        if(index<0) cards.add(0,card) else cards[index]=card
-        try { persist() }
-        catch(e:Exception) {
-            if(index<0)cards.removeAll{it.id==card.id} else if(old!=null) cards[index]=old
+        val i=cards.indexOfFirst{it.id==card.id}
+        val old=if(i<0)null else cards[i]
+        if(i<0)cards.add(0,card) else cards[i]=card
+        try{persist()}catch(e:Exception){
+            if(i<0)cards.removeAll{it.id==card.id}
+            else if(old!=null)cards[i]=old
             throw e
         }
     }
     @Synchronized fun deleteCard(card:VaultCard) {
         val previous=cards.toList()
         cards.removeAll{it.id==card.id}
-        try { persist() } catch(e:Exception) { cards.clear();cards.addAll(previous);throw e }
-        // Never delete file data until the new encrypted index is durable.
-        val stillUsed=cards.flatMap { it.files }.map{it.id}.toSet()
-        card.files.filter { it.id !in stillUsed }.forEach{f->blob(f.id).delete();meta(f.id).delete()}
+        try{persist()}catch(e:Exception){cards.clear();cards.addAll(previous);throw e}
+        val stillUsed=cards.flatMap{it.files}.map{it.id}.toSet()
+        card.files.filter { it.id !in stillUsed }.forEach {removeOrphan(it)}
     }
-    fun saveProfile(p:VaultProfile) {val i=profiles.indexOfFirst{it.id==p.id};if(i<0)profiles.add(p) else profiles[i]=p;persist()}
-    fun saveTemplate(t:CardTemplate){val i=customTemplates.indexOfFirst{it.id==t.id};if(i<0)customTemplates.add(t) else customTemplates[i]=t;persist()}
-    private fun blob(id:String)=File(blobDir,id+".dat")
-    private fun meta(id:String)=File(blobDir,id+".meta")
-    private fun writeMeta(file:VaultFile) {
-        val bytes=JSONObject().put("name",file.name).put("mime",file.mime).put("size",file.bytes)
-            .put("sha",file.sha256).toString().toByteArray(Charsets.UTF_8)
-        ByteArrayInputStream(bytes).use{src->FileOutputStream(meta(file.id)).use{out->encrypt(src,out)}}
+    @Synchronized fun saveProfile(p:VaultProfile){
+        val previous=profiles.toList()
+        val i=profiles.indexOfFirst{it.id==p.id}
+        if(i<0)profiles.add(p)else profiles[i]=p
+        try{persist()}catch(e:Exception){profiles.clear();profiles.addAll(previous);throw e}
     }
-    private fun readMeta(id:String):VaultFile? = try {
-        val file=meta(id)
-        if(!file.exists())null else {
-            val out=ByteArrayOutputStream()
-            file.inputStream().use{decrypt(it,out)}
-            val o=JSONObject(out.toString("UTF-8"))
-            VaultFile(id,o.getString("name"),o.getString("mime"),o.getLong("size"),o.getString("sha"),"", "Recovered attachment")
-        }
-    }catch(_:Exception){null}
-    fun isDuplicate(sha:String)=cards.any{c->c.files.any{it.sha256==sha}}
+    @Synchronized fun saveTemplate(t:CardTemplate){
+        val previous=customTemplates.toList()
+        val i=customTemplates.indexOfFirst{it.id==t.id}
+        if(i<0)customTemplates.add(t)else customTemplates[i]=t
+        try{persist()}catch(e:Exception){customTemplates.clear();customTemplates.addAll(previous);throw e}
+    }
+    fun isDuplicate(sha:String)=cards.any { c->c.files.any{it.sha256==sha} }
     fun importFile(uri:Uri):VaultFile {
-        require(uri.scheme=="content") { "Import only from Android's secure document provider" }
+        require(uri.scheme=="content"){"Import only from Android's file picker or share menu"}
         val name=filename(uri)
-        val mime=context.contentResolver.getType(uri) ?: when(name.substringAfterLast('.',"").lowercase()){
-            "pdf"->"application/pdf";"txt"->"text/plain";"docx"->"application/vnd.openxmlformats-officedocument.wordprocessingml.document";"doc"->"application/msword"
+        val mime=context.contentResolver.getType(uri) ?: when(name.substringAfterLast('.', "").lowercase()){
+            "pdf"->"application/pdf";"txt"->"text/plain"
+            "docx"->"application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            "doc"->"application/msword"
             "png"->"image/png";"jpg","jpeg"->"image/jpeg";else->"application/octet-stream"
         }
         val id=uid()
-        val dig=MessageDigest.getInstance("SHA-256")
+        val digest=MessageDigest.getInstance("SHA-256")
         var size=0L
         try {
-            context.contentResolver.openInputStream(uri)?.use { src ->
-                val input=object:FilterInputStream(src){
-                    override fun read():Int {val x=super.read();if(x>=0){dig.update(x.toByte());size++};return x}
-                    override fun read(b:ByteArray,off:Int,len:Int):Int {val n=super.read(b,off,len);if(n>0){dig.update(b,off,n);size+=n};return n}
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(blob(id)).use{output->
+                    val buffer=ByteArray(65536)
+                    while(true) {
+                        val n=input.read(buffer)
+                        if(n<0)break
+                        if(n==0)continue
+                        output.write(buffer,0,n);digest.update(buffer,0,n);size+=n
+                    }
+                    output.fd.sync()
                 }
-                FileOutputStream(blob(id)).use{encrypt(input,it)}
             } ?: throw IOException("Cannot read selected file")
-            val sha=dig.digest().joinToString(""){ "%02x".format(it) }
-            val stored=VaultFile(id,name,mime,size,sha)
-            try{writeMeta(stored)}catch(_:Exception){ /* File data is still safely stored. */ }
-            return stored
-        } catch(e:Exception){blob(id).delete();throw e}
+            val file=VaultFile(id,name,mime,size,digest.digest().joinToString(""){"%02x".format(it)})
+            val manifest=JSONObject().put("name",file.name).put("mime",file.mime)
+                .put("size",file.bytes).put("sha",file.sha256)
+            try{meta(id).writeText(manifest.toString())}catch(_:Exception) { /* preserve imported bytes */ }
+            return file
+        }catch(e:Exception){blob(id).delete();meta(id).delete();throw e}
     }
     private fun filename(uri:Uri):String {
         var name=""
-        context.contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use { cur->
-            if(cur.moveToFirst()) name=cur.getString(0) ?: ""
+        context.contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use{cursor->
+            if(cursor.moveToFirst())name=cursor.getString(0)?:""
         }
-        return (name.ifBlank{uri.lastPathSegment?: "document"}).replace(Regex("[\\r\\n\\u0000-\\u001f/]"),"_").take(150)
+        return name.ifBlank{uri.lastPathSegment?:"document"}
+            .replace(Regex("[\\r\\n\\u0000-\\u001f/]"),"_").trim('.', ' ')
+            .ifBlank{"document"}.take(150)
     }
-    fun removeOrphan(file:VaultFile) { blob(file.id).delete();meta(file.id).delete() }
-    fun openDecrypted(file:VaultFile):File {
-        val dir=File(context.cacheDir,"preview").apply{mkdirs()}
-        val destination=File(dir,file.id+"-"+file.name.substringAfterLast('.', "dat").take(8))
-        FileInputStream(blob(file.id)).use{src->FileOutputStream(destination).use{decrypt(src,it)}}
-        return destination
-    }
-    fun encryptedBlobExists(file:VaultFile)=blob(file.id).exists()
     fun cleanupPreviews() {
-        listOf("preview","shared","camera").forEach{ folder -> File(context.cacheDir,folder).listFiles()?.forEach { if(System.currentTimeMillis()-it.lastModified()>3600000)it.delete() } }
-        File(context.cacheDir,".").listFiles()?.filter { it.isDirectory && it.name.startsWith("restore-") }?.forEach {
-            if(System.currentTimeMillis()-it.lastModified()>3600000)it.deleteRecursively()
+        listOf("preview","shared","camera").forEach {folder->
+            File(context.cacheDir,folder).listFiles()?.filter{
+                System.currentTimeMillis()-it.lastModified()>3600000
+            }?.forEach{it.delete()}
         }
+        context.cacheDir.listFiles()?.filter{
+            it.isDirectory && it.name.startsWith("restore-") &&
+                System.currentTimeMillis()-it.lastModified()>3600000
+        }?.forEach{it.deleteRecursively()}
     }
-    fun sweepOrphanBlobs() {
-        // Never erase unattached imports automatically. An older buggy build could
-        // leave precisely these orphan blobs after a failed card save.
-    }
+    fun sweepOrphanBlobs() { /* Do not erase unknown imports automatically. */ }
+    private fun readMeta(id:String):VaultFile?=try{
+        val o=JSONObject(meta(id).readText())
+        VaultFile(id,o.getString("name"),o.getString("mime"),o.getLong("size"),o.getString("sha"),"","Recovered attachment")
+    }catch(_:Exception){null}
     fun recoverableFiles():List<VaultFile> {
-        val referenced=cards.flatMap{it.files}.map{it.id}.toSet()
-        return blobDir.listFiles()?.filter{
-            it.name.endsWith(".dat") && it.name.removeSuffix(".dat") !in referenced
-        }?.map { b ->
-            val id=b.name.removeSuffix(".dat")
-            readMeta(id)?:VaultFile(id,"Recovered-"+id.take(8), "application/octet-stream",b.length(),"","", "Recovered attachment")
-        }?:emptyList()
+        val linked=cards.flatMap{it.files}.map{it.id}.toSet()
+        return blobDir.listFiles()?.filter {it.name.endsWith(".dat") && it.name.removeSuffix(".dat") !in linked}
+            ?.map {f->
+                val id=f.name.removeSuffix(".dat")
+                readMeta(id)?:VaultFile(id,"Recovered-"+id.take(8),"application/octet-stream",f.length(),"","","Recovered attachment")
+            }?:emptyList()
     }
     fun attachRecovered(id:String,cardTitle:String) {
-        val recovered=recoverableFiles().firstOrNull{it.id==id}?:return
-        if(meta(id).exists() && readMeta(id)!=null) {
-            val old=readMeta(id)!!
-            saveCard(VaultCard(title=cardTitle.ifBlank{old.name.substringBeforeLast('.',old.name)},kind="Recovered",category="Recovered",files=listOf(old)))
-            return
+        val found=recoverableFiles().firstOrNull{it.id==id}?:return
+        val raw=documentFile(found)
+        val magic=ByteArray(8)
+        raw.inputStream().use{it.read(magic)}
+        val pdf=magic.copyOfRange(0,4).contentEquals("%PDF".toByteArray())
+        val png=magic.contentEquals(byteArrayOf(-119,80,78,71,13,10,26,10))
+        val jpg=(magic[0].toInt()and 0xff)==0xff&&(magic[1].toInt()and 0xff)==0xd8
+        val (ext,mime)=when {
+            pdf->".pdf" to "application/pdf"
+            png->".png" to "image/png"
+            jpg->".jpg" to "image/jpeg"
+            magic[0]==80.toByte()&&magic[1]==75.toByte()->".docx" to "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            else->".txt" to "text/plain"
         }
-        val plain=openDecrypted(recovered)
-        try {
-            val digest=MessageDigest.getInstance("SHA-256")
-            plain.inputStream().use { src->
-                val buffer=ByteArray(65536)
-                while(true){ val n=src.read(buffer);if(n<0)break;if(n>0)digest.update(buffer,0,n) }
-            }
-            val magic=plain.inputStream().use { input->ByteArray(16).also {input.read(it)} }
-            val pdf=String(magic,0,4,Charsets.US_ASCII)=="%PDF"
-            val png=magic.take(8)==listOf(137,80,78,71,13,10,26,10).map{it.toByte()}
-            val jpg=(magic[0].toInt() and 0xff)==0xff && (magic[1].toInt() and 0xff)==0xd8
-            val (extension,mime)=when {
-                pdf->".pdf" to "application/pdf"
-                png->".png" to "image/png"
-                jpg->".jpg" to "image/jpeg"
-                String(magic,0,2,Charsets.US_ASCII)=="PK"->".docx" to "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                else->".txt" to "text/plain"
-            }
-            val title=cardTitle.ifBlank{"Recovered-"+id.take(8)}
-            val attachment=recovered.copy(name=title+extension,mime=mime,bytes=plain.length(),
-                sha256=digest.digest().joinToString(""){"%02x".format(it)})
-            saveCard(VaultCard(title=title,kind="Recovered",category="Recovered",files=listOf(attachment)))
-        }finally{plain.delete()}
+        val title=cardTitle.ifBlank{found.name.substringBeforeLast('.',found.name)}
+        val finalFile=if(found.mime=="application/octet-stream")
+            found.copy(name=title+ext,mime=mime,bytes=raw.length())
+        else found
+        saveCard(VaultCard(title=title,kind="Recovered",category="Recovered",files=listOf(finalFile)))
     }
     fun newCard(kind:String="Custom",profile:String="self"):VaultCard {
-        val t=(FieldSuggestions.templates+customTemplates).firstOrNull{it.name==kind}
-        return VaultCard(title=if(kind=="Custom") "New Card" else kind,kind=kind,profile=profile,fields=t?.fieldNames?.map{DataField(it,"")}?:emptyList())
+        val template=(FieldSuggestions.templates+customTemplates).firstOrNull{it.name==kind}
+        return VaultCard(title=if(kind=="Custom")"New Card" else kind,kind=kind,profile=profile,
+            fields=template?.fieldNames?.map{DataField(it,"")}?:emptyList())
     }
+
+    // This ZIP is deliberately not encrypted. Store it only where you trust the recipient.
     fun exportBackup(uri:Uri,password:String) {
-        require(password.length>=8){"Backup password must have at least 8 characters"}
-        val salt=ByteArray(16).also(random::nextBytes)
-        val iv=ByteArray(12).also(random::nextBytes)
-        val key=SecretKeySpec(SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-            .generateSecret(PBEKeySpec(password.toCharArray(),salt,210000,256)).encoded,"AES")
-        val enc=Cipher.getInstance("AES/GCM/NoPadding").apply{init(Cipher.ENCRYPT_MODE,key,GCMParameterSpec(128,iv))}
-        context.contentResolver.openOutputStream(uri,"w")!!.use { stream ->
-            stream.write("DVAULT1".toByteArray());stream.write(salt);stream.write(iv)
-            ZipOutputStream(CipherOutputStream(stream,enc)).use{zip->
+        context.contentResolver.openOutputStream(uri,"w")!!.use{output->
+            ZipOutputStream(output).use{zip->
                 zip.putNextEntry(ZipEntry("index.json"))
-                zip.write(snapshot().toByteArray());zip.closeEntry()
-                cards.flatMap{it.files}.distinctBy{it.id}.forEach{file ->
+                zip.write(snapshot().toByteArray(Charsets.UTF_8));zip.closeEntry()
+                cards.flatMap{it.files}.distinctBy{it.id}.forEach{file->
                     zip.putNextEntry(ZipEntry("blobs/"+file.id))
-                    FileInputStream(blob(file.id)).use{src->decrypt(src,zip)}
+                    documentFile(file).inputStream().use{it.copyTo(zip,65536)}
                     zip.closeEntry()
                 }
             }
@@ -368,52 +319,56 @@ class VaultRepository(private val context: Context) {
     }
     fun restoreBackup(uri:Uri,password:String) {
         val staged=File(context.cacheDir,"restore-"+uid()).apply{mkdirs()}
-        try {
-            val imported=mutableListOf<Pair<String,File>>()
+        try{
             var root:String?=null
-            context.contentResolver.openInputStream(uri)!!.use{stream->
-                val header=ByteArray(7); if(stream.read(header)!=7||String(header)!="DVAULT1") throw IOException("Unsupported backup format")
-                val salt=ByteArray(16);val iv=ByteArray(12);if(stream.read(salt)!=16||stream.read(iv)!=12)throw IOException("Corrupt backup")
-                val key=SecretKeySpec(SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-                    .generateSecret(PBEKeySpec(password.toCharArray(),salt,210000,256)).encoded,"AES")
-                val dec=Cipher.getInstance("AES/GCM/NoPadding").apply{init(Cipher.DECRYPT_MODE,key,GCMParameterSpec(128,iv))}
-                ZipInputStream(CipherInputStream(stream,dec)).use{zip->
+            val imported=mutableMapOf<String,File>()
+            context.contentResolver.openInputStream(uri)!!.use{input->
+                ZipInputStream(input).use{zip->
                     while(true){
                         val entry=zip.nextEntry?:break
-                        if(entry.name=="index.json"){val bytes=ByteArrayOutputStream();zip.copyTo(bytes);root=bytes.toString("UTF-8")}
-                        else if(entry.name.matches(Regex("blobs/[a-f0-9-]{36}"))){
-                            val id=entry.name.substringAfter('/')
+                        if(entry.name=="index.json"){
+                            val buffer=ByteArrayOutputStream();zip.copyTo(buffer)
+                            if(buffer.size()>25_000_000)throw IOException("Backup index is too large")
+                            root=buffer.toString("UTF-8")
+                        }else if(entry.name.matches(Regex("blobs/[a-f0-9-]{36}"))) {
+                            val id=entry.name.substringAfter("/")
                             val target=File(staged,id)
-                            target.outputStream().use{zip.copyTo(it)}
-                            imported.add(id to target)
-                        }
+                            target.outputStream().use{zip.copyTo(it,65536)}
+                            imported[id]=target
+                        }else throw IOException("Invalid backup entry")
                         zip.closeEntry()
                     }
                 }
             }
             val json=JSONObject(root?:throw IOException("Backup index missing"))
-            val importedCards=json.getJSONArray("cards")
-            val ids=(0 until importedCards.length()).flatMap { i ->
-                val a=importedCards.getJSONObject(i).optJSONArray("files")?:JSONArray()
-                (0 until a.length()).map{j->a.getJSONObject(j).getString("id")}
-            }.toSet()
-            if(ids.any{id->imported.none{it.first==id}})throw IOException("Some attachments are missing")
-            // A restore is a replacement, performed only after all backup entries validated.
-            imported.forEach{(id,file)->
-                FileOutputStream(blob(id)).use{out ->FileInputStream(file).use{src->encrypt(src,out)}}
-            }
-            cards.clear();profiles.clear();customTemplates.clear()
-            for(i in 0 until importedCards.length())cards.add(readCard(importedCards.getJSONObject(i)))
+            val array=json.getJSONArray("cards")
+            val nextCards=(0 until array.length()).map{readCard(array.getJSONObject(it))}
+            val ids=nextCards.flatMap{it.files}.map{it.id}.toSet()
+            require(ids.all{imported[it]?.isFile==true}){"Backup has missing files"}
+            imported.forEach{(id,file)->file.copyTo(blob(id),overwrite=true)}
+            val nextProfiles=mutableListOf<VaultProfile>()
             val p=json.optJSONArray("profiles")?:JSONArray()
-            for(i in 0 until p.length()){val it=p.getJSONObject(i);profiles.add(VaultProfile(it.getString("id"),it.getString("name")))}
+            for(i in 0 until p.length()){val e=p.getJSONObject(i);nextProfiles.add(VaultProfile(e.getString("id"),e.getString("name")))}
+            val nextTemplates=mutableListOf<CardTemplate>()
             val t=json.optJSONArray("templates")?:JSONArray()
-            for(i in 0 until t.length()){val it=t.getJSONObject(i);customTemplates.add(CardTemplate(it.getString("id"),it.getString("name"),strings(it.optJSONArray("fields"))))}
+            for(i in 0 until t.length()){
+                val e=t.getJSONObject(i)
+                nextTemplates.add(CardTemplate(e.getString("id"),e.getString("name"),strings(e.optJSONArray("fields"))))
+            }
+            val oldCards=cards.toList()
+            val oldProfiles=profiles.toList()
+            val oldTemplates=customTemplates.toList()
+            cards.clear();cards.addAll(nextCards)
+            profiles.clear();profiles.addAll(nextProfiles)
             if(profiles.none{it.id=="self"})profiles.add(VaultProfile("self","Me"))
-            recoveryError = null
-            persist()
-            val keep=cards.flatMap{it.files}.map{it.id}.toSet()
-            // Keep orphan data from earlier failed saves available for recovery.
-            // Never delete encrypted attachments here automatically.
-        } finally {staged.deleteRecursively()}
+            customTemplates.clear();customTemplates.addAll(nextTemplates)
+            recoveryError=null
+            try{persist()}catch(e:Exception){
+                cards.clear();cards.addAll(oldCards)
+                profiles.clear();profiles.addAll(oldProfiles)
+                customTemplates.clear();customTemplates.addAll(oldTemplates)
+                throw e
+            }
+        }finally{staged.deleteRecursively()}
     }
 }
