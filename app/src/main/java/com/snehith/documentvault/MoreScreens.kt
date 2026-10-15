@@ -172,14 +172,14 @@ import java.util.UUID
         }
         items(selectedFiles,key={it.id}){file->
             Card(colors=CardDefaults.cardColors(containerColor=VaultPanel),
-                shape=RoundedCornerShape(13.dp)) {
+                border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),shape=RoundedCornerShape(10.dp)) {
                 Row(Modifier.padding(8.dp),verticalAlignment=Alignment.CenterVertically){
                     Checkbox(checked=true,onCheckedChange={selected.remove(file.id)})
                     Icon(if(file.mime.startsWith("image/"))Icons.Outlined.Image else Icons.Outlined.PictureAsPdf,
                         null,tint=VaultSky)
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)){
-                        Text(file.name,color=Color.White,maxLines=2)
+                        Text(file.name,color=MaterialTheme.colorScheme.onSurface,maxLines=2)
                         Text("PDF page or document",color=VaultMuted,style=MaterialTheme.typography.labelSmall)
                     }
                     IconButton(onClick={
@@ -207,8 +207,8 @@ import java.util.UUID
             }
         }
         item {
-            HorizontalDivider(color=Color(0xFF274663))
-            Text("More PDF tools",color=Color.White,fontWeight=FontWeight.Bold)
+            HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+            Text("More PDF tools",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold)
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 OutlinedTextField(start,{start=it},label={Text("From page")},modifier=Modifier.weight(1f),singleLine=true)
                 OutlinedTextField(end,{end=it},label={Text("To page")},modifier=Modifier.weight(1f),singleLine=true)
