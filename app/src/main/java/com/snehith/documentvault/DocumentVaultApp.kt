@@ -195,11 +195,18 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     }
     fun camera(target:String?=null) {
         importTarget=target;scanTarget=target
-        val f=File(activity.cacheDir,"camera").apply{mkdirs()}.let{File(it,"capture-"+UUID.randomUUID()+".jpg")}
-        f.createNewFile()
-        cameraPath=f.absolutePath
-        cameraUri=FileProvider.getUriForFile(activity,activity.packageName+".provider",f)
-        cameraLauncher.launch(cameraUri!!)
+        scope.launch {
+            try {
+                val f=withContext(Dispatchers.IO){
+                    File(activity.cacheDir,"camera").apply{mkdirs()}
+                        .let{File(it,"capture-"+UUID.randomUUID()+".jpg")}
+                        .also{it.createNewFile()}
+                }
+                cameraPath=f.absolutePath
+                cameraUri=FileProvider.getUriForFile(activity,activity.packageName+".provider",f)
+                cameraLauncher.launch(cameraUri!!)
+            }catch(e:Exception){error="Could not start camera: "+(e.message?:"Storage error")}
+        }
     }
     var pdfJobToExport by remember{mutableStateOf<PdfJob?>(null)}
     val pdfExport=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")){uri->
@@ -233,8 +240,15 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         }
     }
     val modelPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->
-        if(uri!=null)try{val lang=engine.installLanguage(uri);ocrLanguage="Tesseract: "+lang;activity.notify("Installed "+lang+" offline OCR")}
-        catch(e:Exception){error=e.message?:"Could not install language"}
+        if(uri!=null)scope.launch {
+            busy="Installing offline OCR language"
+            try {
+                val lang=withContext(Dispatchers.IO){engine.installLanguage(uri)}
+                ocrLanguage="Tesseract: "+lang
+                activity.notify("Installed "+lang+" offline OCR")
+            }catch(e:Exception){error=e.message?:"Could not install language"}
+            finally{busy=""}
+        }
     }
     val backupExport=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")){uri->
         if(uri!=null){
