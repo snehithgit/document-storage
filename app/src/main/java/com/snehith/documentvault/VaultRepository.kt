@@ -453,6 +453,15 @@ class VaultRepository(private val context: Context) {
             val nextCards=(0 until array.length()).map{readCard(array.getJSONObject(it))}
             val ids=nextCards.flatMap{it.files}.map{it.id}.toSet()
             require(ids.all{imported[it]?.isFile==true}){"Backup has missing files"}
+            val nextProfiles=mutableListOf<VaultProfile>()
+            val p=json.optJSONArray("profiles")?:JSONArray()
+            for(i in 0 until p.length()){val e=p.getJSONObject(i);nextProfiles.add(VaultProfile(e.getString("id"),e.getString("name")))}
+            val nextTemplates=mutableListOf<CardTemplate>()
+            val t=json.optJSONArray("templates")?:JSONArray()
+            for(i in 0 until t.length()){
+                val e=t.getJSONObject(i)
+                nextTemplates.add(CardTemplate(e.getString("id"),e.getString("name"),strings(e.optJSONArray("fields"))))
+            }
             // Preserve blobs that an attempted restore would overwrite, allowing rollback.
             val prior=File(staged,"previous").apply{mkdirs()}
             imported.keys.forEach{id->if(blob(id).isFile)blob(id).copyTo(File(prior,id),overwrite=true)}
@@ -463,15 +472,6 @@ class VaultRepository(private val context: Context) {
                     if(old.isFile)old.copyTo(blob(id),overwrite=true) else blob(id).delete()
                 }
                 throw e
-            }
-            val nextProfiles=mutableListOf<VaultProfile>()
-            val p=json.optJSONArray("profiles")?:JSONArray()
-            for(i in 0 until p.length()){val e=p.getJSONObject(i);nextProfiles.add(VaultProfile(e.getString("id"),e.getString("name")))}
-            val nextTemplates=mutableListOf<CardTemplate>()
-            val t=json.optJSONArray("templates")?:JSONArray()
-            for(i in 0 until t.length()){
-                val e=t.getJSONObject(i)
-                nextTemplates.add(CardTemplate(e.getString("id"),e.getString("name"),strings(e.optJSONArray("fields"))))
             }
             val oldCards=cards.toList()
             val oldProfiles=profiles.toList()
