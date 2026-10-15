@@ -58,6 +58,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var addToCardId by rememberSaveable{mutableStateOf<String?>(null)}
     var importTarget by rememberSaveable{mutableStateOf<String?>(null)}
     var userProfile by rememberSaveable{mutableStateOf("all")}
+    var categoryFilter by rememberSaveable{mutableStateOf("All")}
     var ocrLanguage by rememberSaveable{mutableStateOf("Latin")}
     var busy by remember{mutableStateOf("")}
     var ocrJob by remember{mutableStateOf<Job?>(null)}
@@ -362,8 +363,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {userProfile=it},{openCard(it)},{route="search"},{camera()},
                             {importTarget=null;importPicker.launch(arrayOf("*/*"))},
                             {startEdit(repo.newCard(profile=if(userProfile=="all")"self" else userProfile))},
-                            {route="cards";activity.notify("Open any card and tap PDF to merge its attachments")},{route="expiry"})
-                        "cards"->VaultNavCards(repo.cards.toList(),repo,{openCard(it)},{startEdit(repo.newCard())})
+                            {route="cards";activity.notify("Open any card and tap PDF to merge its attachments")},{route="expiry"},
+                            {categoryFilter=it;route="cards"})
+                        "cards"->VaultNavCards(repo.cards.toList(),repo,{openCard(it)},{startEdit(repo.newCard())},categoryFilter)
                         "search"->VaultNavSearch(repo.cards.toList(),repo){openCard(it)}
                         "scan"->NavyScanScreen({camera()},
                             {importTarget=null;importPicker.launch(arrayOf("*/*"))},{startEdit(repo.newCard())})
