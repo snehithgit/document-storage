@@ -399,7 +399,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {modelPicker.launch(arrayOf("*/*"))},{ocrLanguage=it},
                             {days->activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE).edit().putInt("remindDays",days).apply()
                                 if(Build.VERSION.SDK_INT>=33)notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                activity.notify("Expiry reminders: "+days+" days")})
+                                activity.notify("Expiry reminders: "+days+" days")},
+                            options.getBoolean("keepScanOriginal",true),
+                            {keep->options.edit().putBoolean("keepScanOriginal",keep).apply()})
                         "detail"->current?.let{c->VaultNavDetail(c,repo,
                             {f->viewingId=f.id;route="viewer"},
                             {f->startOcr(c.id,f)},{f->activity.share(f)},{activity.shareAll(c.files)},
