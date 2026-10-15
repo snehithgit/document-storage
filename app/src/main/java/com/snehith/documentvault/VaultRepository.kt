@@ -136,24 +136,42 @@ class VaultRepository(private val context: Context) {
         CipherInputStream(input,cipher(Cipher.DECRYPT_MODE,iv)).use{sealed->sealed.copyTo(output,65536)}
     }
     fun load() {
-        cards.clear();profiles.clear();customTemplates.clear()
+        cards.clear(); profiles.clear(); customTemplates.clear()
         recoveryError = null
-        if(data.exists()) try {
-            val bytes=ByteArrayOutputStream()
-            decrypt(data.inputStream(),bytes)
-            val root=JSONObject(bytes.toString("UTF-8"))
-            val c=root.optJSONArray("cards") ?: JSONArray()
-            for(i in 0 until c.length()) cards.add(readCard(c.getJSONObject(i)))
-            val p=root.optJSONArray("profiles") ?: JSONArray()
-            for(i in 0 until p.length()) { val e=p.getJSONObject(i); profiles.add(VaultProfile(e.getString("id"),e.getString("name"))) }
-            val t=root.optJSONArray("templates") ?: JSONArray()
-            for(i in 0 until t.length()){ val e=t.getJSONObject(i);customTemplates.add(CardTemplate(e.getString("id"),e.getString("name"),strings(e.optJSONArray("fields")))) }
-        } catch(e:Exception) {
-            // Never overwrite an unreadable vault or crash-loop: backup restore remains available.
-            cards.clear(); profiles.clear(); customTemplates.clear()
-            recoveryError = "The saved vault could not be decrypted. Existing files were preserved. Restore a valid backup or recover the original encryption key."
+        // The original v1.0 app could write a valid encrypted temporary index and
+        // then crash before rename because it closed its FD before fsync.
+        // Read the valid temporary index when the primary index is unavailable.
+        val candidateFiles = listOf(data, File(context.filesDir,"vault.state.tmp")).filter { it.exists() }
+        var loadedFrom:File?=null
+        for (candidate in candidateFiles) {
+            try {
+                val bytes=ByteArrayOutputStream()
+                candidate.inputStream().use { decrypt(it,bytes) }
+                val root=JSONObject(bytes.toString("UTF-8"))
+                val newCards=mutableListOf<VaultCard>()
+                val newProfiles=mutableListOf<VaultProfile>()
+                val newTemplates=mutableListOf<CardTemplate>()
+                val c=root.optJSONArray("cards")?:JSONArray()
+                for(i in 0 until c.length()) newCards.add(readCard(c.getJSONObject(i)))
+                val p=root.optJSONArray("profiles")?:JSONArray()
+                for(i in 0 until p.length()){val e=p.getJSONObject(i);newProfiles.add(VaultProfile(e.getString("id"),e.getString("name")))}
+                val t=root.optJSONArray("templates")?:JSONArray()
+                for(i in 0 until t.length()){
+                    val e=t.getJSONObject(i)
+                    newTemplates.add(CardTemplate(e.getString("id"),e.getString("name"),strings(e.optJSONArray("fields"))))
+                }
+                cards.addAll(newCards);profiles.addAll(newProfiles);customTemplates.addAll(newTemplates)
+                loadedFrom=candidate
+                break
+            }catch(_:Exception){ /* Try the other candidate; never delete either. */ }
         }
-        if(profiles.none{it.id=="self"}) profiles.add(0,VaultProfile("self","Me"))
+        if(candidateFiles.isNotEmpty() && loadedFrom==null) {
+            recoveryError="Encrypted vault index could not be opened. Files are untouched. Restore a backup to recover the cards."
+        }
+        if(loadedFrom!=null && loadedFrom!=data && !data.exists()) {
+            try { loadedFrom.copyTo(data,overwrite=false) }catch(_:Exception){ /* Keep recoverable temporary file. */ }
+        }
+        if(profiles.none{it.id=="self"})profiles.add(0,VaultProfile("self","Me"))
     }
     private fun strings(a:JSONArray?):List<String> = (0 until (a?.length()?:0)).map{a!!.optString(it)}
     private fun readCard(o:JSONObject):VaultCard {
@@ -197,8 +215,13 @@ class VaultRepository(private val context: Context) {
     }
     @Synchronized fun saveCard(card:VaultCard) {
         val index=cards.indexOfFirst{it.id==card.id}
+        val old=if(index>=0)cards[index] else null
         if(index<0) cards.add(0,card) else cards[index]=card
-        persist()
+        try { persist() }
+        catch(e:Exception) {
+            if(index<0)cards.removeAll{it.id==card.id} else if(old!=null) cards[index]=old
+            throw e
+        }
     }
     @Synchronized fun deleteCard(card:VaultCard) {
         val previous=cards.toList()
@@ -256,11 +279,21 @@ class VaultRepository(private val context: Context) {
         }
     }
     fun sweepOrphanBlobs() {
-        if(recoveryError != null) return // Do not touch encrypted files during recovery.
+        // Never erase unattached imports automatically. An older buggy build could
+        // leave precisely these orphan blobs after a failed card save.
+    }
+    fun recoverableFiles():List<VaultFile> {
         val referenced=cards.flatMap{it.files}.map{it.id}.toSet()
-        blobDir.listFiles()?.filter{it.name.endsWith(".dat") && it.name.removeSuffix(".dat") !in referenced}?.forEach{file ->
-            if(System.currentTimeMillis()-file.lastModified()>24L*3600000L)file.delete()
-        }
+        return blobDir.listFiles()?.filter{
+            it.name.endsWith(".dat") && it.name.removeSuffix(".dat") !in referenced
+        }?.map { b ->
+            val id=b.name.removeSuffix(".dat")
+            VaultFile(id,"Recovered-"+id.take(8), "application/octet-stream",b.length(),"","", "Recovered attachment")
+        }?:emptyList()
+    }
+    fun attachRecovered(id:String,cardTitle:String) {
+        val recovered=recoverableFiles().firstOrNull{it.id==id}?:return
+        saveCard(VaultCard(title=cardTitle.ifBlank { recovered.name },kind="Recovered",category="Recovered",files=listOf(recovered)))
     }
     fun newCard(kind:String="Custom",profile:String="self"):VaultCard {
         val t=(FieldSuggestions.templates+customTemplates).firstOrNull{it.name==kind}
