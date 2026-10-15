@@ -52,6 +52,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var editingJson by rememberSaveable{mutableStateOf("")}
     var viewingId by rememberSaveable{mutableStateOf("")}
     var cropBitmap by remember{mutableStateOf<android.graphics.Bitmap?>(null)}
+    var initialCropRotation by rememberSaveable{mutableIntStateOf(0)}
     var cropResult by remember{mutableStateOf<DetectedScan?>(null)}
     var cameraPath by rememberSaveable{mutableStateOf("")}
     var cropFromAttachment by rememberSaveable{mutableStateOf(false)}
@@ -169,13 +170,13 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             if(uri!=null)scope.launch{
                 busy="Detecting document borders"
                 try{
-                    val(bitmap,detected)=withContext(Dispatchers.IO){
+                    val prepared=withContext(Dispatchers.IO){
                         val file=File(cameraPath).takeIf{it.isFile}
                             ?:throw IllegalStateException("Camera file missing")
-                        val image=engine.scaledBitmap(file,2050)
-                        image to DocumentCropEngine.detect(image,activity.applicationContext)
+                        ScanPrepare.load(activity.applicationContext,file)
                     }
-                    cropBitmap=bitmap;cropResult=detected;route="crop"
+                    cropBitmap=prepared.preview;cropResult=prepared.corners
+                    initialCropRotation=prepared.rotation;route="crop"
                 }catch(e:Exception){error="Scan preparation failed: "+(e.message?:"Unknown error")}
                 finally{busy=""}
             }
@@ -185,12 +186,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         if(route=="crop" && cropBitmap==null && cameraPath.isNotBlank()) {
             val recovered=withContext(Dispatchers.IO){
                 val file=File(cameraPath)
-                if(file.isFile) {
-                    val photo=engine.scaledBitmap(file,2050)
-                    photo to DocumentCropEngine.detect(photo,activity.applicationContext)
-                }else null
+                if(file.isFile)ScanPrepare.load(activity.applicationContext,file) else null
             }
-            if(recovered!=null){cropBitmap=recovered.first;cropResult=recovered.second}
+            if(recovered!=null){cropBitmap=recovered.preview;cropResult=recovered.corners;initialCropRotation=recovered.rotation}
             else route="scan"
         }
     }
@@ -431,9 +429,10 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     try {
                                         val uri=withContext(Dispatchers.IO){
                                             val original=ImageDecode.decode(File(cameraPath),Int.MAX_VALUE,fullResolution=true)
-                                            val oriented=if(rotation==0)original else{
+                                            val fullRotation=(initialCropRotation+rotation)%360
+                                            val oriented=if(fullRotation==0)original else{
                                                 try {
-                                                    val matrix=android.graphics.Matrix().apply{postRotate(rotation.toFloat())}
+                                                    val matrix=android.graphics.Matrix().apply{postRotate(fullRotation.toFloat())}
                                                     android.graphics.Bitmap.createBitmap(original,0,0,original.width,original.height,matrix,true)
                                                 }finally{original.recycle()}
                                             }
