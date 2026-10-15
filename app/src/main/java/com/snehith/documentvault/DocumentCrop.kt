@@ -47,7 +47,7 @@ object DocumentCropEngine {
             val detected=context?.let{ctx->
                 try {
                     DocQuadModel.detect(ctx.applicationContext,bitmap)?.map{
-                        p->org.opencv.core.Point(p.x*bitmap.width.toDouble(),p.y*bitmap.height.toDouble())
+                        p->PointF(p.x*bitmap.width,p.y*bitmap.height)
                     }
                 }catch(_:Throwable){null}
             } ?: com.docuscan.app.scan.Cleanup.detectCorners(bitmap)
