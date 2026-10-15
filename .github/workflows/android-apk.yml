@@ -36,6 +36,22 @@ jobs:
           gradle-version: '8.10.2'
       - name: Test and assemble debug APK
         run: gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug
+      - name: Android lint (fail on errors)
+        run: gradle --no-daemon :app:lintDebug
+      - name: Enforce offline merged manifest
+        run: |
+          python3 - <<'PY'
+          from glob import glob
+          import xml.etree.ElementTree as ET
+          paths=glob("app/build/intermediates/merged_manifests/debug/**/AndroidManifest.xml",recursive=True)
+          assert paths, "Merged debug AndroidManifest.xml not found"
+          ns="{http://schemas.android.com/apk/res/android}"
+          for p in paths:
+              tree=ET.parse(p)
+              permissions=[x.attrib.get(ns+"name","") for x in tree.getroot() if x.tag.endswith("uses-permission")]
+              assert "android.permission.INTERNET" not in permissions, "Network permission detected: "+p
+          print("Verified merged manifest has no INTERNET permission.")
+          PY
       - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         if: success()
