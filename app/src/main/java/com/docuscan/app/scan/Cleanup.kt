@@ -295,6 +295,8 @@ object Cleanup {
         val threshold = Mat()
         val thresholdInv = Mat()
         val closed = Mat()
+        val binaryEdges = Mat()
+        val binaryEdgesInv = Mat()
 
         try {
             Utils.bitmapToMat(bitmap, rgba)
@@ -330,8 +332,6 @@ object Cleanup {
             Imgproc.morphologyEx(thresholdInv, thresholdInv, Imgproc.MORPH_CLOSE, kernel)
             kernel.release()
 
-            val binaryEdges = Mat()
-            val binaryEdgesInv = Mat()
             Imgproc.Canny(threshold, binaryEdges, 30.0, 120.0)
             Imgproc.Canny(thresholdInv, binaryEdgesInv, 30.0, 120.0)
 
@@ -462,9 +462,8 @@ object Cleanup {
             threshold.release()
             thresholdInv.release()
             closed.release()
-            // binary edge maps are created only for this detection pass.
-            // Release them after contour/Hough evaluation.
-            // (They are intentionally not part of the class state.)
+            binaryEdges.release()
+            binaryEdgesInv.release()
         }
     }
 
