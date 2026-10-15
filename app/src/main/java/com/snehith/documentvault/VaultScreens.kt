@@ -391,17 +391,29 @@ fun copyToClipboard(context:Context,label:String,value:String) {
     }
 }
 @Composable fun ExpiriesScreen(cards:List<VaultCard>,onOpen:(VaultCard)->Unit) {
-    val ordered=cards.mapNotNull{c->try{c to ChronoUnit.DAYS.between(LocalDate.now(),LocalDate.parse(c.expiry))}catch(_:Exception){null}}.sortedBy{it.second}
+    val renewed=cards.map{it.previousId}.filter{it.isNotBlank()}.toSet()
+    val active=cards.filter{it.id !in renewed}
+    val invalid=active.filter{it.expiry.isNotBlank() && !VaultExpiry.isIsoDate(it.expiry)}
+    val ordered=active.mapNotNull{c->try{c to ChronoUnit.DAYS.between(LocalDate.now(),LocalDate.parse(c.expiry))}catch(_:Exception){null}}.sortedBy{it.second}
     LazyColumn(contentPadding=PaddingValues(16.dp,10.dp,16.dp,95.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
         item{Heading("Expiry & Renewal","Keep track of important document validity")}
-        if(ordered.isEmpty())item{Text("No expiry dates set. Edit a card to add one.")}
+        if(ordered.isEmpty() && invalid.isEmpty())item{Text("No expiry dates set. Edit a card to add one.")}
+        items(invalid,key={it.id}){card->
+            OutlinedCard(onClick={onOpen(card)}) {
+                Column(Modifier.padding(14.dp)){
+                    Text(VaultNames.title(card.title),fontWeight=FontWeight.SemiBold)
+                    Text("Invalid expiry date: "+card.expiry+". Use YYYY-MM-DD.",
+                        color=MaterialTheme.colorScheme.error)
+                }
+            }
+        }
         items(ordered){(card,days)->
             Card(onClick={onOpen(card)}) {
                 Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically){
                     Icon(Icons.Outlined.Event,null,tint=if(days<=30)Gold else Mint)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)){
-                        Text(card.title,fontWeight=FontWeight.SemiBold)
+                        Text(VaultNames.title(card.title),fontWeight=FontWeight.SemiBold)
                         Text(card.expiry,style=MaterialTheme.typography.labelSmall)
                     }
                     AccentChip(if(days<0)"Expired "+(-days)+"d" else days.toString()+"d remaining",if(days<=30)Gold else Mint)
