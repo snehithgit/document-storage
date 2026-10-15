@@ -198,11 +198,13 @@ import java.util.UUID
         }}
     }
 }
-@Composable fun SettingsScreen(hasPin:Boolean,languages:List<String>,currentScript:String,onPin:(String)->Unit,onClearPin:(String)->Unit,
+@Composable fun SettingsScreen(hasPin:Boolean,languages:List<String>,currentScript:String,privacyScreen:Boolean,
+    onPrivacyScreenChanged:(Boolean)->Unit,onPin:(String,String)->Unit,onClearPin:(String)->Unit,
     onProfiles:()->Unit,onTemplates:()->Unit,onBackups:()->Unit,onImportLanguage:()->Unit,onScript:(String)->Unit,
     onRemindDays:(Int)->Unit) {
     var pin by remember{mutableStateOf("")}
     var old by remember{mutableStateOf("")}
+    var confirmPin by remember{mutableStateOf("")}
     var languageOpen by remember{mutableStateOf(false)}
     var days by remember{mutableStateOf("30")}
     LazyColumn(contentPadding=PaddingValues(16.dp,12.dp,16.dp,90.dp),verticalArrangement=Arrangement.spacedBy(13.dp)) {
@@ -230,15 +232,27 @@ import java.util.UUID
                 style=MaterialTheme.typography.bodySmall)
         }
         item{
+            SectionSettings("Display privacy")
+            Row(verticalAlignment=Alignment.CenterVertically,modifier=Modifier.fillMaxWidth()) {
+                Column(Modifier.weight(1f)) {
+                    Text("Block screenshots and screen recording",fontWeight=FontWeight.SemiBold)
+                    Text("Turn off to allow screenshots. Turn on before showing sensitive documents.",style=MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked=privacyScreen,onCheckedChange=onPrivacyScreenChanged)
+            }
+        }
+        item{
             SectionSettings("App lock")
             Text(if(hasPin)"A PIN is configured. Device biometrics can unlock the app." else "Vault files are encrypted. Set a PIN for access control.",
                 style=MaterialTheme.typography.bodySmall)
-            OutlinedTextField(pin,{pin=it},label={Text("New PIN (at least 4 digits)")},modifier=Modifier.fillMaxWidth())
-            Button(onClick={onPin(pin);pin=""},enabled=pin.length>=4,modifier=Modifier.fillMaxWidth()){Text("Set / change PIN")}
-            if(hasPin) {
-                OutlinedTextField(old,{old=it},label={Text("Current PIN to remove lock")},modifier=Modifier.fillMaxWidth())
-                TextButton(onClick={onClearPin(old);old=""},enabled=old.isNotEmpty()){Text("Remove PIN lock")}
-            }
+            if(hasPin)OutlinedTextField(old,{old=it},label={Text("Current PIN")},modifier=Modifier.fillMaxWidth(),
+                visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation())
+            OutlinedTextField(pin,{pin=it},label={Text("New PIN (at least 4 digits)")},modifier=Modifier.fillMaxWidth(),
+                visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation())
+            OutlinedTextField(confirmPin,{confirmPin=it},label={Text("Confirm new PIN")},modifier=Modifier.fillMaxWidth(),
+                visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation())
+            Button(onClick={onPin(pin,old);pin="";confirmPin=""},enabled=pin.length>=4&&pin==confirmPin&&(!hasPin||old.isNotBlank()),modifier=Modifier.fillMaxWidth()){Text("Set / change PIN")}
+            if(hasPin)TextButton(onClick={onClearPin(old);old=""},enabled=old.isNotBlank()){Text("Remove PIN lock")}
         }
         item{
             SectionSettings("Notifications")
