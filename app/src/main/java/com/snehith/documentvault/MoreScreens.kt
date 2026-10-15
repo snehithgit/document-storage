@@ -30,26 +30,37 @@ import java.util.UUID
     var pageCount by remember(file.id){mutableIntStateOf(1)}
     var bitmap by remember(file.id){mutableStateOf<Bitmap?>(null)}
     var previewText by remember(file.id){mutableStateOf(file.extractedText)}
-    var showText by remember(file.id){mutableStateOf(!file.name.endsWith(".pdf",true)&& !file.mime.startsWith("image/"))}
+    var showText by remember(file.id){mutableStateOf(!file.name.endsWith(".pdf",true)&&!file.mime.startsWith("image/"))}
     var error by remember(file.id){mutableStateOf("")}
     var zoom by remember(file.id){mutableFloatStateOf(1f)}
-    LaunchedEffect(file.id,page,showText) {
-        if(showText && previewText.isBlank()) {
-            try {previewText=withContext(Dispatchers.IO){engine.extract(file).text}}
-            catch(e:Exception){error=e.message?:"Text extraction failed"}
-        }
-        if(showText)return@LaunchedEffect
-        try{
-            val result=withContext(Dispatchers.IO) {
-                val plain=repo.openDecrypted(file)
-                try{
-                    if(file.name.endsWith(".pdf",true))engine.pdfPageImage(plain,page)
-                    else engine.scaledBitmap(plain,2100) to 1
-                }finally{plain.delete()}
+    var panX by remember(file.id){mutableFloatStateOf(0f)}
+    var panY by remember(file.id){mutableFloatStateOf(0f)}
+    var plaintext by remember(file.id){mutableStateOf<File?>(null)}
+    DisposableEffect(file.id) {
+        onDispose { plaintext?.delete() }
+    }
+    LaunchedEffect(file.id) {
+        try {
+            // Decrypt once per viewer session, not on every page turn.
+            plaintext=withContext(Dispatchers.IO){repo.openDecrypted(file)}
+        }catch(e:Exception){error=e.message?:"Cannot open document"}
+    }
+    LaunchedEffect(file.id,page,showText,plaintext) {
+        val temp=plaintext ?:return@LaunchedEffect
+        if(showText) {
+            if(previewText.isBlank()) {
+                try {previewText=withContext(Dispatchers.IO){engine.extract(file).text}}
+                catch(e:Exception){error=e.message?:"Text extraction failed"}
             }
-            bitmap=result.first
-            pageCount=result.second
-            error=""
+            return@LaunchedEffect
+        }
+        bitmap=null
+        try {
+            val result=withContext(Dispatchers.IO) {
+                if(file.name.endsWith(".pdf",true)||file.mime=="application/pdf")engine.pdfPageImage(temp,page,1150)
+                else engine.scaledBitmap(temp,1800) to 1
+            }
+            bitmap=result.first;pageCount=result.second;error=""
         }catch(e:Exception){error=e.message?:"Unsupported preview"}
     }
     Column(Modifier.fillMaxSize().padding(12.dp),verticalArrangement=Arrangement.spacedBy(9.dp)) {
@@ -69,29 +80,30 @@ import java.util.UUID
                     else SelectionContainer {Text(previewText)}
                 }
             }
-        } else {
+        }else{
             Surface(modifier=Modifier.weight(1f).fillMaxWidth(),shape=RoundedCornerShape(14.dp),
                 color=MaterialTheme.colorScheme.surfaceContainerLow) {
                 Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) {
                     if(bitmap!=null) {
                         Image(bitmap!!.asImageBitmap(),contentDescription="Document page",
-                            modifier=Modifier.fillMaxSize().graphicsLayer(scaleX=zoom,scaleY=zoom)
-                                .pointerInput(file.id,page){detectTransformGestures{_,_,factor,_->zoom=(zoom*factor).coerceIn(1f,5f)}},
+                            modifier=Modifier.fillMaxSize()
+                                .pointerInput(file.id,page){detectTransformGestures{_,move,factor,_->
+                                    zoom=(zoom*factor).coerceIn(1f,5f)
+                                    panX=(panX+move.x).coerceIn(-1100f,1100f)
+                                    panY=(panY+move.y).coerceIn(-1800f,1800f)
+                                }}
+                                .graphicsLayer(scaleX=zoom,scaleY=zoom,translationX=panX,translationY=panY),
                             contentScale=androidx.compose.ui.layout.ContentScale.Fit)
-                    } else CircularProgressIndicator()
+                    }else CircularProgressIndicator()
                 }
             }
-            if(file.name.endsWith(".pdf",true)){
-                Row(modifier=Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,
-                    horizontalArrangement=Arrangement.SpaceBetween){
-                    OutlinedButton(onClick={page=(page-1).coerceAtLeast(0);zoom=1f},enabled=page>0){Text("Previous")}
+            if(file.name.endsWith(".pdf",true)||file.mime=="application/pdf"){
+                Row(modifier=Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
+                    OutlinedButton(onClick={page=(page-1).coerceAtLeast(0);zoom=1f;panX=0f;panY=0f},enabled=page>0){Text("Previous")}
                     Text((page+1).toString()+" / "+pageCount)
-                    OutlinedButton(onClick={page=(page+1).coerceAtMost(pageCount-1);zoom=1f},enabled=page<pageCount-1){Text("Next")}
+                    OutlinedButton(onClick={page=(page+1).coerceAtMost(pageCount-1);zoom=1f;panX=0f;panY=0f},enabled=page<pageCount-1){Text("Next")}
                 }
-            }else {
-                Text("Pinch to zoom. OCR enables copy and search of scanned text.",
-                    style=MaterialTheme.typography.labelSmall)
-            }
+            }else Text("Pinch to zoom and drag to pan.",style=MaterialTheme.typography.labelSmall)
         }
     }
 }
