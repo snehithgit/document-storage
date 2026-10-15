@@ -31,7 +31,7 @@ android {
     }
     buildTypes {
         debug {
-            applicationIdSuffix = ".fast"
+            applicationIdSuffix = ".navy"
             versionNameSuffix = "-test"
         }
         release {
