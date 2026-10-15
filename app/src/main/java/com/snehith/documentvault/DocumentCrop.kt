@@ -38,10 +38,16 @@ data class DetectedScan(val corners:List<PointF>,val automatic:Boolean)
 object DocumentCropEngine {
     private fun ready():Boolean=OpenCVLoader.initLocal()
     /** GitHub DocuScan's multi-pass OpenCV quad detector, fully offline. */
-    fun detect(bitmap:Bitmap):DetectedScan {
+    fun detect(bitmap:Bitmap,context:android.content.Context?=null):DetectedScan {
         val defaults=listOf(PointF(.07f,.07f),PointF(.93f,.07f),PointF(.93f,.93f),PointF(.07f,.93f))
         return try {
-            val detected=com.docuscan.app.scan.Cleanup.detectCorners(bitmap)
+            val detected=context?.let{ctx->
+                try {
+                    DocQuadModel.detect(ctx.applicationContext,bitmap)?.map{
+                        p->org.opencv.core.Point(p.x*bitmap.width.toDouble(),p.y*bitmap.height.toDouble())
+                    }
+                }catch(_:Throwable){null}
+            } ?: com.docuscan.app.scan.Cleanup.detectCorners(bitmap)
             if(detected==null||detected.size!=4)DetectedScan(defaults,false)
             else DetectedScan(detected.map{p->PointF((p.x/bitmap.width).coerceIn(0f,1f),
                 (p.y/bitmap.height).coerceIn(0f,1f))},true)
