@@ -54,6 +54,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var cropBitmap by remember{mutableStateOf<android.graphics.Bitmap?>(null)}
     var cropResult by remember{mutableStateOf<DetectedScan?>(null)}
     var cameraPath by rememberSaveable{mutableStateOf("")}
+    var cropFromAttachment by rememberSaveable{mutableStateOf(false)}
+    var scanSessionContinue by rememberSaveable{mutableStateOf("")}
     var scanTarget by rememberSaveable{mutableStateOf<String?>(null)}
     var addToCardId by rememberSaveable{mutableStateOf<String?>(null)}
     var importTarget by rememberSaveable{mutableStateOf<String?>(null)}
@@ -104,7 +106,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             finally{busy="";ocrJob=null}
         }
     }
-    fun importUris(uris:List<Uri>,targetId:String?=null) {
+    fun importUris(uris:List<Uri>,targetId:String?=null,addPage:Boolean=false,originalUri:Uri?=null) {
         if(uris.isEmpty())return
         busy="Importing "+VaultCounts.format(uris.size,"document")
         scope.launch {
@@ -139,8 +141,19 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                     // from each document's OCR button, so a scan cannot stall View/Share.
                 }
                 if(lastCard!=null) {
-                    openCard(repo.cards.first{it.id==lastCard!!.id})
-                    activity.notify("Imported. Tap OCR to extract and copy information.")
+                    val card=repo.cards.first{it.id==lastCard!!.id}
+                    if(originalUri!=null) {
+                        withContext(Dispatchers.IO) {
+                            val retained=repo.importFile(originalUri)
+                            if(!repo.isDuplicate(retained.sha256)) {
+                                val updated=repo.cards.first{it.id==card.id}
+                                repo.saveCard(updated.copy(files=updated.files+retained))
+                            }else repo.removeOrphan(retained)
+                        }
+                    }
+                    openCard(repo.cards.first{it.id==card.id})
+                    if(addPage)scanSessionContinue=card.id
+                    else activity.notify("Imported. Tap OCR to extract and copy information.")
                 }
             }catch(e:Exception){error="Import failed: "+(e.message?:"Unknown error")}
             finally {busy="";importTarget=null}
@@ -182,7 +195,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         }
     }
     fun camera(target:String?=null) {
-        importTarget=target;scanTarget=target
+        importTarget=target;scanTarget=target;cropFromAttachment=false
         scope.launch {
             try {
                 val f=withContext(Dispatchers.IO){
@@ -195,6 +208,10 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 cameraLauncher.launch(cameraUri!!)
             }catch(e:Exception){error="Could not start camera: "+(e.message?:"Storage error")}
         }
+    }
+    LaunchedEffect(scanSessionContinue) {
+        val next=scanSessionContinue
+        if(next.isNotBlank()){scanSessionContinue="";camera(next)}
     }
     var pdfJobToExport by remember{mutableStateOf<PdfJob?>(null)}
     val pdfExport=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")){uri->
