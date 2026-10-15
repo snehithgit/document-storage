@@ -268,7 +268,8 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
 }
 @Composable fun VaultNavDetail(card:VaultCard,repo:VaultRepository,onFile:(VaultFile)->Unit,onOcr:(VaultFile)->Unit,
     onShare:(VaultFile)->Unit,onShareAll:()->Unit,onAdd:()->Unit,
-    onFull:()->Unit,onTools:()->Unit,onEdit:()->Unit,onDelete:()->Unit){
+    onFull:()->Unit,onTools:()->Unit,onEdit:()->Unit,onDelete:()->Unit,
+    onEnhance:(VaultFile)->Unit){
     var selected by rememberSaveable(card.id){mutableIntStateOf(0)}
     val context=LocalContext.current
     val(status,color)=vaultValidity(card)
@@ -344,6 +345,12 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
             }
         }
         item {
+            card.files.getOrNull(selected)?.takeIf{it.mime.startsWith("image/")}?.let{f->
+                OutlinedButton(onClick={onEnhance(f)},modifier=Modifier.fillMaxWidth()){
+                    Icon(Icons.Outlined.AutoFixHigh,null)
+                    Text(" Enhance / Crop image (keep original)")
+                }
+            }
             OutlinedButton(onClick=onAdd,modifier=Modifier.fillMaxWidth()){
                 Icon(Icons.Outlined.Add,null);Text(" Add pages / documents")
             }
