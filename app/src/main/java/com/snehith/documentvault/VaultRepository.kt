@@ -227,7 +227,7 @@ class VaultRepository(private val context: Context) {
     @Synchronized fun renameFile(cardId:String,fileId:String,newName:String) {
         val name=newName.trim()
         require(name.isNotBlank() && name.length<=150 && !name.contains('/') &&
-            !name.contains('\\\\') && !name.contains('\\n') && !name.contains('\\r') &&
+            !name.contains(92.toChar()) && !name.contains(10.toChar()) && !name.contains(13.toChar()) &&
             name!="." && name!=".."){"Invalid attachment name"}
         val current=cards.firstOrNull{it.id==cardId}?:throw IOException("Card not found")
         require(current.files.any{it.id==fileId}){"Attachment not found"}
@@ -271,7 +271,7 @@ class VaultRepository(private val context: Context) {
     fun isDuplicate(sha:String)=cards.any { c->c.files.any{it.sha256==sha} }
     fun importFile(uri:Uri):VaultFile {
         require(uri.scheme=="content"){"Import only from Android's file picker or share menu"}
-        val name=filename(uri)
+        val name=VaultNames.label(filename(uri))
         val mime=context.contentResolver.getType(uri) ?: when(name.substringAfterLast('.', "").lowercase()){
             "pdf"->"application/pdf";"txt"->"text/plain"
             "docx"->"application/vnd.openxmlformats-officedocument.wordprocessingml.document"
