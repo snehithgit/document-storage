@@ -14,7 +14,7 @@ object ImageDecode {
         BitmapFactory.decodeFile(file.absolutePath,bounds)
         if(bounds.outWidth<=0||bounds.outHeight<=0)throw IOException("Unable to decode image: "+file.name)
         val pixels=bounds.outWidth.toLong()*bounds.outHeight.toLong()
-        if(pixels>85_000_000L && fullResolution)
+        if(pixels>32_000_000L && fullResolution)
             throw IOException("Image is too large to crop safely on this device")
         val sample=if(fullResolution)1 else ImageSampling.sample(bounds.outWidth,bounds.outHeight,maxEdge)
         val decoded=BitmapFactory.decodeFile(file.absolutePath,BitmapFactory.Options().apply {
