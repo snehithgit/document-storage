@@ -43,6 +43,12 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState:Bundle?) {
         super.onCreate(savedInstanceState)
+        window.statusBarColor=android.graphics.Color.rgb(6,24,45)
+        window.navigationBarColor=android.graphics.Color.rgb(6,24,45)
+        androidx.core.view.WindowCompat.getInsetsController(window,window.decorView).apply {
+            isAppearanceLightStatusBars=false
+            isAppearanceLightNavigationBars=false
+        }
         setPrivacyScreenEnabled(isPrivacyScreenEnabled())
         repo=VaultRepository(applicationContext)
         engine=DocumentEngine(applicationContext,repo)

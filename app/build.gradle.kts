@@ -15,8 +15,8 @@ android {
         applicationId = "com.snehith.documentvault"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2.0"
+        versionCode = 4
+        versionName = "1.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
@@ -31,7 +31,7 @@ android {
     }
     buildTypes {
         debug {
-            applicationIdSuffix = ".fast"
+            applicationIdSuffix = ".navy"
             versionNameSuffix = "-test"
         }
         release {
@@ -64,6 +64,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
+    implementation("org.opencv:opencv:4.10.0")
     implementation("androidx.work:work-runtime-ktx:2.10.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("com.google.mlkit:text-recognition:16.0.1")

@@ -1,3 +1,32 @@
+
+## v1.3 Premium Navy UI + Full Details
+
+This release continues to use the **fast local plaintext** storage, sharing and offline OCR engine introduced in v1.2. All files remain on device unless you explicitly share or export.
+
+### Updated screens
+- Premium navy Home dashboard, actual document thumbnails, compact action buttons and validity indicators.
+- Two-column Cards library with thumbnails, document types, people and expiry.
+- Smarter Search matching document titles, saved fields and OCR text.
+- Document Detail with attachment/page strip, add button, quick copy, View, OCR, Share and PDF Studio.
+- **Full Details**, a dedicated per-card information page. Add custom fields, select individual text lines from a document's OCR output, edit/remove/reorder fields, and Copy Individual / Copy Selected / Copy All. Field records are saved with the card.
+- Compact grouped navy settings with OCR language, lock, backup and family options.
+- Scan hub with **offline OpenCV** border detection, four draggable crop corners and perspective correction after camera capture. Originals can be retained if the crop is unsuitable.
+
+### Multi-page / combined PDF
+Open a card → **Add** → choose **Scan new page** or **Import files**. Open its **PDF** action, select/reorder PDFs or scanned images, then **Create one PDF**. Select a destination in Android's file picker. The combined PDF is also imported back into the same card; originals remain unchanged.
+
+### Installation & migration
+The GitHub Actions v1.3 **debug APK uses a separate test package** ending in `.navy`. It installs alongside v1.2 to protect sample documents and avoid issues caused by changing GitHub debug signing keys. For v1.2 data transfer, create a ZIP backup from v1.2 → open v1.3 → Settings → Backup & restore → Restore ZIP. Only restore after backing up any v1.3 data, since restore replaces its current card index.
+
+The UI is a **minimalist premium navy theme** with blue action accents rather than strongly pixelated 8-bit typography. The app remains a personal offline utility, not a government identity verification application.
+
+### Remaining verification
+- On-device camera/OCR/crop behavior and PDF combining should be manually tested with multi-page samples; CI only compiles and runs JVM unit tests.
+- OpenCV increases APK size due to native libraries.
+- Automatic crop is contour-based and can fail on low-contrast backgrounds; manual corner adjustment is always available.
+- Full Details currently picks from OCR text lines. Direct finger-selected bounding-box extraction on the visible document is not yet implemented.
+
+
 # Document Vault – Fast Plaintext Edition v1.2
 
 A native Android (Kotlin + Jetpack Compose) offline document card manager.
