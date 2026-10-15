@@ -46,6 +46,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var viewing by remember{mutableStateOf<VaultFile?>(null)}
     var cropBitmap by remember{mutableStateOf<android.graphics.Bitmap?>(null)}
     var cropResult by remember{mutableStateOf<DetectedScan?>(null)}
+    var cameraFile by remember{mutableStateOf<File?>(null)}
     var scanTarget by remember{mutableStateOf<String?>(null)}
     var importTarget by remember{mutableStateOf<String?>(null)}
     var userProfile by rememberSaveable{mutableStateOf("all")}
@@ -143,9 +144,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 busy="Detecting document borders"
                 try{
                     val(bitmap,detected)=withContext(Dispatchers.IO){
-                        val file=File(activity.cacheDir,"camera").listFiles()?.lastOrNull{
-                            uri.toString().contains(it.name)
-                        } ?: throw IllegalStateException("Camera file missing")
+                        val file=cameraFile ?: throw IllegalStateException("Camera file missing")
                         val image=engine.scaledBitmap(file,2050)
                         image to DocumentCropEngine.detect(image)
                     }
@@ -159,6 +158,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         importTarget=target;scanTarget=target
         val f=File(activity.cacheDir,"camera").apply{mkdirs()}.let{File(it,"capture-"+UUID.randomUUID()+".jpg")}
         f.createNewFile()
+        cameraFile=f
         cameraUri=FileProvider.getUriForFile(activity,activity.packageName+".provider",f)
         cameraLauncher.launch(cameraUri!!)
     }
@@ -175,6 +175,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         "rotate"->engine.rotate(job.files.first(),90,uri)
                         "images"->engine.imagesToPdf(job.files,uri)
                         "searchable"->engine.searchableCopy(job.files.first(),uri)
+                        "combine"->engine.combineDocuments(job.files,uri)
                     }
                 };activity.notify("PDF exported successfully")}
                 catch(e:Exception){error="PDF export failed: "+(e.message?:"Error")}
@@ -396,10 +397,12 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 })
                             else route="detail"
                         }
-                        "tools"->current?.let{c->PdfToolsScreen(c){op,files,from,to->
-                            pdfJobToExport=PdfJob(op,files,from,to)
-                            pdfExport.launch("DocumentVault_"+op+"_"+System.currentTimeMillis()+".pdf")
-                        }}
+                        "tools"->current?.let{c->PdfToolsScreen(c,
+                            {importTarget=c.id;importPicker.launch(arrayOf("*/*"))},
+                            {op,files,from,to->
+                                pdfJobToExport=PdfJob(op,files,from,to)
+                                pdfExport.launch("DocumentVault_"+op+"_"+System.currentTimeMillis()+".pdf")
+                            })}
                         "expiry"->ExpiriesScreen(repo.cards.toList()){openCard(it)}
                         "profiles"->ProfilesScreen(repo.profiles.toList()){p->repo.saveProfile(p)}
                         "templates"->TemplatesScreen(FieldSuggestions.templates+repo.customTemplates){template->
