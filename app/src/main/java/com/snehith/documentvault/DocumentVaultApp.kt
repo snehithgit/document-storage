@@ -521,8 +521,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {pwd->backupPassword="";backupImport.launch(arrayOf("*/*"))}
                         )
                         "recovery"->{
-                            val recoverables by produceState(emptyList<VaultFile>()) {
-                                value=withContext(Dispatchers.IO){repo.recoverableFiles()}
+                            var recoverables by remember {mutableStateOf(emptyList<VaultFile>())}
+                            LaunchedEffect(Unit){
+                                recoverables=withContext(Dispatchers.IO){repo.recoverableFiles()}
                             }
                             RecoveryScreen(recoverables,repo.recoveryError,
                             {file,title->scope.launch{
