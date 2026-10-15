@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -23,21 +24,21 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
 
 @Composable fun FullDetailsPage(card:VaultCard,onSave:(VaultCard)->Unit,onSelect:()->Unit) {
     val context=LocalContext.current
-    var tab by remember{mutableStateOf("All")}
-    var editIndex by remember{mutableIntStateOf(-1)}
-    var name by remember{mutableStateOf("")}
-    var value by remember{mutableStateOf("")}
-    var advanced by remember{mutableStateOf(false)}
-    val selected=remember(card.id){mutableStateListOf<Int>()}
+    var tab by rememberSaveable(card.id){mutableStateOf("All")}
+    var editId by rememberSaveable(card.id){mutableStateOf("")}
+    var name by rememberSaveable(card.id){mutableStateOf("")}
+    var value by rememberSaveable(card.id){mutableStateOf("")}
+    var advanced by rememberSaveable(card.id){mutableStateOf(false)}
+    var selected by rememberSaveable(card.id){mutableStateOf(emptySet<String>())}
     val fields=card.fields
     val rows=fields.mapIndexed{index,f->index to f}.filter{(_,f)->
         tab=="All"||(tab=="OCR"&&f.source=="extracted")||
         (tab=="Selected"&&f.source=="selected")||(tab=="Custom"&&f.source=="manual")
     }
-    fun copied(indices:List<Int>)=indices.mapNotNull{fields.getOrNull(it)}
-        .filter{it.value.isNotBlank()}.joinToString("\n"){it.name+": "+it.value}
-    if(editIndex>=0)AlertDialog(onDismissRequest={editIndex=-1},
-        title={Text(if(editIndex==fields.size)"New custom field" else "Edit saved field")},
+    fun copied(ids:Set<String>)=fields.filter{it.id in ids && it.value.isNotBlank()}
+        .joinToString("\n"){it.name+": "+it.value}
+    if(editId.isNotBlank())AlertDialog(onDismissRequest={editId=""},
+        title={Text(if(editId=="new")"New custom field" else "Edit saved field")},
         text={Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
             OutlinedTextField(name,{name=it},label={Text("Field name")})
             OutlinedTextField(value,{value=it},label={Text("Information to copy")},minLines=2)
@@ -45,14 +46,15 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
         confirmButton={TextButton(onClick={
             if(name.isNotBlank()){
                 val next=fields.toMutableList()
-                val old=fields.getOrNull(editIndex)
-                val updated=DataField(name.trim(),value.trim(),old?.page?:-1,old?.source?:"manual")
-                if(editIndex==fields.size)next.add(updated)else next[editIndex]=updated
+                val old=fields.firstOrNull{it.id==editId}
+                val updated=DataField(name.trim(),value.trim(),old?.page?:-1,old?.source?:"manual",
+                    old?.id?:java.util.UUID.randomUUID().toString())
+                if(old==null)next.add(updated)else next[next.indexOfFirst{it.id==old.id}]=updated
                 onSave(card.copy(fields=next))
             }
-            editIndex=-1
+            editId=""
         }){Text("Save")}},
-        dismissButton={TextButton(onClick={editIndex=-1}){Text("Cancel")}})
+        dismissButton={TextButton(onClick={editId=""}){Text("Cancel")}})
     Column(Modifier.fillMaxSize().background(dNavy)){
         Column(Modifier.padding(16.dp)){
             Text("Full Details",color=MaterialTheme.colorScheme.onSurface,style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
@@ -67,7 +69,7 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                 Button(onClick=onSelect,modifier=Modifier.weight(1f)){
                     Icon(Icons.Outlined.TextSnippet,null,Modifier.size(17.dp));Text(" From Document")
                 }
-                OutlinedButton(onClick={editIndex=fields.size;name="";value=""},modifier=Modifier.weight(1f)){
+                OutlinedButton(onClick={editId="new";name="";value=""},modifier=Modifier.weight(1f)){
                     Icon(Icons.Outlined.Add,null,Modifier.size(17.dp));Text(" Custom Field")
                 }
             }
@@ -75,13 +77,13 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
         }
         LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(horizontal=14.dp,vertical=4.dp),
             verticalArrangement=Arrangement.spacedBy(8.dp)){
-            items(rows,key={it.first}){(index,f)->
+            items(rows,key={it.second.id}){(index,f)->
                 Surface(color=dPanel,shape=RoundedCornerShape(10.dp),
                     border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
                     Column(Modifier.padding(10.dp)){
                         Row(verticalAlignment=Alignment.CenterVertically){
-                            Checkbox(checked=index in selected,onCheckedChange={yes->
-                                if(yes){if(index !in selected)selected.add(index)}else selected.remove(index)
+                            Checkbox(checked=f.id in selected,onCheckedChange={yes->
+                                selected=if(yes)selected+f.id else selected-f.id
                             })
                             Column(Modifier.weight(1f)){
                                 Text(f.name,color=dMuted,style=MaterialTheme.typography.labelMedium)
@@ -92,7 +94,7 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                             IconButton(onClick={copyToClipboard(context,f.name,f.value)}){
                                 Icon(Icons.Outlined.ContentCopy,"Copy "+f.name,tint=MaterialTheme.colorScheme.primary)
                             }
-                            IconButton(onClick={editIndex=index;name=f.name;value=f.value}){
+                            IconButton(onClick={editId=f.id;name=f.name;value=f.value}){
                                 Icon(Icons.Outlined.Edit,"Edit field",tint=dMuted)
                             }
                         }
@@ -112,7 +114,7 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                                 }
                             }){Text("Move down")}
                             TextButton(onClick={
-                                onSave(card.copy(fields=fields.filterIndexed{i,_->i!=index}));selected.clear()
+                                onSave(card.copy(fields=fields.filterIndexed{i,_->i!=index}));selected=selected-f.id
                             }){Text("Remove",color=Color(0xFFFFB86A))}
                         }
                     }
@@ -126,11 +128,11 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
         Surface(color=MaterialTheme.colorScheme.surface,shadowElevation=0.dp,
             border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
             Row(Modifier.padding(12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                OutlinedButton(onClick={copyToClipboard(context,"Selected information",copied(selected.sorted()))},
+                OutlinedButton(onClick={copyToClipboard(context,"Selected information",copied(selected))},
                     enabled=selected.isNotEmpty(),modifier=Modifier.weight(1f)){
                     Icon(Icons.Outlined.Checklist,null,Modifier.size(16.dp));Text(" Selected (${selected.size})")
                 }
-                Button(onClick={copyToClipboard(context,"Full details",copied(fields.indices.toList()))},
+                Button(onClick={copyToClipboard(context,"Full details",copied(fields.map{it.id}.toSet()))},
                     enabled=fields.any{it.value.isNotBlank()},modifier=Modifier.weight(1f)){
                     Icon(Icons.Outlined.ContentCopy,null,Modifier.size(16.dp));Text(" Copy All")
                 }
@@ -139,18 +141,19 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
     }
 }
 @Composable fun SelectDocumentTextPage(card:VaultCard,onAdd:(DataField)->Unit,onRunOcr:(VaultFile)->Unit){
-    var selectedFile by remember{mutableIntStateOf(0)}
-    var query by remember{mutableStateOf("")}
-    var candidate by remember{mutableStateOf<String?>(null)}
-    var label by remember{mutableStateOf("")}
-    var chosenPage by remember{mutableIntStateOf(-1)}
+    var selectedFile by rememberSaveable(card.id){mutableIntStateOf(0)}
+    var query by rememberSaveable(card.id){mutableStateOf("")}
+    var candidate by rememberSaveable(card.id){mutableStateOf<String?>(null)}
+    var label by rememberSaveable(card.id){mutableStateOf("")}
+    var chosenPage by rememberSaveable(card.id){mutableIntStateOf(-1)}
     val file=card.files.getOrNull(selectedFile)
     var pg=0
     val choices=(file?.extractedText?:"").lineSequence().mapNotNull{line->
         val marker=Regex("--- PAGE (\\d+) ---").find(line.trim())
         if(marker!=null){pg=(marker.groupValues[1].toIntOrNull()?:1)-1;null}
         else if(line.trim().length in 2..220 && (query.isBlank()||line.contains(query,true)))pg to line.trim() else null
-    }.take(350).toList()
+    }.take(351).toList()
+    val truncated=choices.size>350
     if(candidate!=null)AlertDialog(onDismissRequest={candidate=null},title={Text("Save selected detail")},
         text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
             OutlinedTextField(label,{label=it},label={Text("Field name")})
@@ -169,7 +172,7 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
         Spacer(Modifier.height(10.dp))
         Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(7.dp)){
             card.files.forEachIndexed{i,f->FilterChip(selected=i==selectedFile,onClick={selectedFile=i},
-                label={Text(f.name.take(15))})}
+                label={Text(VaultNames.title(f.name).take(24))})}
         }
         if(file==null)Text("Attach a document first.",color=dMuted)
         else if(file.extractedText.isBlank()){
@@ -180,8 +183,10 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
             OutlinedTextField(query,{query=it},modifier=Modifier.fillMaxWidth(),
                 label={Text("Find text")},singleLine=true,leadingIcon={Icon(Icons.Outlined.Search,null)})
             Spacer(Modifier.height(8.dp))
+            if(truncated) Text("Showing first 350 matches. Refine search to see more.",
+                color=dMuted,style=MaterialTheme.typography.bodySmall)
             LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp)){
-                items(choices){(page,line)->
+                items(choices.take(350)){(page,line)->
                     Card(onClick={candidate=line;label="";chosenPage=page},colors=CardDefaults.cardColors(containerColor=dPanel),
                         border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
                         Text(line,color=MaterialTheme.colorScheme.onSurface,modifier=Modifier.fillMaxWidth().padding(13.dp))
