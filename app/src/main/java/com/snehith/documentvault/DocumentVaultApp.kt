@@ -160,7 +160,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         val file=File(cameraPath).takeIf{it.isFile}
                             ?:throw IllegalStateException("Camera file missing")
                         val image=engine.scaledBitmap(file,2050)
-                        image to DocumentCropEngine.detect(image)
+                        image to DocumentCropEngine.detect(image,activity.applicationContext)
                     }
                     cropBitmap=bitmap;cropResult=detected;route="crop"
                 }catch(e:Exception){error="Scan preparation failed: "+(e.message?:"Unknown error")}
@@ -174,7 +174,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 val file=File(cameraPath)
                 if(file.isFile) {
                     val photo=engine.scaledBitmap(file,2050)
-                    photo to DocumentCropEngine.detect(photo)
+                    photo to DocumentCropEngine.detect(photo,activity.applicationContext)
                 }else null
             }
             if(recovered!=null){cropBitmap=recovered.first;cropResult=recovered.second}
