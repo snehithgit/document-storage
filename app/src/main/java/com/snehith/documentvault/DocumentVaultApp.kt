@@ -299,7 +299,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         "search"->VaultNavSearch(repo.cards.toList(),repo){openCard(it)}
                         "scan"->NavyScanScreen({camera()},
                             {importTarget=null;importPicker.launch(arrayOf("*/*"))},{startEdit(repo.newCard())})
-                        "more"->SettingsScreen(repo.hasPin(),engine.availableLanguages(),ocrLanguage,privacyScreen,
+                        "more"->PremiumSettings(repo.hasPin(),engine.availableLanguages(),ocrLanguage,privacyScreen,
                             {enabled->privacyScreen=enabled;activity.setPrivacyScreenEnabled(enabled)},
                             {pin,old->try{repo.setPin(pin,old);activity.notify("PIN saved")}catch(e:Exception){error=e.message?:"PIN failed"}},
                             {pin->if(repo.checkPin(pin)){repo.clearPin();activity.notify("PIN removed")} else activity.notify("Wrong PIN")},
