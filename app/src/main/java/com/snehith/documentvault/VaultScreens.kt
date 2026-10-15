@@ -366,6 +366,15 @@ fun copyToClipboard(context:Context,label:String,value:String) {
                             modifier=Modifier.weight(1f),label={Text("Field name")})
                         IconButton(onClick={fields.removeAt(i)}){Icon(Icons.Outlined.Delete,null)}
                     }
+                    if(fields[i].confidence>0f) {
+                        Surface(shape=RoundedCornerShape(50),
+                            color=MaterialTheme.colorScheme.primary.copy(alpha=.12f)){
+                            Text("Confidence ${(fields[i].confidence*100).toInt()}% · review",
+                                color=MaterialTheme.colorScheme.secondary,
+                                style=MaterialTheme.typography.labelSmall,
+                                modifier=Modifier.padding(horizontal=9.dp,vertical=5.dp))
+                        }
+                    }
                     OutlinedTextField(fields[i].value,{fields[i]=fields[i].copy(value=it)},
                         modifier=Modifier.fillMaxWidth(),label={Text("Extracted value")})
                 }
