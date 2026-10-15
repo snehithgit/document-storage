@@ -37,6 +37,31 @@ The workflow runs `gradle :app:assembleDebug`. Debug APK is installable for test
 
 No internet permission, no cloud account, and no analytics SDK. Sharing produces a temporary decrypted file in app cache for Android's share sheet; cache is periodically cleaned. App screenshots are protected using FLAG_SECURE.
 
+
+
+## Repeatable signing for safe updates
+
+GitHub Actions always builds an **isolated test app** using package `com.snehith.documentvault.debug`.
+For a non-test app that updates safely without uninstalling, create a private signing keystore once and store these four GitHub Actions repository secrets:
+
+- `VAULT_SIGNING_KEYSTORE_BASE64`: base64-encoded keystore file (one line, no line breaks).
+- `VAULT_STORE_PASSWORD`: keystore password.
+- `VAULT_KEY_ALIAS`: key alias.
+- `VAULT_KEY_PASSWORD`: key password.
+
+Example using Java's `keytool` on your trusted machine:
+
+```bash
+keytool -genkeypair -keystore document-vault.jks -alias vault-release -keyalg RSA -keysize 3072 -validity 10000
+base64 -w0 document-vault.jks
+```
+
+Put the resulting single-line base64 string in GitHub Settings > Secrets and variables > Actions.
+Never commit the keystore or passwords to source control. Keep an offline backup of the keystore and passwords.
+With all four secrets set, GitHub Actions publishes `DocumentVault-signed-release-apk` in addition to the debug artifact. Reuse this exact keystore for every future release. An APK cannot update an installed app with the same package name if the signing key changes.
+
+**Do not store irreplaceable personal documents in the test build.** The test build and future signed release are separate applications. When moving your data between them, use the password-protected vault Backup and Restore feature. Try backup/restore with non-sensitive sample files first.
+
 ## Dependencies / licenses
 
 AndroidX / Jetpack Compose, Google ML Kit, Tesseract4Android, Apache PDFBox-Android, Apache POI. Check each dependency's license before redistribution.
