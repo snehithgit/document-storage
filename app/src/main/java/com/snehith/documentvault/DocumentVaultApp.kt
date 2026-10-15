@@ -16,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -65,24 +66,10 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var backupPassword by remember{mutableStateOf("")}
     val reviewQueue= remember{mutableStateListOf<ReviewJob>()}
     val options=remember { activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE) }
-    var themeMode by rememberSaveable { mutableStateOf(options.getString("displayTheme","light") ?: "light") }
-    val dark=themeMode=="dark"
-    val scheme=if(dark) darkColorScheme(
-        primary=Color(0xFF8DB8FF),onPrimary=Color(0xFF0D203A),
-        background=Color(0xFF10151C),onBackground=Color(0xFFF1F5F9),
-        surface=Color(0xFF171E28),onSurface=Color(0xFFF1F5F9),
-        surfaceContainer=Color(0xFF171E28),surfaceContainerLow=Color(0xFF171E28),
-        surfaceVariant=Color(0xFF222D3A),outline=Color(0xFF738194),
-        outlineVariant=Color(0xFF354252),onSurfaceVariant=Color(0xFFAAB8C8))
-    else lightColorScheme(
-        primary=Color(0xFF2456AC),onPrimary=Color.White,
-        background=Color.White,onBackground=Color(0xFF172234),
-        surface=Color.White,onSurface=Color(0xFF172234),
-        surfaceContainer=Color.White,surfaceContainerLow=Color.White,
-        surfaceVariant=Color(0xFFF5F7FA),outline=Color(0xFF9BA5B2),
-        outlineVariant=Color(0xFFDFE4EB),onSurfaceVariant=Color(0xFF64748B))
+    var themeMode by rememberSaveable { mutableStateOf(options.getString("displayTheme","system") ?: "system") }
+    val dark=when(themeMode){"dark"->true;"light"->false;else->isSystemInDarkTheme()}
     val current=repo.cards.firstOrNull{it.id==selectedCardId}
-    val regular=route in setOf("home","cards","scan","search","more")
+    val regular=route in setOf("home","cards","search","more")
     fun openCard(c:VaultCard){if(regular)lastRoot=route;selectedCardId=c.id;route="detail"}
     fun startEdit(card:VaultCard){editing=card;editingJson=repo.encodeCard(card);route="edit"}
     fun goBack(){
@@ -319,7 +306,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             isAppearanceLightNavigationBars=!dark
         }
     }
-    MaterialTheme(colorScheme=scheme,shapes=Shapes(medium=RoundedCornerShape(17.dp),large=RoundedCornerShape(22.dp))) {
+    VaultTheme(dark) {
         if(!activity.unlocked.value) {
             UnlockScreen(onPin={pin->
                 if(repo.checkPin(pin)){activity.unlocked.value=true;true}else false
@@ -329,57 +316,49 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             androidx.activity.compose.BackHandler(enabled=!regular||route!="home"){goBack()}
             Scaffold(
                 topBar={
-                    if(!regular)TopAppBar(colors=TopAppBarDefaults.topAppBarColors(containerColor=VaultNavy),title={Text(when(route){
-                        "detail"->current?.let{VaultNames.title(it.title)} ?: "Document"
-                        "fulldetails"->"Full Details"
-                        "selectfields"->"Select from Document"
-                        "crop"->"Crop Document"
-                        "edit"->"Edit information"
-                        "viewer"->"Document Viewer"
-                        "review"->"OCR Review"
-                        "tools"->"PDF Utilities"
-                        "expiry"->"Expiry & renewal"
-                        "profiles"->"Family profiles"
-                        "templates"->"Card templates"
-                        "backup"->"Backup & Restore"
-                        "recovery"->"Recover imported files"
-                        else->"Document Vault"
-                    },maxLines=1)},
-                        navigationIcon={IconButton(onClick={goBack()}){Icon(Icons.Outlined.ArrowBack,"Back")}})
-                    else TopAppBar(colors=TopAppBarDefaults.topAppBarColors(containerColor=VaultNavy),title={
-                        Row(verticalAlignment=Alignment.CenterVertically) {
-                            Icon(Icons.Outlined.Inventory2,null,tint=MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(9.dp));Text("Document Vault",fontWeight=FontWeight.Bold)
-                        }
-                    },actions={
-                        IconButton(onClick={route="expiry"}){Icon(Icons.Outlined.NotificationsActive,"Expiry alerts")}
-                        IconButton(onClick={route="more"}){Icon(Icons.Outlined.Settings,"Settings")}
-                    })
+                    if(!regular)TopAppBar(
+                        colors=TopAppBarDefaults.topAppBarColors(containerColor=MaterialTheme.colorScheme.background),
+                        title={
+                            Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center){
+                                Text(when(route){
+                                    "detail"->current?.let{VaultNames.title(it.title)} ?: "Document"
+                                    "fulldetails"->"Full Details"
+                                    "selectfields"->"Select from document"
+                                    "scan"->"Scan"
+                                    "crop"->"Crop document"
+                                    "edit"->"Edit information"
+                                    "viewer"->"Document viewer"
+                                    "review"->"OCR review"
+                                    "tools"->"PDF Studio"
+                                    "expiry"->"Expiry and renewal"
+                                    "profiles"->"Family profiles"
+                                    "templates"->"Card templates"
+                                    "backup"->"Backup and restore"
+                                    "recovery"->"Recovery"
+                                    else->"Document Vault"
+                                },maxLines=1,style=MaterialTheme.typography.titleMedium)
+                            }
+                        },
+                        navigationIcon={
+                            Surface(shape=androidx.compose.foundation.shape.CircleShape,
+                                color=MaterialTheme.colorScheme.surface,
+                                modifier=Modifier.padding(start=8.dp).size(40.dp).clickable{goBack()}){
+                                Box(contentAlignment=Alignment.Center){
+                                    Icon(Icons.Outlined.ArrowBack,"Back",tint=MaterialTheme.colorScheme.onSurface)
+                                }
+                            }
+                        },
+                        actions={Spacer(Modifier.width(48.dp))}
+                    )
                 },
                 bottomBar={
-                    if(regular)NavigationBar(containerColor=MaterialTheme.colorScheme.surface,tonalElevation=0.dp) {
-                        listOf(
-                            Triple("home",Icons.Outlined.Home,"Home"),
-                            Triple("cards",Icons.Outlined.Dashboard,"Cards"),
-                            Triple("scan",Icons.Outlined.DocumentScanner,"Scan"),
-                            Triple("search",Icons.Outlined.Search,"Search"),
-                            Triple("more",Icons.Outlined.Settings,"More")
-                        ).forEach{(id,icon,label)->
-                            NavigationBarItem(selected=route==id,onClick={route=id},
-                                colors=NavigationBarItemDefaults.colors(selectedIconColor=MaterialTheme.colorScheme.primary,
-                                    unselectedIconColor=MaterialTheme.colorScheme.onSurfaceVariant,
-                                    selectedTextColor=MaterialTheme.colorScheme.primary,
-                                    unselectedTextColor=MaterialTheme.colorScheme.onSurfaceVariant,
-                                    indicatorColor=MaterialTheme.colorScheme.primary.copy(alpha=.10f)),
-                                icon={Icon(icon,label)},label={Text(label)})
-                        }
-                    }
+                    if(regular)HubBottomBar(route,{route=it},{camera()})
                 }
             ){ padding ->
                 Box(Modifier.fillMaxSize().padding(padding)) {
                     savedScreens.SaveableStateProvider(route) {
                     when(route){
-                        "home"->VaultNavHome(repo.cards.toList(),repo,repo.profiles.toList(),userProfile,
+                        "home"->HubHome(repo.cards.toList(),repo,repo.profiles.toList(),userProfile,
                             {userProfile=it},{openCard(it)},{route="search"},{camera()},
                             {importTarget=null;importPicker.launch(arrayOf("*/*"))},
                             {startEdit(repo.newCard(profile=if(userProfile=="all")"self" else userProfile))},
@@ -389,10 +368,10 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         "scan"->NavyScanScreen({camera()},
                             {importTarget=null;importPicker.launch(arrayOf("*/*"))},{startEdit(repo.newCard())})
                         "more"->PremiumSettings(repo.hasPin(),engine.availableLanguages(),ocrLanguage,privacyScreen,
-                            themeMode=="dark",
+                            themeMode,
                             {value->
-                                themeMode=if(value)"dark" else "light"
-                                options.edit().putString("displayTheme",themeMode).apply()
+                                themeMode=value
+                                options.edit().putString("displayTheme",value).apply()
                             },
                             {enabled->privacyScreen=enabled;activity.setPrivacyScreenEnabled(enabled)},
                             {pin,old->try{repo.setPin(pin,old);activity.notify("PIN saved")}catch(e:Exception){error=e.message?:"PIN failed"}},
