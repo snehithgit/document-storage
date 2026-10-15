@@ -92,8 +92,8 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
                             for(i in 0 until renderer.pageCount) {
                                 renderer.openPage(i).use{page->
                                     val scale=(1800f/page.width).coerceIn(1f,2f)
-                                    val w=(page.width*scale).toInt().coerceAtLeast(1)
-                                    val h=(page.height*scale).toInt().coerceAtLeast(1)
+                                    val w=(page.width*scale).toInt().coerceIn(1,2400)
+                                    val h=(page.height*scale).toInt().coerceIn(1,3200)
                                     val bitmap=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888)
                                     try {bitmap.eraseColor(android.graphics.Color.WHITE);page.render(bitmap,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                                         extracted.append("\n--- PAGE ").append(i+1).append(" ---\n").append(recognize(bitmap,script))
