@@ -324,3 +324,53 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
         }
     }
 }
+
+
+@Composable fun NavyScanScreen(onCamera:()->Unit,onImport:()->Unit,onNew:()->Unit){
+    Column(Modifier.fillMaxSize().background(VaultNavy).padding(16.dp),
+        verticalArrangement=Arrangement.spacedBy(14.dp)){
+        VaultHeader("Scan & add","Capture clean multi-page documents, all on device")
+        Card(onClick=onCamera,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=RoundedCornerShape(19.dp)){
+            Column(Modifier.fillMaxWidth().padding(20.dp),horizontalAlignment=Alignment.CenterHorizontally){
+                Icon(Icons.Outlined.DocumentScanner,null,tint=VaultSky,modifier=Modifier.size(61.dp))
+                Spacer(Modifier.height(12.dp))
+                Text("Scan with auto-crop",color=Color.White,fontWeight=FontWeight.Bold,
+                    style=MaterialTheme.typography.titleMedium)
+                Text("Detect edges · adjust four corners · straighten perspective",
+                    color=VaultMuted,style=MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(13.dp))
+                Button(onClick=onCamera){Icon(Icons.Outlined.CameraAlt,null);Text(" Open camera")}
+            }
+        }
+        Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
+            Card(onClick=onImport,modifier=Modifier.weight(1f),
+                colors=CardDefaults.cardColors(containerColor=VaultPanel)){
+                Column(Modifier.padding(17.dp)){
+                    Icon(Icons.Outlined.UploadFile,null,tint=VaultSky,modifier=Modifier.size(29.dp))
+                    Spacer(Modifier.height(9.dp))
+                    Text("Import files",color=Color.White,fontWeight=FontWeight.SemiBold)
+                    Text("PDF, JPG, PNG, DOCX",color=VaultMuted,style=MaterialTheme.typography.labelSmall)
+                }
+            }
+            Card(onClick=onNew,modifier=Modifier.weight(1f),
+                colors=CardDefaults.cardColors(containerColor=VaultPanel)){
+                Column(Modifier.padding(17.dp)){
+                    Icon(Icons.Outlined.AddCard,null,tint=VaultSky,modifier=Modifier.size(29.dp))
+                    Spacer(Modifier.height(9.dp))
+                    Text("Information card",color=Color.White,fontWeight=FontWeight.SemiBold)
+                    Text("Create without files",color=VaultMuted,style=MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+        Column(Modifier.background(VaultPanel,RoundedCornerShape(15.dp)).padding(15.dp)){
+            Text("Multi-page document workflow",color=Color.White,fontWeight=FontWeight.Bold)
+            Spacer(Modifier.height(7.dp))
+            Text("1. Open a document card, then tap Add to attach more scans or PDFs.",
+                color=VaultMuted,style=MaterialTheme.typography.bodyMedium)
+            Text("2. Open PDF Tools to select pages/files and create one combined PDF.",
+                color=VaultMuted,style=MaterialTheme.typography.bodyMedium)
+            Text("3. Use Full Details to save and copy selected OCR information.",
+                color=VaultMuted,style=MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
