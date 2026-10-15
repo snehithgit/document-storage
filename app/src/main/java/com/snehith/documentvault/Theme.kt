@@ -86,7 +86,7 @@ val VaultTypography=Typography(
     titleLarge=TextStyle(fontFamily=FontFamily.SansSerif,fontWeight=FontWeight.SemiBold),
     titleMedium=TextStyle(fontFamily=FontFamily.SansSerif,fontWeight=FontWeight.SemiBold)
 )
-@Composable fun VaultTheme(dark:Boolean,content:@Composable()->Unit){
+@Composable fun VaultTheme(dark:Boolean,content: @Composable () -> Unit){
     MaterialTheme(
         colorScheme=if(dark)VaultDarkScheme else VaultLightScheme,
         shapes=VaultShapes,
