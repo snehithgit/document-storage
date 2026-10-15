@@ -130,7 +130,7 @@ fun copyToClipboard(context:Context,label:String,value:String) {
     var filter by remember{mutableStateOf("All")}
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(16.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
-            Heading("All cards",cards.size.toString()+" saved records")
+            Heading("All cards",VaultCounts.format(cards.size,"saved record"))
             IconButton(onClick=onNew){Icon(Icons.Outlined.AddCircleOutline,null)}
         }
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal=16.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -167,7 +167,7 @@ fun copyToClipboard(context:Context,label:String,value:String) {
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)){
                             Text(c.title,fontWeight=FontWeight.SemiBold)
-                            Text(c.category+" · "+c.files.size+" files",style=MaterialTheme.typography.labelSmall)
+                            Text(c.category+" · "+VaultCounts.format(c.files.size,"file"),style=MaterialTheme.typography.labelSmall)
                         }
                         Icon(Icons.Outlined.ChevronRight,null)
                     }
