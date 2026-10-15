@@ -167,7 +167,7 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
                 VaultQuick("PDF",Icons.Outlined.PictureAsPdf,Modifier.weight(1f),onPdf)
             }
         }
-        item {VaultHeader("Recent documents",visible.size.toString()+" cards in your vault")}
+        item {VaultHeader("Recent documents",VaultCounts.format(visible.size,"card")+" in your vault")}
         items(visible.sortedByDescending{it.created}.take(10),key={it.id}){c->VaultRow(c,repo){onOpen(c)}}
         if(visible.isEmpty())item{
             Text("Import a document or scan a new one to get started.",color=VaultMuted)
