@@ -1,6 +1,7 @@
 package com.snehith.documentvault
 
 import android.graphics.Bitmap
+import android.util.LruCache
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
@@ -10,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -22,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
@@ -40,25 +43,31 @@ private val rounded=RoundedCornerShape(15.dp)
         if(subtitle!=null)Text(subtitle,color=VaultMuted,style=MaterialTheme.typography.bodySmall)
     }
 }
+/** Size-bounded cache, owned by the process; bitmaps are not recycled while Compose may render them. */
+private val thumbnailCache=object:LruCache<String,Bitmap>(16*1024*1024){
+    override fun sizeOf(key:String,value:Bitmap):Int=value.byteCount
+}
 @Composable fun VaultThumbnail(file:VaultFile?,repo:VaultRepository,modifier:Modifier=Modifier) {
     var bitmap by remember(file?.id){mutableStateOf<Bitmap?>(null)}
-    LaunchedEffect(file?.id){
+    LaunchedEffect(file?.id) {
         bitmap=null
-        if(file!=null)try {
-            bitmap=withContext(Dispatchers.IO){
-                val raw=repo.documentFile(file)
-                if(file.mime=="application/pdf"||file.name.endsWith(".pdf",true)){
-                    PdfPageSession(raw).use{it.render(0,340)}
-                }else if(file.mime.startsWith("image/")){
-                    val dims=android.graphics.BitmapFactory.Options().apply{inJustDecodeBounds=true}
-                    android.graphics.BitmapFactory.decodeFile(raw.absolutePath,dims)
-                    var sample=1
-                    while(maxOf(dims.outWidth,dims.outHeight)/sample>440)sample*=2
-                    android.graphics.BitmapFactory.decodeFile(raw.absolutePath,
-                        android.graphics.BitmapFactory.Options().apply{inSampleSize=sample})
-                }else null
+        if(file==null)return@LaunchedEffect
+        try {
+            val cacheKey=file.id+"-"+repo.documentFile(file).lastModified()
+            val image=withContext(Dispatchers.IO) {
+                synchronized(thumbnailCache){thumbnailCache.get(cacheKey)} ?: run {
+                    val raw=repo.documentFile(file)
+                    val thumbnail=if(file.mime=="application/pdf"||file.name.endsWith(".pdf",true)){
+                        PdfPageSession(raw).use{it.render(0,340)}
+                    }else if(file.mime.startsWith("image/")){
+                        ImageDecode.decode(raw,440)
+                    }else null
+                    if(thumbnail!=null)synchronized(thumbnailCache){thumbnailCache.put(cacheKey,thumbnail)}
+                    thumbnail
+                }
             }
-        }catch(_:Exception){}
+            bitmap=image
+        }catch(_:Exception){ /* Invalid attachment falls back to the document icon. */ }
     }
     Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant,rounded),contentAlignment=Alignment.Center){
         if(bitmap!=null)Image(bitmap!!.asImageBitmap(),"Document",Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
@@ -89,12 +98,12 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
                 VaultThumbnail(card.files.firstOrNull(),repo,Modifier.fillMaxWidth().height(140.dp))
                 Box(Modifier.align(Alignment.TopEnd).padding(5.dp)){VaultPill(card.kind.take(12))}
             }
-            Text(card.title,color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold,
+            Text(VaultNames.title(card.title),color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold,
                 style=MaterialTheme.typography.bodyMedium,maxLines=2,minLines=2,overflow=TextOverflow.Ellipsis)
             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){
                 val(v,c)=vaultValidity(card)
                 VaultPill(v,c)
-                Text("${card.files.size} files",color=VaultMuted,style=MaterialTheme.typography.labelSmall)
+                Text(VaultCounts.format(card.files.size,"file"),color=VaultMuted,style=MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -109,7 +118,7 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
             Column(Modifier.weight(1f)){
                 Text(card.title,color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
                 Text(card.kind+" · "+card.category,color=VaultMuted,style=MaterialTheme.typography.labelSmall)
-                Text("${card.files.size} attachments",color=VaultSky,style=MaterialTheme.typography.labelSmall)
+                Text(VaultCounts.format(card.files.size,"attachment"),color=VaultSky,style=MaterialTheme.typography.labelSmall)
             }
             VaultPill(v,c)
         }
@@ -183,10 +192,10 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
     }
 }
 @Composable fun VaultNavCards(cards:List<VaultCard>,repo:VaultRepository,onOpen:(VaultCard)->Unit,onNew:()->Unit){
-    var filter by remember{mutableStateOf("All")}
+    var filter by rememberSaveable{mutableStateOf("All")}
     Column(Modifier.fillMaxSize().background(bgBrush)){
         Row(Modifier.padding(16.dp),verticalAlignment=Alignment.CenterVertically){
-            Column(Modifier.weight(1f)){VaultHeader("Document cards","${cards.size} saved")}
+            Column(Modifier.weight(1f)){VaultHeader("Document cards",VaultCounts.format(cards.size,"card")+" saved")}
             IconButton(onClick=onNew){Icon(Icons.Outlined.AddCircle,null,tint=VaultSky)}
         }
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal=15.dp),
@@ -203,15 +212,21 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
     }
 }
 @Composable fun VaultNavSearch(cards:List<VaultCard>,repo:VaultRepository,onOpen:(VaultCard)->Unit){
-    var query by remember{mutableStateOf("")}
-    var mode by remember{mutableStateOf("All")}
-    val filtered=cards.filter{card->
-        val text=card.title+" "+card.category+" "+card.kind+" "+
-            card.fields.joinToString(" "){it.name+" "+it.value}+" "+
-            card.files.joinToString(" "){it.name+" "+it.extractedText}
-        (query.isBlank()||text.contains(query,true))&&
-        (mode=="All"||(mode=="Fields"&&card.fields.any{it.value.contains(query,true)})||
-            (mode=="OCR"&&card.files.any{it.extractedText.contains(query,true)}))
+    var query by rememberSaveable{mutableStateOf("")}
+    var mode by rememberSaveable{mutableStateOf("All")}
+    val filtered by produceState(initialValue=cards,query,mode,cards) {
+        delay(250)
+        val snapshot=cards.toList()
+        value=withContext(Dispatchers.Default) {
+            snapshot.filter{card->
+                val text=card.title+" "+card.category+" "+card.kind+" "+
+                    card.fields.joinToString(" "){it.name+" "+it.value}+" "+
+                    card.files.joinToString(" "){it.name+" "+it.extractedText}
+                (query.isBlank()||text.contains(query,true))&&
+                (mode=="All"||(mode=="Fields"&&card.fields.any{it.value.contains(query,true)})||
+                    (mode=="OCR"&&card.files.any{it.extractedText.contains(query,true)}))
+            }
+        }
     }
     Column(Modifier.fillMaxSize().background(bgBrush).padding(horizontal=15.dp)){
         Spacer(Modifier.height(14.dp))
@@ -224,7 +239,7 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
                 FilterChip(selected=mode==m,onClick={mode=m},label={Text(m)})
             }
         }
-        Text("${filtered.size} matching records",color=VaultMuted,modifier=Modifier.padding(vertical=12.dp))
+        Text(VaultCounts.format(filtered.size,"matching record"),color=VaultMuted,modifier=Modifier.padding(vertical=12.dp))
         LazyColumn(verticalArrangement=Arrangement.spacedBy(10.dp),contentPadding=PaddingValues(bottom=85.dp)){
             items(filtered,key={it.id}){c->
                 VaultRow(c,repo){onOpen(c)}
@@ -245,10 +260,10 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
 @Composable fun VaultNavDetail(card:VaultCard,repo:VaultRepository,onFile:(VaultFile)->Unit,onOcr:(VaultFile)->Unit,
     onShare:(VaultFile)->Unit,onShareAll:()->Unit,onAdd:()->Unit,
     onFull:()->Unit,onTools:()->Unit,onEdit:()->Unit,onDelete:()->Unit){
-    var selected by remember(card.id){mutableIntStateOf(0)}
+    var selected by rememberSaveable(card.id){mutableIntStateOf(0)}
     val context=LocalContext.current
     val(status,color)=vaultValidity(card)
-    var confirm by remember{mutableStateOf(false)}
+    var confirm by rememberSaveable(card.id){mutableStateOf(false)}
     if(confirm)AlertDialog(onDismissRequest={confirm=false},title={Text("Delete card?")},
         text={Text("The associated documents will also be removed.")},
         confirmButton={TextButton(onClick={confirm=false;onDelete()}){Text("Delete")}},
@@ -276,7 +291,7 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
         }
         item {
             Row(verticalAlignment=Alignment.CenterVertically){
-                Column(Modifier.weight(1f)){VaultHeader(card.title,"${card.kind} · ${card.category}")}
+                Column(Modifier.weight(1f)){VaultHeader(VaultNames.title(card.title),"${card.kind} · ${card.category}")}
                 VaultPill(status,color)
                 IconButton(onClick=onEdit){Icon(Icons.Outlined.Edit,null,tint=VaultSky)}
             }
