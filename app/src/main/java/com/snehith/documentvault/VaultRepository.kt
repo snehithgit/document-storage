@@ -74,7 +74,7 @@ object FieldSuggestions {
             val m=labelPattern.find(line.trim()) ?: continue
             val key=m.groupValues[1].trim().replaceFirstChar { it.uppercase() }
             val value=m.groupValues[2].trim().take(250)
-            if(value.isNotBlank() && value.length<251) found[key] = DataField(key,value,page,"extracted")
+            if(value.isNotBlank() && value.length<251) found[key] = DataField(key,value,-1,"extracted")
         }
         return found.values.toList()
     }
@@ -219,6 +219,7 @@ class VaultRepository(private val context: Context) {
         }
         return (name.ifBlank{uri.lastPathSegment?: "document"}).replace(Regex("[\\r\\n\\u0000-\\u001f/]"),"_").take(150)
     }
+    fun removeOrphan(file:VaultFile) { blob(file.id).delete() }
     fun openDecrypted(file:VaultFile):File {
         val dir=File(context.cacheDir,"preview").apply{mkdirs()}
         val destination=File(dir,file.id+"-"+file.name.substringAfterLast('.', "dat").take(8))
