@@ -21,6 +21,9 @@ import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.googlecode.tesseract.android.TessBaseAPI
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.PDPage
+import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
+import com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.tom_roush.pdfbox.pdmodel.graphics.state.RenderingMode
@@ -210,6 +213,44 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
                 }
             }
         }
+    }
+    // Combine PDFs and captured pictures in the requested order.
+    // Sources remain intact. This also supports single images/PDFs.
+    fun combineDocuments(files:List<VaultFile>,target:Uri) {
+        require(files.isNotEmpty()){"Choose at least one attachment"}
+        val opened=mutableListOf<PDDocument>()
+        try {
+            PDDocument().use{output->
+                files.forEach{file->
+                    val raw=repo.documentFile(file)
+                    when {
+                        file.mime=="application/pdf"||file.name.endsWith(".pdf",true)->{
+                            val input=PDDocument.load(raw)
+                            opened.add(input)
+                            input.pages.forEach{output.importPage(it)}
+                        }
+                        file.mime.startsWith("image/")->{
+                            val bmp=scaledBitmap(raw,2000)
+                            try {
+                                val page=PDPage(PDRectangle.A4)
+                                output.addPage(page)
+                                val ximage=JPEGFactory.createFromImage(output,bmp,0.88f)
+                                val pageWidth=page.mediaBox.width
+                                val pageHeight=page.mediaBox.height
+                                val factor=minOf((pageWidth-28f)/bmp.width,(pageHeight-28f)/bmp.height)
+                                val w=bmp.width*factor
+                                val h=bmp.height*factor
+                                PDPageContentStream(output,page).use{stream->
+                                    stream.drawImage(ximage,(pageWidth-w)/2f,(pageHeight-h)/2f,w,h)
+                                }
+                            }finally{bmp.recycle()}
+                        }
+                        else->throw IOException("Combine supports PDFs and images only: "+file.name)
+                    }
+                }
+                context.contentResolver.openOutputStream(target)!!.use{output.save(it)}
+            }
+        }finally{opened.forEach{try{it.close()}catch(_:Exception){}}}
     }
     fun merge(files:List<VaultFile>,target:Uri) {
         require(files.size>=2){"Select at least two PDFs"}
