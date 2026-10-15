@@ -212,7 +212,7 @@ import java.util.UUID
 }
 @Composable fun SettingsScreen(hasPin:Boolean,languages:List<String>,currentScript:String,privacyScreen:Boolean,
     onPrivacyScreenChanged:(Boolean)->Unit,onPin:(String,String)->Unit,onClearPin:(String)->Unit,
-    onProfiles:()->Unit,onTemplates:()->Unit,onBackups:()->Unit,onImportLanguage:()->Unit,onScript:(String)->Unit,
+    onProfiles:()->Unit,onTemplates:()->Unit,onBackups:()->Unit,onRecovery:()->Unit,onImportLanguage:()->Unit,onScript:(String)->Unit,
     onRemindDays:(Int)->Unit) {
     var pin by remember{mutableStateOf("")}
     var old by remember{mutableStateOf("")}
@@ -226,6 +226,7 @@ import java.util.UUID
             SettingAction("Family profiles","Create and manage people",Icons.Outlined.People,onProfiles)
             SettingAction("Card templates","Reusable information fields",Icons.Outlined.ViewAgenda,onTemplates)
             SettingAction("Encrypted backup & restore","Export a portable password-protected file",Icons.Outlined.Backup,onBackups)
+            SettingAction("Recover previous imports","Find encrypted attachments from failed older saves",Icons.Outlined.Restore,onRecovery)
         }
         item {
             SectionSettings("Offline OCR")
@@ -313,4 +314,37 @@ import java.util.UUID
             Icon(Icons.Outlined.Restore,null);Text(" Restore from backup")
         }
     }
+}
+
+@Composable fun RecoveryScreen(files:List<VaultFile>,recoveryError:String?,onRecover:(VaultFile,String)->Unit,onBackup:()->Unit) {
+    var name by remember{mutableStateOf("")}
+    var selected by remember{mutableStateOf<VaultFile?>(null)}
+    LazyColumn(contentPadding=PaddingValues(16.dp,12.dp,16.dp,90.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        item {Heading("Recover old imports","Preserve files from earlier failed saves")}
+        if(recoveryError!=null) item {
+            Text(recoveryError,color=MaterialTheme.colorScheme.error)
+            OutlinedButton(onClick=onBackup){Text("Open Backup & Restore")}
+        }
+        item{Text(files.size.toString()+" unattached encrypted files found. These are never automatically deleted. The original filename may not be recoverable from older app versions.",
+            style=MaterialTheme.typography.bodyMedium)}
+        items(files){file->
+            ElevatedCard {
+                Column(Modifier.padding(13.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+                    Text(file.name,fontWeight=FontWeight.SemiBold)
+                    Text(file.id,style=MaterialTheme.typography.labelSmall)
+                    OutlinedButton(onClick={selected=file;name="Recovered "+file.id.take(8)}){Text("Recover into new card")}
+                }
+            }
+        }
+    }
+    if(selected!=null)AlertDialog(onDismissRequest={selected=null},title={Text("Recover document")},
+        text={
+            OutlinedTextField(name,{name=it},label={Text("New card title")})
+        },
+        confirmButton={TextButton(onClick={
+            val file=selected
+            selected=null
+            if(file!=null)onRecover(file,name)
+        }){Text("Recover")}},
+        dismissButton={TextButton(onClick={selected=null}){Text("Cancel")}})
 }
