@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -84,6 +85,7 @@ object DocumentCropEngine {
 
 @Composable fun CropReviewScreen(original:Bitmap,initial:DetectedScan,
     onSave:(Int,List<PointF>)->Unit,onKeepOriginal:()->Unit,onCancel:()->Unit){
+    val scanContext=LocalContext.current
     var image by remember(original){mutableStateOf(original)}
     val points=remember(original){mutableStateListOf<PointF>().apply{addAll(initial.corners)}}
     var auto by remember{mutableStateOf(initial.automatic)}
@@ -99,7 +101,7 @@ object DocumentCropEngine {
     val color=if(auto)Color(0xFF18A676) else Color(0xFFFF9D35)
     val scheme=MaterialTheme.colorScheme
     fun reset(){
-        val fresh=DocumentCropEngine.detect(image)
+        val fresh=DocumentCropEngine.detect(image,scanContext)
         points.clear();points.addAll(fresh.corners);auto=fresh.automatic
     }
     Column(Modifier.fillMaxSize().background(scheme.background).padding(horizontal=15.dp,vertical=10.dp),
