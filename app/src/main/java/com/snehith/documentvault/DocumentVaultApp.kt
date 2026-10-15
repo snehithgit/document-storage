@@ -129,7 +129,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 else -> "Custom"
                             }
                             repo.newCard(t,if(userProfile=="all")"self" else userProfile)
-                                .copy(title=file.name.substringBeforeLast('.',file.name),files=listOf(file))
+                                .copy(title=if(file.name.startsWith("scan-",true)||file.name.startsWith("capture-",true))
+                                    "Scanned document · "+java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("dd MMM HH:mm"))
+                                else file.name.substringBeforeLast('.',file.name),files=listOf(file))
                         }
                     withContext(Dispatchers.IO){repo.saveCard(card)}
                     lastCard=card
