@@ -13,6 +13,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 class MainActivity : FragmentActivity() {
@@ -20,15 +24,32 @@ class MainActivity : FragmentActivity() {
     val unlocked = mutableStateOf(true)
     lateinit var repo:VaultRepository
     lateinit var engine:DocumentEngine
+    private var lastBackgroundAt=0L
+    fun isPrivacyScreenEnabled():Boolean = getSharedPreferences("vault_options",MODE_PRIVATE).getBoolean("blockScreenshots",false)
+    fun setPrivacyScreenEnabled(enabled:Boolean) {
+        getSharedPreferences("vault_options",MODE_PRIVATE).edit().putBoolean("blockScreenshots",enabled).apply()
+        if(enabled)window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    }
+    override fun onStop() {
+        lastBackgroundAt=android.os.SystemClock.elapsedRealtime()
+        super.onStop()
+    }
+    override fun onStart() {
+        super.onStart()
+        if(::repo.isInitialized && repo.hasPin() && lastBackgroundAt>0L &&
+            android.os.SystemClock.elapsedRealtime()-lastBackgroundAt>60_000L) unlocked.value=false
+    }
 
     override fun onCreate(savedInstanceState:Bundle?) {
         super.onCreate(savedInstanceState)
-        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE,WindowManager.LayoutParams.FLAG_SECURE)
+        setPrivacyScreenEnabled(isPrivacyScreenEnabled())
         repo=VaultRepository(applicationContext)
         engine=DocumentEngine(applicationContext,repo)
         unlocked.value=!repo.hasPin()
         repo.cleanupPreviews()
-        receive(intent)
+        if(savedInstanceState==null)receive(intent)
+        lifecycleScope.launch(Dispatchers.IO) { repo.sweepOrphanBlobs() }
         ExpiryWorker.schedule(applicationContext)
         setContent { DocumentVaultApp(this) }
     }
@@ -39,18 +60,19 @@ class MainActivity : FragmentActivity() {
     }
     private fun receive(intent:Intent?) {
         if(intent==null)return
+        fun add(uri:Uri?) { if(uri?.scheme=="content" && uri !in incoming) incoming.add(uri) }
         when(intent.action) {
             Intent.ACTION_SEND -> {
                 @Suppress("DEPRECATION")
-                val uri=intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
-                if(uri!=null)incoming.add(uri)
+                val uri=intent.getParcelableExtra<android.os.Parcelable>(Intent.EXTRA_STREAM) as? Uri
+                add(uri)
             }
             Intent.ACTION_SEND_MULTIPLE -> {
                 @Suppress("DEPRECATION")
-                val items=intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
-                if(items!=null)incoming.addAll(items)
+                val items=intent.getParcelableArrayListExtra<android.os.Parcelable>(Intent.EXTRA_STREAM)
+                items?.forEach { add(it as? Uri) }
             }
-            Intent.ACTION_VIEW -> intent.data?.let{incoming.add(it)}
+            Intent.ACTION_VIEW -> add(intent.data)
         }
     }
     fun authenticate(onSuccess:()->Unit,onError:(String)->Unit = {}) {
@@ -64,44 +86,38 @@ class MainActivity : FragmentActivity() {
             .setNegativeButtonText("Use PIN").build()
         prompt.authenticate(info)
     }
-    fun share(file:VaultFile) {
-        try {
-            val destination=File(cacheDir,"shared").apply{mkdirs()}
-            val plain=repo.openDecrypted(file)
-            val clean=file.name.replace(Regex("[^a-zA-Z0-9._ -]"),"_").take(100)
-            val outbound=File(destination,clean)
-            plain.copyTo(outbound,overwrite=true)
-            plain.delete()
-            val uri=FileProvider.getUriForFile(this,packageName+".provider",outbound)
-            val send=Intent(Intent.ACTION_SEND).apply {
-                type=file.mime.ifBlank{"application/octet-stream"}
-                putExtra(Intent.EXTRA_STREAM,uri)
-                clipData=ClipData.newRawUri(file.name,uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            startActivity(Intent.createChooser(send,"Share "+file.name))
-        }catch(e:Exception){Toast.makeText(this,e.message?:"Share failed",Toast.LENGTH_LONG).show()}
+    private fun sharedName(file:VaultFile,index:Int):String {
+        val safe=file.name.replace(Regex("[\\r\\n\\u0000-\\u001f/]"),"_").trim('.', ' ').ifBlank{"document"}
+        return index.toString()+"_"+file.id.take(8)+"_"+safe.take(100)
     }
+    fun share(file:VaultFile) = shareAll(listOf(file))
     fun shareAll(files:List<VaultFile>) {
-        if(files.size==1){share(files.first());return}
         if(files.isEmpty())return
-        try{
-            val destination=File(cacheDir,"shared").apply{mkdirs()}
-            val uris=arrayListOf<Uri>()
-            files.forEachIndexed{i,file->
-                val plain=repo.openDecrypted(file)
-                val outbound=File(destination,i.toString()+"_"+file.name.replace(Regex("[^a-zA-Z0-9._ -]"),"_").take(85))
-                plain.copyTo(outbound,overwrite=true);plain.delete()
-                uris.add(FileProvider.getUriForFile(this,packageName+".provider",outbound))
-            }
-            val send=Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-                type="*/*";putParcelableArrayListExtra(Intent.EXTRA_STREAM,uris)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                clipData=ClipData.newUri(contentResolver,"Vault file",uris.first())
-                uris.drop(1).forEach{clipData?.addItem(ClipData.Item(it))}
-            }
-            startActivity(Intent.createChooser(send,"Share documents"))
-        }catch(e:Exception){Toast.makeText(this,e.message?:"Share failed",Toast.LENGTH_LONG).show()}
+        lifecycleScope.launch {
+            try {
+                val output=withContext(Dispatchers.IO) {
+                    val destination=File(cacheDir,"shared").apply{mkdirs()}
+                    files.mapIndexed{ i,file->
+                        val plain=repo.openDecrypted(file)
+                        try {
+                            val outbound=File(destination,sharedName(file,i))
+                            plain.copyTo(outbound,overwrite=true)
+                            FileProvider.getUriForFile(this@MainActivity,packageName+".provider",outbound)
+                        }finally{plain.delete()}
+                    }
+                }
+                val send=Intent(if(output.size==1)Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE).apply{
+                    type=if(files.size==1)files.first().mime.ifBlank{"application/octet-stream"}else "*/*"
+                    if(output.size==1)putExtra(Intent.EXTRA_STREAM,output.first())
+                    else putParcelableArrayListExtra(Intent.EXTRA_STREAM,ArrayList(output))
+                    clipData=ClipData.newUri(contentResolver,"Vault file",output.first()).also{ clip->
+                        output.drop(1).forEach{clip.addItem(ClipData.Item(it))}
+                    }
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(Intent.createChooser(send,"Share documents"))
+            }catch(e:Exception){notify(e.message?:"Share failed")}
+        }
     }
     fun notify(message:String)=Toast.makeText(this,message,Toast.LENGTH_LONG).show()
 }
