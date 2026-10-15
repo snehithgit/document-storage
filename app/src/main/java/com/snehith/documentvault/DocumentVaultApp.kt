@@ -520,7 +520,11 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {pwd->backupPassword="";backupExport.launch("DocumentVault_"+LocalDate.now()+".zip")},
                             {pwd->backupPassword="";backupImport.launch(arrayOf("*/*"))}
                         )
-                        "recovery"->RecoveryScreen(repo.recoverableFiles(),repo.recoveryError,
+                        "recovery"->{
+                            val recoverables by produceState(emptyList<VaultFile>()) {
+                                value=withContext(Dispatchers.IO){repo.recoverableFiles()}
+                            }
+                            RecoveryScreen(recoverables,repo.recoveryError,
                             {file,title->scope.launch{
                                 busy="Recovering old document"
                                 try{withContext(Dispatchers.IO){repo.attachRecovered(file.id,title)}
@@ -529,6 +533,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 finally{busy=""}
                             }},
                             {route="backup"})
+                        }
                     }
                     }
                     if(busy.isNotBlank()) {
