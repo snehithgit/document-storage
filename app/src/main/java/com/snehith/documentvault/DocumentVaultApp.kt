@@ -316,7 +316,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             Scaffold(
                 topBar={
                     if(!regular)TopAppBar(colors=TopAppBarDefaults.topAppBarColors(containerColor=VaultNavy),title={Text(when(route){
-                        "detail"->current?.title ?: "Document"
+                        "detail"->current?.let{VaultNames.title(it.title)} ?: "Document"
                         "fulldetails"->"Full Details"
                         "selectfields"->"Select from Document"
                         "crop"->"Crop Document"
