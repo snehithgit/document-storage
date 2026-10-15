@@ -411,20 +411,30 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         "crop"->{
                             val image=cropBitmap;val result=cropResult
                             if(image!=null&&result!=null)CropReviewScreen(image,result,
-                                {imageToCrop,corners->scope.launch{
-                                    busy="Applying perspective correction"
+                                {rotation,corners->scope.launch{
+                                    busy="Applying full-resolution perspective correction"
                                     try{
                                         val uri=withContext(Dispatchers.IO){
-                                            val corrected=DocumentCropEngine.crop(imageToCrop,corners)
-                                            try{
-                                                val output=File(activity.cacheDir,"camera/scan-"+UUID.randomUUID()+".jpg")
-                                                DocumentCropEngine.save(corrected,output)
-                                                FileProvider.getUriForFile(activity,activity.packageName+".provider",output)
-                                            }finally{corrected.recycle()}
+                                            val original=ImageDecode.decode(File(cameraPath),Int.MAX_VALUE,fullResolution=true)
+                                            val source=if(rotation==0)original else {
+                                                try {
+                                                    val matrix=android.graphics.Matrix().apply{postRotate(rotation.toFloat())}
+                                                    android.graphics.Bitmap.createBitmap(original,0,0,original.width,original.height,matrix,true)
+                                                }finally{original.recycle()}
+                                            }
+                                            try {
+                                                val corrected=DocumentCropEngine.crop(source,corners)
+                                                try{
+                                                    val output=File(activity.cacheDir,"camera/scan-"+UUID.randomUUID()+".jpg")
+                                                    DocumentCropEngine.save(corrected,output)
+                                                    FileProvider.getUriForFile(activity,activity.packageName+".provider",output)
+                                                }finally{corrected.recycle()}
+                                            }finally{source.recycle()}
                                         }
                                         route=if(scanTarget==null)"scan" else "detail"
                                         importUris(listOf(uri),scanTarget)
                                     }catch(e:Exception){error="Crop failed: "+(e.message?:"Error")}
+                                    catch(e:OutOfMemoryError){error="This photo is too large to crop safely; please retake at a lower resolution"}
                                     finally{busy="";cropBitmap=null;cropResult=null}
                                 }},
                                 {cameraUri?.let{uri->route=if(scanTarget==null)"scan" else "detail";importUris(listOf(uri),scanTarget)}
