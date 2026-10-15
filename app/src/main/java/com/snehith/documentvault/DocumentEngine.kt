@@ -13,6 +13,7 @@ import android.graphics.pdf.PdfDocument
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
@@ -34,6 +35,8 @@ import java.io.*
 import java.util.zip.ZipFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import java.util.concurrent.TimeUnit
 
 data class ExtractedDocument(val text:String, val fields:List<DataField>, val method:String, val pageCount:Int)
@@ -88,25 +91,29 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
         if(output.length()<1000){output.delete();throw IOException("Invalid OCR language data")}
         return name.removeSuffix(".traineddata")
     }
-    private fun recognize(bitmap:Bitmap,script:String):String {
-        if(script.startsWith("Tesseract: ")){
-            val lang=script.substringAfter("Tesseract: ")
-            val tess=TessBaseAPI()
-            try {
-                if(!tess.init(context.filesDir.absolutePath,lang))throw IOException("Tesseract language data not found: "+lang)
-                tess.setImage(bitmap)
-                return tess.getUTF8Text() ?: ""
-            } finally {tess.recycle()}
+    private class OcrSession(script:String,private val home:File):Closeable {
+        private val tess=if(script.startsWith("Tesseract: "))TessBaseAPI()else null
+        private val client:TextRecognizer?=if(tess!=null)null else when(script) {
+            "Devanagari (Hindi)"->TextRecognition.getClient(DevanagariTextRecognizerOptions.Builder().build())
+            "Chinese"->TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
+            "Japanese"->TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
+            "Korean"->TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
+            else->TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         }
-        val client=when(script) {
-            "Devanagari (Hindi)" -> TextRecognition.getClient(DevanagariTextRecognizerOptions.Builder().build())
-            "Chinese" -> TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
-            "Japanese" -> TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
-            "Korean" -> TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
-            else -> TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        init {
+            if(tess!=null) {
+                val lang=script.substringAfter("Tesseract: ")
+                if(!tess.init(home.absolutePath,lang)) {
+                    tess.recycle()
+                    throw IOException("Tesseract language data missing: "+lang)
+                }
+            }
         }
-        try { return Tasks.await(client.process(InputImage.fromBitmap(bitmap,0)),90,TimeUnit.SECONDS).text }
-        finally {client.close()}
+        fun recognize(bitmap:Bitmap):String {
+            tess?.let{it.setImage(bitmap);return it.getUTF8Text()?:""}
+            return Tasks.await(client!!.process(InputImage.fromBitmap(bitmap,0)),90,TimeUnit.SECONDS).text
+        }
+        override fun close(){try{client?.close()}finally{tess?.recycle()}}
     }
     suspend fun extract(file:VaultFile,script:String="Latin",onProgress:((Int,Int)->Unit)?=null):ExtractedDocument=withContext(Dispatchers.IO) {
         val temp=repo.documentFile(file)
@@ -126,29 +133,34 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
                 if(text.length<pages*12) {
                     method="On-device OCR"
                     val extracted=StringBuilder()
+                    OcrSession(script,context.filesDir).use{session->
                     ParcelFileDescriptor.open(temp,ParcelFileDescriptor.MODE_READ_ONLY).use{fd->
                         PdfRenderer(fd).use{renderer->
                             pages=renderer.pageCount
                             for(i in 0 until renderer.pageCount) {
+                                currentCoroutineContext().ensureActive()
                                 renderer.openPage(i).use{page->
                                     val scale=(2100f/page.width).coerceIn(1f,3.25f)
                                     val w=(page.width*scale).toInt().coerceIn(1,2400)
                                     val h=(page.height*scale).toInt().coerceIn(1,3200)
                                     val bitmap=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888)
                                     try {bitmap.eraseColor(android.graphics.Color.WHITE);page.render(bitmap,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                                        extracted.append("\n--- PAGE ").append(i+1).append(" ---\n").append(recognize(bitmap,script))
+                                        extracted.append("\n--- PAGE ").append(i+1).append(" ---\n").append(session.recognize(bitmap))
                                     }finally{bitmap.recycle()}
                                 }
-                                onProgress?.invoke(i+1,pages)
+                                withContext(Dispatchers.Main) { onProgress?.invoke(i+1,pages) }
                             }
                         }
+                    }
                     }
                     text=extracted.toString().trim()
                 }
             } else if(mime.startsWith("image/")||ext in listOf("jpg","jpeg","png","webp","bmp")) {
                 method="On-device OCR"
                 val bitmap=scaledBitmap(temp,2400)
-                try{text=recognize(bitmap,script)}finally{bitmap.recycle()}
+                try {OcrSession(script,context.filesDir).use{session->text=session.recognize(bitmap)}}
+                finally{bitmap.recycle()}
+                withContext(Dispatchers.Main){onProgress?.invoke(1,1)}
             } else if(ext=="docx") {
                 method="DOCX text layer"
                 text=docxText(temp)
@@ -163,31 +175,7 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
             ExtractedDocument(text,FieldSuggestions.parse(text),method,pages)
         } finally { /* original is retained in private storage */ }
     }
-    fun scaledBitmap(file:File,largest:Int):Bitmap {
-        val options=BitmapFactory.Options().apply{inJustDecodeBounds=true}
-        BitmapFactory.decodeFile(file.absolutePath,options)
-        if(options.outWidth<=0||options.outHeight<=0)throw IOException("Cannot decode image")
-        var sample=1
-        while(maxOf(options.outWidth,options.outHeight)/sample>largest)sample*=2
-        val bitmap=BitmapFactory.decodeFile(file.absolutePath,BitmapFactory.Options().apply{inSampleSize=sample})
-            ?:throw IOException("Cannot decode image")
-        val orientation=try{ExifInterface(file).getAttributeInt(ExifInterface.TAG_ORIENTATION,ExifInterface.ORIENTATION_NORMAL)}
-            catch(_:Exception){ExifInterface.ORIENTATION_NORMAL}
-        val matrix=Matrix()
-        when(orientation) {
-            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
-            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
-            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
-            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f,1f)
-            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f,-1f)
-            ExifInterface.ORIENTATION_TRANSPOSE -> {matrix.postScale(-1f,1f);matrix.postRotate(270f)}
-            ExifInterface.ORIENTATION_TRANSVERSE -> {matrix.postScale(-1f,1f);matrix.postRotate(90f)}
-        }
-        if(matrix.isIdentity)return bitmap
-        val transformed=Bitmap.createBitmap(bitmap,0,0,bitmap.width,bitmap.height,matrix,true)
-        if(transformed!==bitmap)bitmap.recycle()
-        return transformed
-    }
+    fun scaledBitmap(file:File,largest:Int):Bitmap=ImageDecode.decode(file,largest)
     private fun docxText(file:File):String {
         ZipFile(file).use{zip->
             val entry=zip.getEntry("word/document.xml")?:throw IOException("Invalid DOCX file")
@@ -207,9 +195,11 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
                 renderer.openPage(index).use{page->
                     val scale=maxWidth.toFloat()/page.width
                     val image=Bitmap.createBitmap(maxWidth,(page.height*scale).toInt().coerceIn(1,4200),Bitmap.Config.ARGB_8888)
-                    image.eraseColor(android.graphics.Color.WHITE)
-                    page.render(image,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                    return image to renderer.pageCount
+                    try {
+                        image.eraseColor(android.graphics.Color.WHITE)
+                        page.render(image,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        return image to renderer.pageCount
+                    }catch(e:Exception){image.recycle();throw e}
                 }
             }
         }
@@ -293,41 +283,59 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
     }
     fun imagesToPdf(files:List<VaultFile>,target:Uri,maxWidth:Int=1800) {
         val doc=PdfDocument()
-        val temps=mutableListOf<File>()
         try {
-            files.forEachIndexed{index,file ->
-                val plain=repo.documentFile(file);temps.add(plain)
-                val image=scaledBitmap(plain,maxWidth)
-                try{
-                    val info=PdfDocument.PageInfo.Builder(image.width,image.height,index+1).create()
-                    val page=doc.startPage(info)
-                    page.canvas.drawColor(android.graphics.Color.WHITE)
-                    page.canvas.drawBitmap(image,0f,0f,null)
-                    doc.finishPage(page)
+            files.forEachIndexed{index,file->
+                val image=scaledBitmap(repo.documentFile(file),maxWidth)
+                try {
+                    val geometry=PdfPageGeometry.fitA4(image.width,image.height)
+                    val pageInfo=PdfDocument.PageInfo.Builder(geometry[0].toInt(),geometry[1].toInt(),index+1).create()
+                    val page=doc.startPage(pageInfo)
+                    try {
+                        page.canvas.drawColor(android.graphics.Color.WHITE)
+                        val src=android.graphics.Rect(0,0,image.width,image.height)
+                        val dst=android.graphics.RectF(geometry[2],geometry[3],geometry[2]+geometry[4],geometry[3]+geometry[5])
+                        page.canvas.drawBitmap(image,src,dst,android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
+                    }finally{doc.finishPage(page)}
                 }finally{image.recycle()}
             }
             context.contentResolver.openOutputStream(target)!!.use{doc.writeTo(it)}
-        }finally{doc.close();/* originals retained */}
+        }finally{doc.close()}
     }
     fun searchableCopy(file:VaultFile,target:Uri) {
-        require(file.name.endsWith(".pdf",true))
+        require(file.name.endsWith(".pdf",true)||file.mime=="application/pdf")
         val plain=repo.documentFile(file)
-        try{PDDocument.load(plain).use{doc ->
-            // Retain the original pages. Append invisible searchable Latin text,
-            // not a replacement raster image; OCR text is user-reviewable.
-            val text=file.extractedText.lines().filter{it.isNotBlank()}.joinToString(" ").replace(Regex("[^ -~]")," ")
-            if(text.isBlank())throw IOException("Run OCR before exporting a searchable PDF")
-            doc.pages.forEach{page ->
-                PDPageContentStream(doc,page,PDPageContentStream.AppendMode.APPEND,true,true).use{stream ->
-                    stream.beginText();stream.setFont(PDType1Font.HELVETICA,4f)
-                    stream.setRenderingMode(RenderingMode.NEITHER)
-                    stream.newLineAtOffset(8f,8f)
-                    // PDF literal string encoding must be ASCII-safe.
-                    text.chunked(120).take(80).forEach{line->stream.showText(line);stream.newLineAtOffset(0f,5f)}
-                    stream.endText()
+        PDDocument.load(plain).use{doc->
+            val pages=doc.numberOfPages
+            val sections=PdfPageTexts.parse(file.extractedText,pages)
+            val textByPage=when {
+                sections.size==pages->sections
+                else->{
+                    // A combined OCR block cannot be safely repeated on every page.
+                    // Prefer real per-page digital text when available, otherwise ask for OCR.
+                    val digital=(1..pages).map{i->
+                        PDFTextStripper().apply{startPage=i;endPage=i}.getText(doc).trim()
+                    }
+                    if(digital.any{it.isNotBlank()})digital
+                    else throw IOException("Run OCR again to obtain page-specific text before exporting")
+                }
+            }
+            doc.pages.forEachIndexed{i,page->
+                val ascii=textByPage[i].replace(Regex("[^ -~]")," ").trim()
+                if(ascii.isNotBlank()){
+                    PDPageContentStream(doc,page,PDPageContentStream.AppendMode.APPEND,true,true).use{stream->
+                        stream.beginText()
+                        stream.setFont(PDType1Font.HELVETICA,4f)
+                        stream.setRenderingMode(RenderingMode.NEITHER)
+                        stream.newLineAtOffset(8f,8f)
+                        ascii.chunked(110).take(75).forEach{line->
+                            stream.showText(line)
+                            stream.newLineAtOffset(0f,5f)
+                        }
+                        stream.endText()
+                    }
                 }
             }
             context.contentResolver.openOutputStream(target)!!.use{doc.save(it)}
-        }}finally{ /* original retained */ }
+        }
     }
 }
