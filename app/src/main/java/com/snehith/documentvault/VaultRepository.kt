@@ -394,6 +394,12 @@ class VaultRepository(private val context: Context) {
             ZipOutputStream(output).use{zip->
                 zip.putNextEntry(ZipEntry("index.json"))
                 zip.write(snapshot().toByteArray(Charsets.UTF_8));zip.closeEntry()
+                // A readable attachment list accompanies UUID-addressed storage blobs.
+                val readable=cards.flatMap{it.files}.distinctBy{it.id}.joinToString("\n"){file->
+                    file.id+" : "+VaultNames.label(file.name).replace(10.toChar(),' ').replace(13.toChar(),' ')
+                }
+                zip.putNextEntry(ZipEntry("filenames.txt"))
+                zip.write(readable.toByteArray(Charsets.UTF_8));zip.closeEntry()
                 cards.flatMap{it.files}.distinctBy{it.id}.forEach{file->
                     zip.putNextEntry(ZipEntry("blobs/"+file.id))
                     documentFile(file).inputStream().use{it.copyTo(zip,65536)}
@@ -422,6 +428,16 @@ class VaultRepository(private val context: Context) {
                                 buffer.write(bytes,0,count)
                             }
                             root=buffer.toString("UTF-8")
+                        }else if(entry.name=="filenames.txt"){
+                            // The human-readable list is optional and not trusted for restore.
+                            val chunk=ByteArray(8192)
+                            var total=0L
+                            while(true){
+                                val n=zip.read(chunk)
+                                if(n<0)break
+                                total+=n
+                                if(total>2_000_000L)throw IOException("Backup filename listing exceeds 2 MB")
+                            }
                         }else if(entry.name.matches(Regex("blobs/[a-f0-9-]{36}"))) {
                             val id=entry.name.substringAfter("/")
                             val target=File(staged,id)
