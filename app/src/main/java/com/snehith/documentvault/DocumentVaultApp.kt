@@ -407,7 +407,21 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {route="fulldetails"},{route="tools"},
                             {startEdit(c)},
                             {scope.launch{try{withContext(Dispatchers.IO){repo.deleteCard(c)};route="cards"}
-                                catch(e:Exception){error=e.message?:"Delete failed"}}})}
+                                catch(e:Exception){error=e.message?:"Delete failed"}}},
+                            {imageFile->scope.launch {
+                                busy="Preparing photo for non-destructive enhancement"
+                                try {
+                                    val source=withContext(Dispatchers.IO){repo.documentFile(imageFile)}
+                                    val prepared=withContext(Dispatchers.IO){
+                                        ScanPrepare.load(activity.applicationContext,source)
+                                    }
+                                    scanTarget=c.id;cropFromAttachment=true
+                                    cameraUri=null;cameraPath=source.absolutePath
+                                    cropBitmap=prepared.preview;cropResult=prepared.corners
+                                    initialCropRotation=prepared.rotation;route="crop"
+                                }catch(e:Exception){error="Cannot enhance image: "+(e.message?:"Error")}
+                                finally{busy=""}
+                            }})}
                         "fulldetails"->current?.let{c->FullDetailsPage(c,
                             {updated->scope.launch{try{withContext(Dispatchers.IO){repo.saveCard(updated)}}
                                 catch(e:Exception){error=e.message?:"Cannot save field"}}},
