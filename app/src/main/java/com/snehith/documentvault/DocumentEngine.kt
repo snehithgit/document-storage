@@ -46,11 +46,13 @@ data class ExtractedDocument(val text:String, val fields:List<DataField>, val me
 class PdfPageSession(private val source:File):Closeable {
     private val descriptor=ParcelFileDescriptor.open(source,ParcelFileDescriptor.MODE_READ_ONLY)
     private val renderer=try{PdfRenderer(descriptor)}catch(e:Exception){descriptor.close();throw e}
+    private var closed=false
     val pageCount:Int get()=renderer.pageCount
     private val cached=object:LinkedHashMap<Int,Bitmap>(3,0.75f,true){
         override fun removeEldestEntry(eldest:MutableMap.MutableEntry<Int,Bitmap>?):Boolean=size>2
     }
     @Synchronized fun render(index:Int,maxWidth:Int=1050):Bitmap {
+        check(!closed){"PDF viewing session already closed"}
         cached[index]?.let{return it}
         renderer.openPage(index.coerceIn(0,renderer.pageCount-1)).use{page->
             val scale=(maxWidth.toFloat()/page.width).coerceIn(0.5f,2.25f)
@@ -66,6 +68,8 @@ class PdfPageSession(private val source:File):Closeable {
         }
     }
     @Synchronized override fun close(){
+        if(closed)return
+        closed=true
         cached.clear()
         try{renderer.close()}finally{descriptor.close()}
     }
