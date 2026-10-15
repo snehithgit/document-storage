@@ -15,6 +15,10 @@ object VaultNames {
         val suffix=filename.substringAfterLast('.', "").takeIf{it.length in 2..5}?.let{"."+it}?:""
         return title(filename)+suffix
     }
+    fun importLabel(filename:String,scanDateTime:String):String {
+        val suffix=filename.substringAfterLast('.', "").takeIf{it.length in 2..5}?.let{"."+it}?:""
+        return if(title(filename)=="Scanned document")"Scan "+scanDateTime+suffix else label(filename)
+    }
 }
 object PdfPageTexts {
     private val marker=Regex("(?m)^--- PAGE (\\d+) ---\\s*$")
