@@ -20,6 +20,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -36,12 +38,56 @@ jobs:
           gradle-version: '8.10.2'
       - name: Test and assemble debug APK
         run: gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug
+      - name: Android lint (fail on errors)
+        run: gradle --no-daemon :app:lintDebug
+      - name: Print lint diagnostics if lint fails
+        if: failure()
+        run: |
+          find app/build -name 'lint-results-debug.txt' -print -exec cat {} \;
+      - name: Enforce offline merged manifest
+        run: |
+          python3 - <<'PY'
+          from glob import glob
+          import xml.etree.ElementTree as ET
+          paths=glob("app/build/intermediates/merged_manifests/debug/**/AndroidManifest.xml",recursive=True)
+          assert paths, "Merged debug AndroidManifest.xml not found"
+          ns="{http://schemas.android.com/apk/res/android}"
+          for p in paths:
+              tree=ET.parse(p)
+              permissions=[x.attrib.get(ns+"name","") for x in tree.getroot() if x.tag.endswith("uses-permission")]
+              assert "android.permission.INTERNET" not in permissions, "Network permission detected: "+p
+          print("Verified merged manifest has no INTERNET permission.")
+          PY
       - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         if: success()
         with:
           name: DocumentVault-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+      - name: Package complete changed source files
+        if: success() && github.event_name == 'pull_request'
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          import subprocess
+          import zipfile
+          root=pathlib.Path(".")
+          base=subprocess.check_output(["git","merge-base","origin/main","HEAD"],text=True).strip()
+          changed=subprocess.check_output(["git","diff","--name-only","--diff-filter=ACM",base,"HEAD"],text=True).splitlines()
+          with zipfile.ZipFile("DocumentVault-Phase0-complete-files.zip","w",zipfile.ZIP_DEFLATED) as archive:
+              for name in changed:
+                  source=root/name
+                  if source.is_file():
+                      archive.write(source,name)
+          print("Packaged",len(changed),"changed files in full")
+          PY
+      - name: Upload complete Phase 0 changed files
+        if: success() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: DocumentVault-Phase0-complete-files
+          path: DocumentVault-Phase0-complete-files.zip
           retention-days: 30
       - name: Prepare optional stable release signing
         env:

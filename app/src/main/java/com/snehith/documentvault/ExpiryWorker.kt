@@ -21,6 +21,8 @@ class ExpiryWorker(context:Context,params:WorkerParameters):Worker(context,param
             val today=LocalDate.now()
             val days=applicationContext.getSharedPreferences("vault_options",Context.MODE_PRIVATE).getInt("remindDays",30)
             val renewedIds=store.cards.map{it.previousId}.filter{it.isNotBlank()}.toSet()
+            val invalid=store.cards.filter { it.expiry.isNotBlank() &&
+                runCatching { LocalDate.parse(it.expiry) }.isFailure }
             val expiring=store.cards.filter{it.id !in renewedIds}.mapNotNull { card ->
                 try {
                     val date=LocalDate.parse(card.expiry)
@@ -28,7 +30,7 @@ class ExpiryWorker(context:Context,params:WorkerParameters):Worker(context,param
                     if(remaining in -30L..days.toLong())card to remaining else null
                 } catch(_:Exception){null}
             }.sortedBy{it.second}
-            if(expiring.isNotEmpty()) {
+            if(expiring.isNotEmpty()||invalid.isNotEmpty()) {
                 val manager=applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 manager.createNotificationChannel(NotificationChannel("expiry","Document expiry",NotificationManager.IMPORTANCE_DEFAULT))
                 val intent=PendingIntent.getActivity(applicationContext,0,
@@ -37,18 +39,21 @@ class ExpiryWorker(context:Context,params:WorkerParameters):Worker(context,param
                 val body=expiring.take(3).joinToString("; "){(card,days)->
                     card.title+": "+if(days<0)"expired" else days.toString()+"d left"
                 }
+                val fullBody=body+(if(invalid.isNotEmpty())
+                    (if(body.isNotBlank())"; " else "")+
+                        VaultCounts.format(invalid.size,"invalid expiry date")+" — correct in card details" else "")
                 val notification=NotificationCompat.Builder(applicationContext,"expiry")
                     .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-                    .setSmallIcon(android.R.drawable.ic_dialog_info)
-                    .setContentTitle(expiring.size.toString()+" documents need attention")
-                    .setContentText(body).setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                    .setSmallIcon(R.drawable.ic_notification)
+                                        .setContentTitle(applicationContext.resources.getQuantityString(R.plurals.vault_attention,expiring.size+invalid.size,expiring.size+invalid.size))
+                    .setContentText(fullBody).setStyle(NotificationCompat.BigTextStyle().bigText(fullBody))
                     .setContentIntent(intent).setAutoCancel(true).build()
                 if(Build.VERSION.SDK_INT<33 || applicationContext.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)==android.content.pm.PackageManager.PERMISSION_GRANTED){
                     manager.notify(7001,notification)
                 }
             }
             Result.success()
-        } catch(_:Exception){Result.retry()}
+        } catch(_:Exception){if(runAttemptCount>=2)Result.failure()else Result.retry()}
     }
     companion object {
         fun schedule(context:Context) {

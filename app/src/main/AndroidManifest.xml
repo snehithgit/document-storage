@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+  <uses-permission android:name="android.permission.INTERNET" tools:node="remove"/>
   <application android:label="Document Vault" android:theme="@android:style/Theme.Material.Light.NoActionBar"
-      android:allowBackup="false" android:usesCleartextTraffic="false" android:supportsRtl="true">
+      android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"
+      android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules" android:usesCleartextTraffic="false" android:supportsRtl="true">
     <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop"
-        android:windowSoftInputMode="adjustResize"
-        android:configChanges="orientation|screenSize|keyboardHidden">
+        android:windowSoftInputMode="adjustResize">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
         <category android:name="android.intent.category.LAUNCHER"/>
@@ -20,10 +21,11 @@
         <category android:name="android.intent.category.DEFAULT"/>
         <data android:mimeType="*/*"/>
       </intent-filter>
-      <intent-filter>
+      <!-- Local content:// PDF viewing, not a web App Link. -->
+      <intent-filter tools:ignore="AppLinkUrlError">
         <action android:name="android.intent.action.VIEW"/>
         <category android:name="android.intent.category.DEFAULT"/>
-        <data android:mimeType="application/pdf"/>
+        <data android:scheme="content" android:mimeType="application/pdf"/>
       </intent-filter>
     </activity>
     <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.provider"

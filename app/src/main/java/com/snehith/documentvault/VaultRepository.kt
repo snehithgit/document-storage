@@ -17,7 +17,8 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
-data class DataField(val name: String, val value: String, val page: Int = -1, val source: String = "manual")
+data class DataField(val name: String, val value: String, val page: Int = -1,
+    val source: String = "manual", val id: String = UUID.randomUUID().toString())
 data class VaultFile(val id: String, val name: String, val mime: String, val bytes: Long, val sha256: String, val extractedText: String = "", val ocrStatus: String = "pending")
 data class VaultCard(
     val id: String = UUID.randomUUID().toString(),
@@ -76,9 +77,11 @@ class VaultRepository(private val context: Context) {
     val profiles = mutableStateListOf<VaultProfile>()
     val customTemplates = mutableStateListOf<CardTemplate>()
     private val data = File(context.filesDir,"vault.json")
+    private val backup = File(context.filesDir,"vault.json.bak")
     private val blobDir = File(context.filesDir,"blobs").apply { mkdirs() }
     private val prefs = context.getSharedPreferences("vault_lock",Context.MODE_PRIVATE)
     private val random=SecureRandom()
+    private val pinPrefs=context.getSharedPreferences("vault_pin_attempts",Context.MODE_PRIVATE)
     var recoveryError: String? = null
         private set
     private fun uid() = UUID.randomUUID().toString()
@@ -94,15 +97,31 @@ class VaultRepository(private val context: Context) {
         prefs.edit().putString("pinSalt",android.util.Base64.encodeToString(salt,2))
             .putString("pinHash",android.util.Base64.encodeToString(pinHash(pin,salt),2)).apply()
     }
-    fun clearPin() { prefs.edit().remove("pinSalt").remove("pinHash").apply() }
+    fun clearPin(currentPin:String) {
+        require(checkPin(currentPin)) { "Current PIN is incorrect" }
+        prefs.edit().remove("pinSalt").remove("pinHash").apply()
+        pinPrefs.edit().clear().apply()
+    }
     fun checkPin(pin:String):Boolean {
         if(!hasPin())return true
-        return try {
+        val now=System.currentTimeMillis()
+        if(now<pinPrefs.getLong("blockedUntil",0L))return false
+        val success=try {
             val salt=android.util.Base64.decode(prefs.getString("pinSalt",""),2)
             val expected=android.util.Base64.decode(prefs.getString("pinHash",""),2)
             MessageDigest.isEqual(expected,pinHash(pin,salt))
         }catch(_:Exception){false}
+        if(success)pinPrefs.edit().clear().apply()
+        else {
+            val attempts=pinPrefs.getInt("failures",0)+1
+            val wait=if(attempts>=5) (30_000L * (1 shl (attempts-5).coerceAtMost(4))) else 0L
+            pinPrefs.edit().putInt("failures",attempts)
+                .putLong("blockedUntil",if(wait>0)now+wait else 0L).apply()
+        }
+        return success
     }
+    fun pinWaitSeconds():Long = ((pinPrefs.getLong("blockedUntil",0L)-System.currentTimeMillis())
+        .coerceAtLeast(0L)+999L)/1000L
     private fun pinHash(pin:String,salt:ByteArray):ByteArray =
         SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
             .generateSecret(PBEKeySpec(pin.toCharArray(),salt,150000,256)).encoded
@@ -118,8 +137,10 @@ class VaultRepository(private val context: Context) {
     @Synchronized fun load() {
         cards.clear();profiles.clear();customTemplates.clear();recoveryError=null
         val tmp=File(context.filesDir,"vault.json.tmp")
-        val candidates=listOf(data,tmp).filter { it.exists() }.sortedByDescending { it.lastModified() }
+        val candidates=listOf(data,tmp).filter { it.exists() }.sortedByDescending { it.lastModified() } +
+            listOf(backup).filter { it.exists() }
         var accepted:File?=null
+        var needsFieldIdMigration=false
         for (candidate in candidates) {
             try {
                 val root=JSONObject(candidate.readText(Charsets.UTF_8))
@@ -127,7 +148,15 @@ class VaultRepository(private val context: Context) {
                 val loadedProfiles=mutableListOf<VaultProfile>()
                 val loadedTemplates=mutableListOf<CardTemplate>()
                 val c=root.optJSONArray("cards")?:JSONArray()
-                for(i in 0 until c.length())loadedCards.add(readCard(c.getJSONObject(i)))
+                var legacy=false
+                for(i in 0 until c.length()) {
+                    val obj=c.getJSONObject(i)
+                    val fs=obj.optJSONArray("fields")?:JSONArray()
+                    if((0 until fs.length()).any{j->fs.getJSONObject(j).optString("id").isBlank()})
+                        legacy=true
+                    loadedCards.add(readCard(obj))
+                }
+                needsFieldIdMigration=legacy
                 val p=root.optJSONArray("profiles")?:JSONArray()
                 for(i in 0 until p.length()){
                     val e=p.getJSONObject(i);loadedProfiles.add(VaultProfile(e.getString("id"),e.getString("name")))
@@ -144,7 +173,12 @@ class VaultRepository(private val context: Context) {
         if(candidates.isNotEmpty() && accepted==null) {
             recoveryError="The local vault index cannot be read. No documents were deleted."
         }
-        if(accepted==tmp)try { tmp.copyTo(data,overwrite=true) }catch(_:Exception){}
+        if(accepted!=null && accepted!=data)try { accepted.copyTo(data,overwrite=true) }catch(_:Exception){}
+        if(accepted!=null && needsFieldIdMigration) {
+            // Make generated legacy IDs durable before a later process recreation.
+            try{persist()}catch(_:Exception){ /* Cards remain usable; next save will retry. */ }
+        }
+        // The original valid index always remains available in the rolling backup.
         if(profiles.none { it.id=="self" })profiles.add(0,VaultProfile("self","Me"))
     }
     private fun strings(a:JSONArray?):List<String> = (0 until (a?.length()?:0)).map{a!!.optString(it)}
@@ -156,15 +190,18 @@ class VaultRepository(private val context: Context) {
             category=o.optString("category","Personal"),profile=o.optString("profile","self"),
             tags=o.optString("tags"),notes=o.optString("notes"),expiry=o.optString("expiry"),
             previousId=o.optString("previousId"),created=o.optLong("created",System.currentTimeMillis()),
-            fields=(0 until fields.length()).map { val f=fields.getJSONObject(it);DataField(f.optString("name"),f.optString("value"),f.optInt("page",-1),f.optString("source","manual")) },
+            fields=(0 until fields.length()).map { val f=fields.getJSONObject(it);DataField(f.optString("name"),f.optString("value"),f.optInt("page",-1),
+                f.optString("source","manual"),f.optString("id").ifBlank{uid()}) },
             files=(0 until files.length()).map { val f=files.getJSONObject(it);VaultFile(f.getString("id"),f.optString("name"),f.optString("mime"),f.optLong("bytes"),f.optString("sha256"),f.optString("extractedText"),f.optString("ocrStatus","pending")) }
         )
     }
+    fun encodeCard(card:VaultCard):String=writeCard(card).toString()
+    fun decodeCard(json:String):VaultCard=readCard(JSONObject(json))
     private fun writeCard(c:VaultCard):JSONObject=JSONObject()
         .put("id",c.id).put("title",c.title).put("kind",c.kind).put("category",c.category)
         .put("profile",c.profile).put("tags",c.tags).put("notes",c.notes).put("expiry",c.expiry)
         .put("previousId",c.previousId).put("created",c.created)
-        .put("fields",JSONArray().apply { c.fields.forEach{ put(JSONObject().put("name",it.name).put("value",it.value).put("page",it.page).put("source",it.source)) } })
+        .put("fields",JSONArray().apply { c.fields.forEach{ put(JSONObject().put("name",it.name).put("value",it.value).put("page",it.page).put("source",it.source).put("id",it.id)) } })
         .put("files",JSONArray().apply { c.files.forEach{ put(JSONObject().put("id",it.id).put("name",it.name).put("mime",it.mime).put("bytes",it.bytes).put("sha256",it.sha256).put("extractedText",it.extractedText).put("ocrStatus",it.ocrStatus)) } })
     private fun snapshot():String=JSONObject()
         .put("cards",JSONArray().apply { cards.forEach{put(writeCard(it))} })
@@ -179,17 +216,66 @@ class VaultRepository(private val context: Context) {
             output.write(snapshot().toByteArray(Charsets.UTF_8))
             output.fd.sync()
         }
+        // Retain a previous good index. Only replace it when the current index parses.
+        if(data.isFile) {
+            val valid=runCatching{JSONObject(data.readText(Charsets.UTF_8))}.isSuccess
+            if(valid) {
+                val stagedBackup=File(context.filesDir,"vault.json.bak.tmp")
+                try {
+                    data.copyTo(stagedBackup,overwrite=true)
+                    FileOutputStream(stagedBackup,true).use{it.fd.sync()}
+                    if(!stagedBackup.renameTo(backup))
+                        throw IOException("Cannot atomically update the vault backup")
+                }finally{stagedBackup.delete()}
+            }
+        }
         if(!tmp.renameTo(data))throw IOException("Unable to commit the vault index")
     }
     @Synchronized fun saveCard(card:VaultCard) {
         val i=cards.indexOfFirst{it.id==card.id}
         val old=if(i<0)null else cards[i]
+        if(card.expiry!=old?.expiry && card.expiry.isNotBlank()) {
+            require(VaultExpiry.isIsoDate(card.expiry)) {
+                "Expiry date must be a valid ISO date (YYYY-MM-DD); got: "+card.expiry
+            }
+        }
         if(i<0)cards.add(0,card) else cards[i]=card
         try{persist()}catch(e:Exception){
             if(i<0)cards.removeAll{it.id==card.id}
             else if(old!=null)cards[i]=old
             throw e
         }
+    }
+    @Synchronized fun removeFile(cardId:String,fileId:String) {
+        val current=cards.firstOrNull{it.id==cardId}?:throw IOException("Card not found")
+        val target=current.files.firstOrNull{it.id==fileId}?:throw IOException("Attachment not found")
+        saveCard(current.copy(files=current.files.filterNot{it.id==fileId}))
+        if(cards.none{c->c.files.any{it.id==fileId}})removeOrphan(target)
+    }
+    @Synchronized fun renameFile(cardId:String,fileId:String,newName:String) {
+        val name=newName.trim()
+        require(name.isNotBlank() && name.length<=150 && !name.contains('/') &&
+            !name.contains(92.toChar()) && !name.contains(10.toChar()) && !name.contains(13.toChar()) &&
+            name!="." && name!=".."){"Invalid attachment name"}
+        val current=cards.firstOrNull{it.id==cardId}?:throw IOException("Card not found")
+        require(current.files.any{it.id==fileId}){"Attachment not found"}
+        val revised=current.files.map{if(it.id==fileId)it.copy(name=name)else it}
+        saveCard(current.copy(files=revised))
+        val renamed=revised.first{it.id==fileId}
+        try { writeMeta(renamed) }catch(_:IOException){ /* Indexed filename is authoritative. */ }
+    }
+    @Synchronized fun reorderFiles(cardId:String,orderedIds:List<String>) {
+        val current=cards.firstOrNull{it.id==cardId}?:throw IOException("Card not found")
+        val byId=current.files.associateBy{it.id}
+        require(orderedIds.size==current.files.size &&
+            orderedIds.size==orderedIds.distinct().size && orderedIds.toSet()==byId.keys) {
+            "Reorder must contain every attachment exactly once"
+        }
+        saveCard(current.copy(files=orderedIds.map{byId.getValue(it)}))
+    }
+    private fun writeMeta(file:VaultFile) {
+        meta(file.id).writeText(JSONObject().put("name",file.name).put("mime",file.mime)
+            .put("size",file.bytes).put("sha",file.sha256).toString())
     }
     @Synchronized fun deleteCard(card:VaultCard) {
         val previous=cards.toList()
@@ -213,7 +299,8 @@ class VaultRepository(private val context: Context) {
     fun isDuplicate(sha:String)=cards.any { c->c.files.any{it.sha256==sha} }
     fun importFile(uri:Uri):VaultFile {
         require(uri.scheme=="content"){"Import only from Android's file picker or share menu"}
-        val name=filename(uri)
+        val name=VaultNames.importLabel(filename(uri),
+            java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("dd MMM HH:mm",java.util.Locale.ENGLISH)))
         val mime=context.contentResolver.getType(uri) ?: when(name.substringAfterLast('.', "").lowercase()){
             "pdf"->"application/pdf";"txt"->"text/plain"
             "docx"->"application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -237,9 +324,7 @@ class VaultRepository(private val context: Context) {
                 }
             } ?: throw IOException("Cannot read selected file")
             val file=VaultFile(id,name,mime,size,digest.digest().joinToString(""){"%02x".format(it)})
-            val manifest=JSONObject().put("name",file.name).put("mime",file.mime)
-                .put("size",file.bytes).put("sha",file.sha256)
-            try{meta(id).writeText(manifest.toString())}catch(_:Exception) { /* preserve imported bytes */ }
+            try{writeMeta(file)}catch(_:Exception) { /* preserve imported bytes */ }
             return file
         }catch(e:Exception){blob(id).delete();meta(id).delete();throw e}
     }
@@ -309,6 +394,12 @@ class VaultRepository(private val context: Context) {
             ZipOutputStream(output).use{zip->
                 zip.putNextEntry(ZipEntry("index.json"))
                 zip.write(snapshot().toByteArray(Charsets.UTF_8));zip.closeEntry()
+                // A readable attachment list accompanies UUID-addressed storage blobs.
+                val readable=cards.flatMap{it.files}.distinctBy{it.id}.joinToString("\n"){file->
+                    file.id+" : "+VaultNames.label(file.name).replace(10.toChar(),' ').replace(13.toChar(),' ')
+                }
+                zip.putNextEntry(ZipEntry("filenames.txt"))
+                zip.write(readable.toByteArray(Charsets.UTF_8));zip.closeEntry()
                 cards.flatMap{it.files}.distinctBy{it.id}.forEach{file->
                     zip.putNextEntry(ZipEntry("blobs/"+file.id))
                     documentFile(file).inputStream().use{it.copyTo(zip,65536)}
@@ -327,15 +418,32 @@ class VaultRepository(private val context: Context) {
                     while(true){
                         val entry=zip.nextEntry?:break
                         if(entry.name=="index.json"){
-                            val buffer=ByteArrayOutputStream();zip.copyTo(buffer)
-                            if(buffer.size()>25_000_000)throw IOException("Backup index is too large")
+                            val buffer=ByteArrayOutputStream()
+                            val bytes=ByteArray(65536)
+                            while(true) {
+                                val count=zip.read(bytes)
+                                if(count<0)break
+                                if(buffer.size().toLong()+count>25_000_000L)
+                                    throw IOException("Backup index exceeds 25 MB; split your backup into smaller vaults")
+                                buffer.write(bytes,0,count)
+                            }
                             root=buffer.toString("UTF-8")
+                        }else if(entry.name=="filenames.txt"){
+                            // The human-readable list is optional and not trusted for restore.
+                            val chunk=ByteArray(8192)
+                            var total=0L
+                            while(true){
+                                val n=zip.read(chunk)
+                                if(n<0)break
+                                total+=n
+                                if(total>2_000_000L)throw IOException("Backup filename listing exceeds 2 MB")
+                            }
                         }else if(entry.name.matches(Regex("blobs/[a-f0-9-]{36}"))) {
                             val id=entry.name.substringAfter("/")
                             val target=File(staged,id)
                             target.outputStream().use{zip.copyTo(it,65536)}
                             imported[id]=target
-                        }else throw IOException("Invalid backup entry")
+                        }else throw IOException("Backup contains unsupported or unsafe entry: "+entry.name.take(120))
                         zip.closeEntry()
                     }
                 }
@@ -345,7 +453,6 @@ class VaultRepository(private val context: Context) {
             val nextCards=(0 until array.length()).map{readCard(array.getJSONObject(it))}
             val ids=nextCards.flatMap{it.files}.map{it.id}.toSet()
             require(ids.all{imported[it]?.isFile==true}){"Backup has missing files"}
-            imported.forEach{(id,file)->file.copyTo(blob(id),overwrite=true)}
             val nextProfiles=mutableListOf<VaultProfile>()
             val p=json.optJSONArray("profiles")?:JSONArray()
             for(i in 0 until p.length()){val e=p.getJSONObject(i);nextProfiles.add(VaultProfile(e.getString("id"),e.getString("name")))}
@@ -354,6 +461,17 @@ class VaultRepository(private val context: Context) {
             for(i in 0 until t.length()){
                 val e=t.getJSONObject(i)
                 nextTemplates.add(CardTemplate(e.getString("id"),e.getString("name"),strings(e.optJSONArray("fields"))))
+            }
+            // Preserve blobs that an attempted restore would overwrite, allowing rollback.
+            val prior=File(staged,"previous").apply{mkdirs()}
+            imported.keys.forEach{id->if(blob(id).isFile)blob(id).copyTo(File(prior,id),overwrite=true)}
+            try{imported.forEach{(id,file)->file.copyTo(blob(id),overwrite=true)}}
+            catch(e:Exception) {
+                imported.keys.forEach{id->
+                    val old=File(prior,id)
+                    if(old.isFile)old.copyTo(blob(id),overwrite=true) else blob(id).delete()
+                }
+                throw e
             }
             val oldCards=cards.toList()
             val oldProfiles=profiles.toList()
@@ -367,7 +485,19 @@ class VaultRepository(private val context: Context) {
                 cards.clear();cards.addAll(oldCards)
                 profiles.clear();profiles.addAll(oldProfiles)
                 customTemplates.clear();customTemplates.addAll(oldTemplates)
+                imported.keys.forEach{id->
+                    val previous=File(staged,"previous/"+id)
+                    if(previous.isFile)previous.copyTo(blob(id),overwrite=true) else blob(id).delete()
+                }
                 throw e
+            }
+            // Index is committed: only now may superseded blobs and metadata be deleted.
+            blobDir.listFiles()?.filter{f->
+                (f.name.endsWith(".dat")||f.name.endsWith(".meta")) &&
+                    f.name.substringBeforeLast('.') !in ids
+            }?.forEach{it.delete()}
+            nextCards.flatMap{it.files}.distinctBy{it.id}.forEach{file->
+                try{writeMeta(file)}catch(_:IOException){}
             }
         }finally{staged.deleteRecursively()}
     }

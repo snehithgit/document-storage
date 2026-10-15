@@ -8,6 +8,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -22,11 +24,14 @@ import androidx.compose.ui.unit.dp
     onProfiles:()->Unit,onTemplates:()->Unit,onBackups:()->Unit,onRecovery:()->Unit,
     onImportLanguage:()->Unit,onScript:(String)->Unit,onRemindDays:(Int)->Unit
 ){
-    var dialog by remember{mutableStateOf("")}
+    val context=LocalContext.current
+    var dialog by rememberSaveable{mutableStateOf("")}
     var pin by remember{mutableStateOf("")}
     var old by remember{mutableStateOf("")}
     var confirm by remember{mutableStateOf("")}
-    var days by remember{mutableStateOf("30")}
+    var days by rememberSaveable{mutableStateOf(
+        context.getSharedPreferences("vault_options",android.content.Context.MODE_PRIVATE)
+            .getInt("remindDays",30).toString())}
     if(dialog.isNotBlank())AlertDialog(onDismissRequest={dialog=""},title={Text(when(dialog){
         "ocr"->"Offline OCR language"
         "pin"->"App lock"
@@ -75,7 +80,6 @@ import androidx.compose.ui.unit.dp
         }
         item {NavySettingRow(Icons.Outlined.People,"Family profiles","Manage your personal and family cards",onProfiles)}
         item {NavySettingRow(Icons.Outlined.ViewAgenda,"Card templates","Your reusable document field layouts",onTemplates)}
-        item {NavySettingRow(Icons.Outlined.Folder,"Categories and tags","Organize your cards",onTemplates)}
         item{
             Spacer(Modifier.height(5.dp))
             Text("DATA & BACKUP",color=VaultSky,fontWeight=FontWeight.Bold)
@@ -87,7 +91,6 @@ import androidx.compose.ui.unit.dp
             Text("OCR & SCANNING",color=VaultSky,fontWeight=FontWeight.Bold)
         }
         item{NavySettingRow(Icons.Outlined.Translate,"OCR language",currentScript,{dialog="ocr"})}
-        item{NavySettingRow(Icons.Outlined.DocumentScanner,"Scanner quality","Offline auto-detect, perspective correction and manual crop",{dialog=""})}
         item{
             Spacer(Modifier.height(5.dp))
             Text("APPEARANCE & PRIVACY",color=VaultSky,fontWeight=FontWeight.Bold)

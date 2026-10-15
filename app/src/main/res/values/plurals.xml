@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="vault_files">
+        <item quantity="one">%d file</item><item quantity="other">%d files</item>
+    </plurals>
+    <plurals name="vault_cards">
+        <item quantity="one">%d card</item><item quantity="other">%d cards</item>
+    </plurals>
+    <plurals name="vault_attention">
+        <item quantity="one">%d document needs attention</item>
+        <item quantity="other">%d documents need attention</item>
+    </plurals>
+</resources>

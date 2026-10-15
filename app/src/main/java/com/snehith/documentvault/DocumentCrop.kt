@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -51,8 +52,11 @@ object DocumentCropEngine {
         if(!ready())throw IllegalStateException("OpenCV could not initialize")
         val p=corners.map{Point(it.x*bitmap.width.toDouble(),it.y*bitmap.height.toDouble())}
         fun distance(a:Point,b:Point)=hypot(a.x-b.x,a.y-b.y)
-        val width=max(distance(p[0],p[1]),distance(p[3],p[2])).roundToInt().coerceIn(100,2600)
-        val height=max(distance(p[0],p[3]),distance(p[1],p[2])).roundToInt().coerceIn(100,3500)
+        val width=max(distance(p[0],p[1]),distance(p[3],p[2])).roundToInt().coerceAtLeast(100)
+        val height=max(distance(p[0],p[3]),distance(p[1],p[2])).roundToInt().coerceAtLeast(100)
+        require(width.toLong()*height.toLong()<=32_000_000L) {
+            "Perspective crop exceeds the safe image size on this device"
+        }
         val src=Mat();val warped=Mat()
         val source=MatOfPoint2f(*p.toTypedArray())
         val dst=MatOfPoint2f(Point(0.0,0.0),Point(width-1.0,0.0),
@@ -73,12 +77,19 @@ object DocumentCropEngine {
 }
 
 @Composable fun CropReviewScreen(original:Bitmap,initial:DetectedScan,
-    onSave:(Bitmap,List<PointF>)->Unit,onKeepOriginal:()->Unit,onCancel:()->Unit){
+    onSave:(Int,List<PointF>)->Unit,onKeepOriginal:()->Unit,onCancel:()->Unit){
     var image by remember(original){mutableStateOf(original)}
     val points=remember(original){mutableStateListOf<PointF>().apply{addAll(initial.corners)}}
     var auto by remember{mutableStateOf(initial.automatic)}
+    var quarterTurns by rememberSaveable{mutableIntStateOf(0)}
     var viewSize by remember{mutableStateOf(IntSize(1,1))}
     var dragging by remember{mutableIntStateOf(-1)}
+    DisposableEffect(original) {
+        onDispose {
+            if(image !== original && !image.isRecycled)image.recycle()
+            if(!original.isRecycled)original.recycle()
+        }
+    }
     val color=if(auto)Color(0xFF18A676) else Color(0xFFFF9D35)
     val scheme=MaterialTheme.colorScheme
     fun reset(){
@@ -154,14 +165,16 @@ object DocumentCropEngine {
             OutlinedButton(onClick={
                 val matrix=android.graphics.Matrix().apply{postRotate(90f)}
                 val rotated=Bitmap.createBitmap(image,0,0,image.width,image.height,matrix,true)
+                if(image !== original && !image.isRecycled)image.recycle()
                 image=rotated
+                quarterTurns=(quarterTurns+1)%4
                 reset()
             },modifier=Modifier.weight(1f)){
                 Icon(Icons.Outlined.RotateRight,null,Modifier.size(17.dp));Text(" Rotate")
             }
             OutlinedButton(onClick=onKeepOriginal,modifier=Modifier.weight(1f)){Text(" Original")}
         }
-        Button(onClick={onSave(image,points.toList())},modifier=Modifier.fillMaxWidth()){
+        Button(onClick={onSave(quarterTurns*90,points.toList())},modifier=Modifier.fillMaxWidth()){
             Icon(Icons.Outlined.Crop,null);Spacer(Modifier.width(7.dp));Text("Apply perspective crop")
         }
         TextButton(onClick=onCancel,modifier=Modifier.fillMaxWidth()){Text("Cancel")}
