@@ -230,7 +230,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         "backup"->"Encrypted backup"
                         else->"Document Vault"
                     },maxLines=1)},
-                        navigationIcon={IconButton(onClick={goBack}){Icon(Icons.Outlined.ArrowBack,"Back")}})
+                        navigationIcon={IconButton(onClick={goBack()}){Icon(Icons.Outlined.ArrowBack,"Back")}})
                     else TopAppBar(title={
                         Row(verticalAlignment=Alignment.CenterVertically) {
                             Icon(Icons.Outlined.Inventory2,null,tint=MaterialTheme.colorScheme.primary)
