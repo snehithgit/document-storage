@@ -378,7 +378,7 @@ import java.util.UUID
             Text(recoveryError,color=MaterialTheme.colorScheme.error)
             OutlinedButton(onClick=onBackup){Text("Open Backup & Restore")}
         }
-        item{Text(files.size.toString()+" unattached files found. These are not automatically deleted. Recovery only applies to this installation.",
+        item{Text(VaultCounts.format(files.size,"unattached file")+" found. These are not automatically deleted. Recovery only applies to this installation.",
             style=MaterialTheme.typography.bodyMedium)}
         items(files){file->
             ElevatedCard {
