@@ -191,8 +191,9 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
         }
     }
 }
-@Composable fun VaultNavCards(cards:List<VaultCard>,repo:VaultRepository,onOpen:(VaultCard)->Unit,onNew:()->Unit){
+@Composable fun VaultNavCards(cards:List<VaultCard>,repo:VaultRepository,onOpen:(VaultCard)->Unit,onNew:()->Unit,selectedCategory:String="All"){
     var filter by rememberSaveable{mutableStateOf("All")}
+    LaunchedEffect(selectedCategory){ if(selectedCategory!="All")filter=selectedCategory }
     Column(Modifier.fillMaxSize().background(bgBrush)){
         Row(Modifier.padding(16.dp),verticalAlignment=Alignment.CenterVertically){
             Column(Modifier.weight(1f)){VaultHeader("Document cards",VaultCounts.format(cards.size,"card")+" saved")}
@@ -200,14 +201,14 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
         }
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal=15.dp),
             horizontalArrangement=Arrangement.spacedBy(7.dp)){
-            (listOf("All")+cards.map{it.kind}.distinct()).forEach{t->
+            (listOf("All")+cards.map{it.kind}.distinct()+cards.map{it.category}.distinct()).distinct().forEach{t->
                 FilterChip(selected=t==filter,onClick={filter=t},label={Text(t)})
             }
         }
         LazyVerticalGrid(columns=GridCells.Fixed(2),
             contentPadding=PaddingValues(15.dp,10.dp,15.dp,95.dp),
             verticalArrangement=Arrangement.spacedBy(11.dp),horizontalArrangement=Arrangement.spacedBy(11.dp)){
-            items(cards.filter{filter=="All"||it.kind==filter},key={it.id}){c->VaultTile(c,repo){onOpen(c)}}
+            items(cards.filter{filter=="All"||it.kind==filter||it.category==filter},key={it.id}){c->VaultTile(c,repo){onOpen(c)}}
         }
     }
 }
