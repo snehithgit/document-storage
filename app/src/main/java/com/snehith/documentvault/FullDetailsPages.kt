@@ -141,6 +141,7 @@ private val dMuted=Color(0xFF9DBBD9)
     var query by remember{mutableStateOf("")}
     var candidate by remember{mutableStateOf<String?>(null)}
     var label by remember{mutableStateOf("")}
+    var chosenPage by remember{mutableIntStateOf(-1)}
     val file=card.files.getOrNull(selectedFile)
     var pg=0
     val choices=(file?.extractedText?:"").lineSequence().mapNotNull{line->
@@ -155,7 +156,7 @@ private val dMuted=Color(0xFF9DBBD9)
         }},
         confirmButton={TextButton(onClick={
             if(label.isNotBlank()&&!candidate.isNullOrBlank()){
-                onAdd(DataField(label.trim(),candidate!!.trim(),pg,"selected"))
+                onAdd(DataField(label.trim(),candidate!!.trim(),chosenPage,"selected"))
                 candidate=null;label=""
             }
         }){Text("Add to Full Details")}},
@@ -179,7 +180,7 @@ private val dMuted=Color(0xFF9DBBD9)
             Spacer(Modifier.height(8.dp))
             LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp)){
                 items(choices){(page,line)->
-                    Card(onClick={candidate=line;label="";pg=page},colors=CardDefaults.cardColors(containerColor=dPanel)){
+                    Card(onClick={candidate=line;label="";chosenPage=page},colors=CardDefaults.cardColors(containerColor=dPanel)){
                         Text(line,color=Color.White,modifier=Modifier.fillMaxWidth().padding(13.dp))
                     }
                 }
