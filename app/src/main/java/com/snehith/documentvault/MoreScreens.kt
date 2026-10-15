@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
@@ -27,25 +28,32 @@ import java.util.UUID
 
 @Composable fun DocumentViewerScreen(file:VaultFile,repo:VaultRepository,engine:DocumentEngine,onShare:()->Unit,onOcr:()->Unit) {
     val pdf=file.name.endsWith(".pdf",true)||file.mime=="application/pdf"
-    var page by remember(file.id){mutableIntStateOf(0)}
+    var page by rememberSaveable(file.id){mutableIntStateOf(0)}
     var pages by remember(file.id){mutableIntStateOf(1)}
     var bitmap by remember(file.id){mutableStateOf<Bitmap?>(null)}
     var pdfSession by remember(file.id){mutableStateOf<PdfPageSession?>(null)}
     var previewText by remember(file.id){mutableStateOf(file.extractedText)}
-    var showText by remember(file.id){mutableStateOf(!pdf&&!file.mime.startsWith("image/"))}
+    var showText by rememberSaveable(file.id){mutableStateOf(!pdf&&!file.mime.startsWith("image/"))}
     var error by remember(file.id){mutableStateOf("")}
     var zoom by remember(file.id){mutableFloatStateOf(1f)}
     var panX by remember(file.id){mutableFloatStateOf(0f)}
     var panY by remember(file.id){mutableFloatStateOf(0f)}
     var loading by remember(file.id){mutableStateOf(false)}
 
+    DisposableEffect(pdfSession,file.id) {
+        onDispose { pdfSession?.close() }
+    }
     DisposableEffect(file.id) {
-        onDispose {pdfSession?.close()}
+        onDispose { if(!pdf)bitmap?.takeIf{!it.isRecycled}?.recycle() }
     }
     LaunchedEffect(file.id) {
         if(pdf)try{
             loading=true
             val session=withContext(Dispatchers.IO){PdfPageSession(repo.documentFile(file))}
+            if(!kotlinx.coroutines.currentCoroutineContext().isActive) {
+                session.close()
+                return@LaunchedEffect
+            }
             pdfSession=session
             pages=session.pageCount
         }catch(e:Exception){error=e.message?:"Cannot read PDF"}
@@ -74,7 +82,7 @@ import java.util.UUID
     }
 
     Column(Modifier.fillMaxSize().padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-        Text(file.name,fontWeight=FontWeight.SemiBold,style=MaterialTheme.typography.titleMedium)
+        Text(VaultNames.label(file.name),fontWeight=FontWeight.SemiBold,style=MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement=Arrangement.spacedBy(6.dp),verticalAlignment=Alignment.CenterVertically) {
             FilterChip(selected=!showText,onClick={showText=false},label={Text("Pages")})
             FilterChip(selected=showText,onClick={showText=true},label={Text("Text")})
