@@ -217,10 +217,11 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
 @Composable fun VaultNavSearch(cards:List<VaultCard>,repo:VaultRepository,onOpen:(VaultCard)->Unit){
     var query by rememberSaveable{mutableStateOf("")}
     var mode by rememberSaveable{mutableStateOf("All")}
-    val hits by produceState(initialValue=cards.map{VaultSearchHit(it,null)},query,mode,cards){
+    var hits by remember(cards){mutableStateOf(cards.map{VaultSearchHit(it,null)})}
+    LaunchedEffect(query,mode,cards){
         delay(250)
         val snapshot=cards.toList()
-        value=withContext(Dispatchers.Default){
+        hits=withContext(Dispatchers.Default){
             snapshot.mapNotNull{card->
                 val text=card.title+" "+card.category+" "+card.kind+" "+
                     card.fields.joinToString(" "){it.name+" "+it.value}+" "+
