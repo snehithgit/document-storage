@@ -34,6 +34,37 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 data class ExtractedDocument(val text:String, val fields:List<DataField>, val method:String, val pageCount:Int)
+
+// Single PDF renderer per viewer session, with a small 2-page bitmap cache.
+// Opening the renderer on every page turn was noticeably slow on low-end phones.
+class PdfPageSession(private val source:File):Closeable {
+    private val descriptor=ParcelFileDescriptor.open(source,ParcelFileDescriptor.MODE_READ_ONLY)
+    private val renderer=try{PdfRenderer(descriptor)}catch(e:Exception){descriptor.close();throw e}
+    val pageCount:Int get()=renderer.pageCount
+    private val cached=object:LinkedHashMap<Int,Bitmap>(3,0.75f,true){
+        override fun removeEldestEntry(eldest:MutableMap.MutableEntry<Int,Bitmap>?):Boolean=size>2
+    }
+    @Synchronized fun render(index:Int,maxWidth:Int=1050):Bitmap {
+        cached[index]?.let{return it}
+        renderer.openPage(index.coerceIn(0,renderer.pageCount-1)).use{page->
+            val scale=(maxWidth.toFloat()/page.width).coerceIn(0.5f,2.25f)
+            val w=(page.width*scale).toInt().coerceIn(1,1500)
+            val h=(page.height*scale).toInt().coerceIn(1,3200)
+            val image=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888)
+            try {
+                image.eraseColor(android.graphics.Color.WHITE)
+                page.render(image,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                cached[index]=image
+                return image
+            }catch(e:Exception){image.recycle();throw e}
+        }
+    }
+    @Synchronized override fun close(){
+        cached.clear()
+        renderer.close()
+        descriptor.close()
+    }
+}
 class DocumentEngine(private val context:Context, private val repo:VaultRepository) {
     init {PDFBoxResourceLoader.init(context)}
     val mlScripts=listOf("Latin","Devanagari (Hindi)","Chinese","Japanese","Korean")
