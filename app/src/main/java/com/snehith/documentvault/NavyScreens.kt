@@ -299,13 +299,13 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
             }
         }
         item {
-            Column(Modifier.fillMaxWidth().background(VaultPanel,rounded).padding(12.dp)){
+            Column(Modifier.fillMaxWidth().background(VaultPanel,rounded).border(1.dp,MaterialTheme.colorScheme.outlineVariant,rounded).padding(12.dp)){
                 Row(verticalAlignment=Alignment.CenterVertically) {
                     Text("Quick Copy",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f))
                     TextButton(onClick=onFull){Text("All fields →")}
                 }
                 card.fields.take(4).forEach{f->
-                    HorizontalDivider(color=Color(0xFF284A6D))
+                    HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
                     Row(Modifier.padding(vertical=7.dp),verticalAlignment=Alignment.CenterVertically){
                         Column(Modifier.weight(1f)){
                             Text(f.name,color=VaultMuted,style=MaterialTheme.typography.labelSmall)
@@ -368,7 +368,7 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
                 }
             }
         }
-        Column(Modifier.background(VaultPanel,RoundedCornerShape(15.dp)).padding(15.dp)){
+        Column(Modifier.background(VaultPanel,RoundedCornerShape(12.dp)).border(1.dp,MaterialTheme.colorScheme.outlineVariant,RoundedCornerShape(12.dp)).padding(15.dp)){
             Text("Multi-page document workflow",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold)
             Spacer(Modifier.height(7.dp))
             Text("1. Open a document card, then tap Add to attach more scans or PDFs.",
