@@ -94,8 +94,9 @@ class VaultRepository(private val context: Context) {
 
     init { load() }
     fun hasPin() = prefs.contains("pinHash")
-    fun setPin(pin:String) {
+    fun setPin(pin:String,currentPin:String?=null) {
         require(pin.length>=4)
+        require(!hasPin() || (currentPin != null && checkPin(currentPin))) { "Current PIN is incorrect" }
         val salt=ByteArray(16).also(random::nextBytes)
         prefs.edit().putString("pinSalt",android.util.Base64.encodeToString(salt,2))
             .putString("pinHash",android.util.Base64.encodeToString(pinHash(pin,salt),2)).apply()
