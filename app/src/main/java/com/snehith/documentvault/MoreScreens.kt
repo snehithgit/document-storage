@@ -149,48 +149,82 @@ import java.util.UUID
             style=MaterialTheme.typography.bodyMedium)
     }
 }
-@Composable fun PdfToolsScreen(card:VaultCard,onExport:(String,List<VaultFile>,Int,Int)->Unit) {
-    val files=card.files
-    val selected=remember(card.id){mutableStateListOf<String>()}
+@Composable fun PdfToolsScreen(card:VaultCard,onAdd:()->Unit,
+    onExport:(String,List<VaultFile>,Int,Int)->Unit) {
+    val selected=remember(card.id){mutableStateListOf<String>().apply{addAll(card.files.map{it.id})}}
     var start by remember{mutableStateOf("1")}
     var end by remember{mutableStateOf("1")}
-    val selection=files.filter{it.id in selected}
-    LazyColumn(contentPadding=PaddingValues(16.dp,14.dp,16.dp,90.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-        item{Heading("PDF Utilities","Merge, split, rotate, rasterize images and export searchable PDFs")}
-        items(files){file->
-            Row(verticalAlignment=Alignment.CenterVertically){
-                Checkbox(checked=selected.contains(file.id),onCheckedChange={checked->
-                    if(checked)selected.add(file.id) else selected.remove(file.id)
-                })
-                Column(Modifier.weight(1f)) {
-                    Text(file.name,fontWeight=FontWeight.SemiBold,maxLines=1)
-                    Text(file.mime,style=MaterialTheme.typography.labelSmall)
+    val selectedFiles=selected.mapNotNull{id->card.files.firstOrNull{it.id==id}}
+    val combinedPossible=selectedFiles.isNotEmpty()&&selectedFiles.all{
+        it.mime=="application/pdf"||it.name.endsWith(".pdf",true)||it.mime.startsWith("image/")
+    }
+    LazyColumn(Modifier.fillMaxSize().background(VaultNavy),
+        contentPadding=PaddingValues(15.dp,12.dp,15.dp,95.dp),
+        verticalArrangement=Arrangement.spacedBy(12.dp)){
+        item {
+            VaultHeader("PDF Studio",card.title+" · Combine, reorder, split, rotate or export")
+            Spacer(Modifier.height(8.dp))
+            Button(onClick=onAdd,modifier=Modifier.fillMaxWidth()){
+                Icon(Icons.Outlined.Add,null);Text(" Add scans, photos or PDF files")
+            }
+            Text("Select attachments below. Use ↑ and ↓ to choose their order in the combined PDF.",
+                color=VaultMuted,style=MaterialTheme.typography.bodySmall)
+        }
+        items(selectedFiles,key={it.id}){file->
+            Card(colors=CardDefaults.cardColors(containerColor=VaultPanel),
+                shape=RoundedCornerShape(13.dp)) {
+                Row(Modifier.padding(8.dp),verticalAlignment=Alignment.CenterVertically){
+                    Checkbox(checked=true,onCheckedChange={selected.remove(file.id)})
+                    Icon(if(file.mime.startsWith("image/"))Icons.Outlined.Image else Icons.Outlined.PictureAsPdf,
+                        null,tint=VaultSky)
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)){
+                        Text(file.name,color=Color.White,maxLines=2)
+                        Text("PDF page or document",color=VaultMuted,style=MaterialTheme.typography.labelSmall)
+                    }
+                    IconButton(onClick={
+                        val i=selected.indexOf(file.id)
+                        if(i>0){selected.removeAt(i);selected.add(i-1,file.id)}
+                    }){Icon(Icons.Outlined.KeyboardArrowUp,null,tint=VaultSky)}
+                    IconButton(onClick={
+                        val i=selected.indexOf(file.id)
+                        if(i<selected.lastIndex){selected.removeAt(i);selected.add(i+1,file.id)}
+                    }){Icon(Icons.Outlined.KeyboardArrowDown,null,tint=VaultSky)}
                 }
             }
         }
-        item{
-            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+        if(card.files.size>selected.size)item {
+            Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(7.dp)){
+                card.files.filter{it.id !in selected}.forEach{f->
+                    AssistChip(onClick={selected.add(f.id)},label={Text("+ "+f.name.take(20))})
+                }
+            }
+        }
+        item {
+            Button(onClick={onExport("combine",selectedFiles,1,1)},
+                enabled=combinedPossible,modifier=Modifier.fillMaxWidth()){
+                Icon(Icons.Outlined.PictureAsPdf,null);Text(" Create one PDF from selected files")
+            }
+        }
+        item {
+            HorizontalDivider(color=Color(0xFF274663))
+            Text("More PDF tools",color=Color.White,fontWeight=FontWeight.Bold)
+            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 OutlinedTextField(start,{start=it},label={Text("From page")},modifier=Modifier.weight(1f),singleLine=true)
                 OutlinedTextField(end,{end=it},label={Text("To page")},modifier=Modifier.weight(1f),singleLine=true)
             }
-        }
-        item{
-            Column(verticalArrangement=Arrangement.spacedBy(9.dp)) {
-                Button(onClick={onExport("merge",selection,1,1)},enabled=selection.size>=2&&selection.all{it.name.endsWith(".pdf",true)},modifier=Modifier.fillMaxWidth()){Text("Merge selected PDFs")}
-                OutlinedButton(onClick={onExport("split",selection,start.toIntOrNull()?:1,end.toIntOrNull()?:1)},
-                    enabled=selection.size==1&&selection.firstOrNull()?.name?.endsWith(".pdf",true)==true,modifier=Modifier.fillMaxWidth()){Text("Extract selected PDF pages")}
-                OutlinedButton(onClick={onExport("rotate",selection,1,1)},
-                    enabled=selection.size==1&&selection.firstOrNull()?.name?.endsWith(".pdf",true)==true,modifier=Modifier.fillMaxWidth()){Text("Rotate all PDF pages 90°")}
-                OutlinedButton(onClick={onExport("images",selection,1,1)},
-                    enabled=selection.isNotEmpty()&&selection.all{it.mime.startsWith("image/")},modifier=Modifier.fillMaxWidth()){Text("Create PDF from selected images")}
-                OutlinedButton(onClick={onExport("searchable",selection,1,1)},
-                    enabled=selection.size==1&&selection.firstOrNull()?.name?.endsWith(".pdf",true)==true&&selection.first().extractedText.isNotBlank(),
-                    modifier=Modifier.fillMaxWidth()){Text("Export searchable PDF (OCR text)")}
-            }
-        }
-        item{
-            Text("Originals remain unchanged. Searchable PDF export uses reviewed OCR text as an invisible Latin text layer. Other scripts require further PDF font support.",
-                style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(9.dp))
+            OutlinedButton(onClick={onExport("split",selectedFiles,start.toIntOrNull()?:1,end.toIntOrNull()?:1)},
+                enabled=selectedFiles.size==1&&selectedFiles[0].name.endsWith(".pdf",true),
+                modifier=Modifier.fillMaxWidth()){Text("Export selected page range")}
+            OutlinedButton(onClick={onExport("rotate",selectedFiles,1,1)},
+                enabled=selectedFiles.size==1&&selectedFiles[0].name.endsWith(".pdf",true),
+                modifier=Modifier.fillMaxWidth()){Text("Rotate PDF 90°")}
+            OutlinedButton(onClick={onExport("searchable",selectedFiles,1,1)},
+                enabled=selectedFiles.size==1&&selectedFiles[0].name.endsWith(".pdf",true)&&selectedFiles[0].extractedText.isNotBlank(),
+                modifier=Modifier.fillMaxWidth()){Text("Export searchable PDF")}
+            Text("Documents remain unchanged. The combined PDF is exported to a location you choose.",
+                style=MaterialTheme.typography.bodySmall,color=VaultMuted)
         }
     }
 }
