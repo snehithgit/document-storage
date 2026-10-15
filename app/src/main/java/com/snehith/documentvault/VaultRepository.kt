@@ -218,8 +218,16 @@ class VaultRepository(private val context: Context) {
         }
         // Retain a previous good index. Only replace it when the current index parses.
         if(data.isFile) {
-            try { JSONObject(data.readText(Charsets.UTF_8));data.copyTo(backup,overwrite=true) }
-            catch(_:Exception) { /* Never replace a valid backup with a corrupt index. */ }
+            val valid=runCatching{JSONObject(data.readText(Charsets.UTF_8))}.isSuccess
+            if(valid) {
+                val stagedBackup=File(context.filesDir,"vault.json.bak.tmp")
+                try {
+                    data.copyTo(stagedBackup,overwrite=true)
+                    FileOutputStream(stagedBackup,true).use{it.fd.sync()}
+                    if(!stagedBackup.renameTo(backup))
+                        throw IOException("Cannot atomically update the vault backup")
+                }finally{stagedBackup.delete()}
+            }
         }
         if(!tmp.renameTo(data))throw IOException("Unable to commit the vault index")
     }
