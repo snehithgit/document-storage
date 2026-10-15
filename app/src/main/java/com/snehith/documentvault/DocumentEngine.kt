@@ -16,7 +16,7 @@ import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
-import cz.adaptech.tesseract4android.TessBaseAPI
+import com.googlecode.tesseract.android.TessBaseAPI
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
@@ -55,7 +55,7 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
             try {
                 if(!tess.init(context.filesDir.absolutePath,lang))throw IOException("Tesseract language data not found: "+lang)
                 tess.setImage(bitmap)
-                return tess.utF8Text ?: ""
+                return tess.getUTF8Text() ?: ""
             } finally {tess.recycle()}
         }
         val client=when(script) {
