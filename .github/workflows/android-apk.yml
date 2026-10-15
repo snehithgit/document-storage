@@ -38,6 +38,10 @@ jobs:
         run: gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug
       - name: Android lint (fail on errors)
         run: gradle --no-daemon :app:lintDebug
+      - name: Print lint diagnostics if lint fails
+        if: failure()
+        run: |
+          find app/build -name 'lint-results-debug.txt' -print -exec cat {} \;
       - name: Enforce offline merged manifest
         run: |
           python3 - <<'PY'
