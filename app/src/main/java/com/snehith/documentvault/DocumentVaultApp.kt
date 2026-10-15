@@ -48,6 +48,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var cropResult by remember{mutableStateOf<DetectedScan?>(null)}
     var cameraFile by remember{mutableStateOf<File?>(null)}
     var scanTarget by remember{mutableStateOf<String?>(null)}
+    var addToCardId by remember{mutableStateOf<String?>(null)}
     var importTarget by remember{mutableStateOf<String?>(null)}
     var userProfile by rememberSaveable{mutableStateOf("all")}
     var ocrLanguage by rememberSaveable{mutableStateOf("Latin")}
@@ -177,7 +178,17 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         "searchable"->engine.searchableCopy(job.files.first(),uri)
                         "combine"->engine.combineDocuments(job.files,uri)
                     }
-                };activity.notify("PDF exported successfully")}
+                }
+                    if(job.op=="combine"){
+                        // The exported PDF becomes a new attachment while originals remain.
+                        val combined=withContext(Dispatchers.IO){repo.importFile(uri)}
+                        val original=repo.cards.firstOrNull{it.id==selectedCardId}
+                        if(original!=null)withContext(Dispatchers.IO){
+                            repo.saveCard(original.copy(files=original.files+combined))
+                        }
+                    }
+                    activity.notify(if(job.op=="combine")"Combined PDF saved to the card and exported" else "PDF exported successfully")
+                }
                 catch(e:Exception){error="PDF export failed: "+(e.message?:"Error")}
                 finally{busy="";pdfJobToExport=null}
             }
@@ -211,6 +222,20 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             activity.incoming.clear()
             importUris(received)
         }
+    }
+    if(addToCardId!=null){
+        val target=addToCardId
+        AlertDialog(onDismissRequest={addToCardId=null},title={Text("Add document pages")},
+            text={Text("Add another scan with automatic crop or import existing PDFs and images.")},
+            confirmButton={TextButton(onClick={
+                addToCardId=null
+                camera(target)
+            }){Text("Scan new page")}},
+            dismissButton={TextButton(onClick={
+                addToCardId=null
+                importTarget=target
+                importPicker.launch(arrayOf("*/*"))
+            }){Text("Import files")}})
     }
     if(confirmRestore) {
         AlertDialog(onDismissRequest={confirmRestore=false},title={Text("Replace current vault?")},
@@ -311,7 +336,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         "detail"->current?.let{c->VaultNavDetail(c,repo,
                             {f->viewing=f;route="viewer"},
                             {f->startOcr(c.id,f)},{f->activity.share(f)},{activity.shareAll(c.files)},
-                            {importTarget=c.id;importPicker.launch(arrayOf("*/*"))},
+                            {addToCardId=c.id},
                             {route="fulldetails"},{route="tools"},
                             {startEdit(c)},
                             {scope.launch{try{withContext(Dispatchers.IO){repo.deleteCard(c)};route="cards"}
@@ -398,7 +423,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             else route="detail"
                         }
                         "tools"->current?.let{c->PdfToolsScreen(c,
-                            {importTarget=c.id;importPicker.launch(arrayOf("*/*"))},
+                            {addToCardId=c.id},
                             {op,files,from,to->
                                 pdfJobToExport=PdfJob(op,files,from,to)
                                 pdfExport.launch("DocumentVault_"+op+"_"+System.currentTimeMillis()+".pdf")
