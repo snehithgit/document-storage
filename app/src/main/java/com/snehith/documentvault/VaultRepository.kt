@@ -293,7 +293,29 @@ class VaultRepository(private val context: Context) {
     }
     fun attachRecovered(id:String,cardTitle:String) {
         val recovered=recoverableFiles().firstOrNull{it.id==id}?:return
-        saveCard(VaultCard(title=cardTitle.ifBlank { recovered.name },kind="Recovered",category="Recovered",files=listOf(recovered)))
+        val plain=openDecrypted(recovered)
+        try {
+            val digest=MessageDigest.getInstance("SHA-256")
+            plain.inputStream().use { src->
+                val buffer=ByteArray(65536)
+                while(true){ val n=src.read(buffer);if(n<0)break;if(n>0)digest.update(buffer,0,n) }
+            }
+            val magic=plain.inputStream().use { input->ByteArray(16).also {input.read(it)} }
+            val pdf=String(magic,0,4,Charsets.US_ASCII)=="%PDF"
+            val png=magic.take(8)==listOf(137,80,78,71,13,10,26,10).map{it.toByte()}
+            val jpg=(magic[0].toInt() and 0xff)==0xff && (magic[1].toInt() and 0xff)==0xd8
+            val (extension,mime)=when {
+                pdf->".pdf" to "application/pdf"
+                png->".png" to "image/png"
+                jpg->".jpg" to "image/jpeg"
+                String(magic,0,2,Charsets.US_ASCII)=="PK"->".docx" to "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                else->".txt" to "text/plain"
+            }
+            val title=cardTitle.ifBlank{"Recovered-"+id.take(8)}
+            val attachment=recovered.copy(name=title+extension,mime=mime,bytes=plain.length(),
+                sha256=digest.digest().joinToString(""){"%02x".format(it)})
+            saveCard(VaultCard(title=title,kind="Recovered",category="Recovered",files=listOf(attachment)))
+        }finally{plain.delete()}
     }
     fun newCard(kind:String="Custom",profile:String="self"):VaultCard {
         val t=(FieldSuggestions.templates+customTemplates).firstOrNull{it.name==kind}
