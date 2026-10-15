@@ -51,3 +51,10 @@ object ImageSampling {
         return sample
     }
 }
+
+object VaultExpiry {
+    fun isIsoDate(raw:String):Boolean=try {
+        java.time.LocalDate.parse(raw)
+        true
+    }catch(_:java.time.format.DateTimeParseException){false}
+}
