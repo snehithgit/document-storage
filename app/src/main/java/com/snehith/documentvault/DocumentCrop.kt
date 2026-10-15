@@ -52,8 +52,11 @@ object DocumentCropEngine {
         if(!ready())throw IllegalStateException("OpenCV could not initialize")
         val p=corners.map{Point(it.x*bitmap.width.toDouble(),it.y*bitmap.height.toDouble())}
         fun distance(a:Point,b:Point)=hypot(a.x-b.x,a.y-b.y)
-        val width=max(distance(p[0],p[1]),distance(p[3],p[2])).roundToInt().coerceIn(100,2600)
-        val height=max(distance(p[0],p[3]),distance(p[1],p[2])).roundToInt().coerceIn(100,3500)
+        val width=max(distance(p[0],p[1]),distance(p[3],p[2])).roundToInt().coerceAtLeast(100)
+        val height=max(distance(p[0],p[3]),distance(p[1],p[2])).roundToInt().coerceAtLeast(100)
+        require(width.toLong()*height.toLong()<=32_000_000L) {
+            "Perspective crop exceeds the safe image size on this device"
+        }
         val src=Mat();val warped=Mat()
         val source=MatOfPoint2f(*p.toTypedArray())
         val dst=MatOfPoint2f(Point(0.0,0.0),Point(width-1.0,0.0),
