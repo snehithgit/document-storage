@@ -15,6 +15,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -23,6 +24,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -38,27 +42,30 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     val repo=activity.repo
     val engine=activity.engine
     val scope=rememberCoroutineScope()
+    val savedScreens=rememberSaveableStateHolder()
     var route by rememberSaveable{mutableStateOf("home")}
     var privacyScreen by remember{mutableStateOf(activity.isPrivacyScreenEnabled())}
     var lastRoot by rememberSaveable{mutableStateOf("cards")}
     var selectedCardId by rememberSaveable{mutableStateOf("")}
     var editing by remember{mutableStateOf<VaultCard?>(null)}
-    var viewing by remember{mutableStateOf<VaultFile?>(null)}
+    var editingJson by rememberSaveable{mutableStateOf("")}
+    var viewingId by rememberSaveable{mutableStateOf("")}
     var cropBitmap by remember{mutableStateOf<android.graphics.Bitmap?>(null)}
     var cropResult by remember{mutableStateOf<DetectedScan?>(null)}
-    var cameraFile by remember{mutableStateOf<File?>(null)}
+    var cameraPath by rememberSaveable{mutableStateOf("")}
     var scanTarget by remember{mutableStateOf<String?>(null)}
     var addToCardId by remember{mutableStateOf<String?>(null)}
     var importTarget by remember{mutableStateOf<String?>(null)}
     var userProfile by rememberSaveable{mutableStateOf("all")}
     var ocrLanguage by rememberSaveable{mutableStateOf("Latin")}
     var busy by remember{mutableStateOf("")}
+    var ocrJob by remember{mutableStateOf<Job?>(null)}
     var error by remember{mutableStateOf("")}
     var pdfJob by remember{mutableStateOf<PdfJob?>(null)}
     var backupPassword by remember{mutableStateOf("")}
     val reviewQueue= remember{mutableStateListOf<ReviewJob>()}
     val options=remember { activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE) }
-    var themeMode by remember { mutableStateOf(options.getString("displayTheme","light") ?: "light") }
+    var themeMode by rememberSaveable { mutableStateOf(options.getString("displayTheme","light") ?: "light") }
     val dark=themeMode=="dark"
     val scheme=if(dark) darkColorScheme(
         primary=Color(0xFF8DB8FF),onPrimary=Color(0xFF0D203A),
@@ -77,7 +84,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     val current=repo.cards.firstOrNull{it.id==selectedCardId}
     val regular=route in setOf("home","cards","scan","search","more")
     fun openCard(c:VaultCard){if(regular)lastRoot=route;selectedCardId=c.id;route="detail"}
-    fun startEdit(card:VaultCard){editing=card;route="edit"}
+    fun startEdit(card:VaultCard){editing=card;editingJson=repo.encodeCard(card);route="edit"}
     fun goBack(){
         when(route) {
             "edit"->route=if(repo.cards.any{it.id==editing?.id})"detail" else lastRoot
@@ -92,17 +99,21 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         }
     }
     fun startOcr(cardId:String,f:VaultFile) {
-        busy="Reading "+f.name
-        scope.launch {
+        if(ocrJob?.isActive==true)return
+        busy="Preparing OCR: "+VaultNames.title(f.name)
+        ocrJob=scope.launch {
             try{
-                val result=withContext(Dispatchers.IO){engine.extract(f,ocrLanguage)}
+                val result=engine.extract(f,ocrLanguage){done,total->
+                    busy="OCR page "+done+" of "+total+": "+VaultNames.title(f.name)
+                }
                 val fresh=repo.cards.firstOrNull{it.id==cardId} ?:return@launch
                 val update=f.copy(extractedText=result.text,ocrStatus=result.method)
                 withContext(Dispatchers.IO){repo.saveCard(fresh.copy(files=fresh.files.map{if(it.id==f.id)update else it}))}
                 if(result.fields.isNotEmpty()) {reviewQueue.add(ReviewJob(cardId,update,result));route="review"}
                 else {activity.notify("Text extracted. Open the document Text tab to copy it.");route="detail"}
-            }catch(e:Exception){error="OCR failed: "+(e.message?:"Unknown format")}
-            finally{busy=""}
+            }catch(_:CancellationException){activity.notify("OCR cancelled")}
+            catch(e:Exception){error="OCR failed: "+(e.message?:"Unknown format")}
+            finally{busy="";ocrJob=null}
         }
     }
     fun importUris(uris:List<Uri>,targetId:String?=null) {
@@ -150,7 +161,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     val importPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()){uriList->
         importUris(uriList,importTarget)
     }
-    var cameraUri by remember{mutableStateOf<Uri?>(null)}
+    var cameraUri by rememberSaveable{mutableStateOf<Uri?>(null)}
     val cameraLauncher=rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()){success->
         if(success){
             val uri=cameraUri
@@ -158,7 +169,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 busy="Detecting document borders"
                 try{
                     val(bitmap,detected)=withContext(Dispatchers.IO){
-                        val file=cameraFile ?: throw IllegalStateException("Camera file missing")
+                        val file=File(cameraPath).takeIf{it.isFile}
+                            ?:throw IllegalStateException("Camera file missing")
                         val image=engine.scaledBitmap(file,2050)
                         image to DocumentCropEngine.detect(image)
                     }
@@ -168,11 +180,24 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             }
         }
     }
+    LaunchedEffect(route,cameraPath){
+        if(route=="crop" && cropBitmap==null && cameraPath.isNotBlank()) {
+            val recovered=withContext(Dispatchers.IO){
+                val file=File(cameraPath)
+                if(file.isFile) {
+                    val photo=engine.scaledBitmap(file,2050)
+                    photo to DocumentCropEngine.detect(photo)
+                }else null
+            }
+            if(recovered!=null){cropBitmap=recovered.first;cropResult=recovered.second}
+            else route="scan"
+        }
+    }
     fun camera(target:String?=null) {
         importTarget=target;scanTarget=target
         val f=File(activity.cacheDir,"camera").apply{mkdirs()}.let{File(it,"capture-"+UUID.randomUUID()+".jpg")}
         f.createNewFile()
-        cameraFile=f
+        cameraPath=f.absolutePath
         cameraUri=FileProvider.getUriForFile(activity,activity.packageName+".provider",f)
         cameraLauncher.launch(cameraUri!!)
     }
@@ -337,6 +362,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 }
             ){ padding ->
                 Box(Modifier.fillMaxSize().padding(padding)) {
+                    savedScreens.SaveableStateProvider(route) {
                     when(route){
                         "home"->VaultNavHome(repo.cards.toList(),repo,repo.profiles.toList(),userProfile,
                             {userProfile=it},{openCard(it)},{route="search"},{camera()},
@@ -355,14 +381,14 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             },
                             {enabled->privacyScreen=enabled;activity.setPrivacyScreenEnabled(enabled)},
                             {pin,old->try{repo.setPin(pin,old);activity.notify("PIN saved")}catch(e:Exception){error=e.message?:"PIN failed"}},
-                            {pin->if(repo.checkPin(pin)){repo.clearPin();activity.notify("PIN removed")} else activity.notify("Wrong PIN")},
+                            {pin->if(repo.checkPin(pin)){repo.clearPin(pin);activity.notify("PIN removed")} else activity.notify("Wrong PIN")},
                             {route="profiles"},{route="templates"},{route="backup"},{route="recovery"},
                             {modelPicker.launch(arrayOf("*/*"))},{ocrLanguage=it},
                             {days->activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE).edit().putInt("remindDays",days).apply()
                                 if(Build.VERSION.SDK_INT>=33)notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                                 activity.notify("Expiry reminders: "+days+" days")})
                         "detail"->current?.let{c->VaultNavDetail(c,repo,
-                            {f->viewing=f;route="viewer"},
+                            {f->viewingId=f.id;route="viewer"},
                             {f->startOcr(c.id,f)},{f->activity.share(f)},{activity.shareAll(c.files)},
                             {addToCardId=c.id},
                             {route="fulldetails"},{route="tools"},
@@ -405,20 +431,23 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     cropBitmap=null;cropResult=null},
                                 {cropBitmap=null;cropResult=null;goBack()})
                         }
-                        "edit"->editing?.let{c->CardEditorScreen(c,repo.profiles.toList(),
+                        "edit"->(editing?:editingJson.takeIf{it.isNotBlank()}?.let{repo.decodeCard(it)})?.let{c->
+                            CardEditorScreen(c,repo.profiles.toList(),
                             {saved->scope.launch {
                                 busy="Saving card"
                                 try {
                                     withContext(Dispatchers.IO){repo.saveCard(saved)}
-                                    selectedCardId=saved.id;editing=null;route="detail"
+                                    selectedCardId=saved.id;editing=null;editingJson="";route="detail"
                                 }catch(e:Exception){error="Cannot save card: "+(e.message?:"Storage error")}
                                 finally{busy=""}
                             }},
                             {goBack()},
                             {t->scope.launch {try{withContext(Dispatchers.IO){repo.saveTemplate(t)};activity.notify("Saved template "+t.name)}
                                 catch(e:Exception){error=e.message?:"Unable to save template"}}})}
-                        "viewer"->viewing?.let{f->DocumentViewerScreen(f,repo,engine,{activity.share(f)},
-                            {startOcr(selectedCardId,f)})}
+                        "viewer"->current?.files?.firstOrNull{it.id==viewingId}?.let{f->
+                            DocumentViewerScreen(f,repo,engine,{activity.share(f)},
+                                {startOcr(selectedCardId,f)})
+                        }
                         "review"->{
                             val job=reviewQueue.firstOrNull()
                             if(job!=null)OcrReviewScreen(job.file.name,job.analysis,
@@ -476,12 +505,19 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             }},
                             {route="backup"})
                     }
+                    }
                     if(busy.isNotBlank()) {
                         Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.scrim.copy(alpha=.62f)) {
                             Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){
                                 CircularProgressIndicator()
                                 Spacer(Modifier.height(16.dp))
                                 Text(busy,color=Color.White)
+                                if(ocrJob?.isActive==true){
+                                    Spacer(Modifier.height(16.dp))
+                                    OutlinedButton(onClick={ocrJob?.cancel()}){
+                                        Text("Cancel OCR")
+                                    }
+                                }
                             }
                         }
                     }
