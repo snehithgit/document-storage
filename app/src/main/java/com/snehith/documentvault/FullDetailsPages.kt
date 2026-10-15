@@ -90,6 +90,10 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                                 SelectionContainer{Text(f.value.ifBlank{"—"},color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Medium)}
                                 Text(if(f.page>=0)"Page ${f.page+1} · ${f.source}" else f.source,
                                     color=MaterialTheme.colorScheme.primary,style=MaterialTheme.typography.labelSmall)
+                                if(f.confidence>0f)
+                                    Text("OCR confidence ${(f.confidence*100).toInt()}%",
+                                        color=MaterialTheme.colorScheme.secondary,
+                                        style=MaterialTheme.typography.labelSmall)
                             }
                             IconButton(onClick={copyToClipboard(context,f.name,f.value)}){
                                 Icon(Icons.Outlined.ContentCopy,"Copy "+f.name,tint=MaterialTheme.colorScheme.primary)
