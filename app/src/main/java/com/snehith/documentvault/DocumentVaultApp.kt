@@ -112,20 +112,14 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         }
                     withContext(Dispatchers.IO){repo.saveCard(card)}
                     lastCard=card
-                    busy="Scanning "+(index+1)+"/"+uris.size+": "+file.name
-                    try {
-                        val analysis=withContext(Dispatchers.IO){engine.extract(file,ocrLanguage)}
-                        val updatedFile=file.copy(extractedText=analysis.text,ocrStatus=analysis.method)
-                        val fresh=repo.cards.first{it.id==card.id}
-                        withContext(Dispatchers.IO){repo.saveCard(fresh.copy(files=fresh.files.map{if(it.id==file.id)updatedFile else it}))}
-                        if(analysis.fields.isNotEmpty())reviewQueue.add(ReviewJob(card.id,updatedFile,analysis))
-                    } catch(e:Exception) {
-                        val fresh=repo.cards.first{it.id==card.id}
-                        withContext(Dispatchers.IO){repo.saveCard(fresh.copy(files=fresh.files.map{if(it.id==file.id)it.copy(ocrStatus="Manual review required")else it}))}
-                    }
+                    busy="Importing "+(index+1)+"/"+uris.size+": "+file.name
+                    // Import now finishes as soon as the file is saved. OCR is opt-in
+                    // from each document's OCR button, so a scan cannot stall View/Share.
                 }
-                if(reviewQueue.isNotEmpty()){route="review"}
-                else if(lastCard!=null)openCard(repo.cards.first{it.id==lastCard!!.id})
+                if(lastCard!=null) {
+                    openCard(repo.cards.first{it.id==lastCard!!.id})
+                    activity.notify("Imported. Tap OCR to extract and copy information.")
+                }
             }catch(e:Exception){error="Import failed: "+(e.message?:"Unknown error")}
             finally {busy="";importTarget=null}
         }
@@ -168,9 +162,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         if(uri!=null)try{val lang=engine.installLanguage(uri);ocrLanguage="Tesseract: "+lang;activity.notify("Installed "+lang+" offline OCR")}
         catch(e:Exception){error=e.message?:"Could not install language"}
     }
-    val backupExport=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")){uri->
+    val backupExport=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")){uri->
         if(uri!=null){
-            busy="Encrypting backup"
+            busy="Exporting ZIP backup"
             scope.launch{
                 try{withContext(Dispatchers.IO){repo.exportBackup(uri,backupPassword)};activity.notify("Backup exported")}
                 catch(e:Exception){error="Backup failed: "+(e.message?:"Error")}
@@ -200,10 +194,10 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 confirmRestore=false
                 val uri=restoreUri
                 if(uri!=null){
-                    busy="Restoring encrypted backup"
+                    busy="Restoring ZIP backup"
                     scope.launch{
                         try{withContext(Dispatchers.IO){repo.restoreBackup(uri,backupPassword)};route="home";activity.notify("Restore complete")}
-                        catch(e:Exception){error="Restore failed: "+(e.message?:"Wrong password or damaged archive")}
+                        catch(e:Exception){error="Restore failed: "+(e.message?:"Invalid or damaged ZIP archive")}
                         finally{busy=""}
                     }
                 }
@@ -233,7 +227,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         "expiry"->"Expiry & renewal"
                         "profiles"->"Family profiles"
                         "templates"->"Card templates"
-                        "backup"->"Encrypted backup"
+                        "backup"->"Backup & Restore"
                         "recovery"->"Recover imported files"
                         else->"Document Vault"
                     },maxLines=1)},
@@ -343,8 +337,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             startEdit(card)
                         }
                         "backup"->BackupScreen(
-                            {pwd->backupPassword=pwd;backupExport.launch("DocumentVault_"+LocalDate.now()+".dvault")},
-                            {pwd->backupPassword=pwd;backupImport.launch(arrayOf("*/*"))}
+                            {pwd->backupPassword="";backupExport.launch("DocumentVault_"+LocalDate.now()+".zip")},
+                            {pwd->backupPassword="";backupImport.launch(arrayOf("*/*"))}
                         )
                         "recovery"->RecoveryScreen(repo.recoverableFiles(),repo.recoveryError,
                             {file,title->scope.launch{
@@ -378,7 +372,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         Icon(Icons.Outlined.Lock,null,tint=Color(0xFF4361EE),modifier=Modifier.size(65.dp))
         Spacer(Modifier.height(24.dp))
         Text("Document Vault",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold)
-        Text("Unlock your encrypted personal library")
+        Text("Unlock your personal document library")
         Spacer(Modifier.height(30.dp))
         OutlinedTextField(pin,{pin=it;invalid=false},label={Text("Vault PIN")},visualTransformation=PasswordVisualTransformation(),
             singleLine=true,modifier=Modifier.fillMaxWidth())
