@@ -88,6 +88,8 @@ class VaultRepository(private val context: Context) {
     private val blobDir = File(context.filesDir,"blobs").apply{mkdirs()}
     private val random = SecureRandom()
     private val prefs = context.getSharedPreferences("vault_lock",Context.MODE_PRIVATE)
+    var recoveryError: String? = null
+        private set
     private fun uid() = UUID.randomUUID().toString()
 
     init { load() }
@@ -134,6 +136,7 @@ class VaultRepository(private val context: Context) {
     }
     fun load() {
         cards.clear();profiles.clear();customTemplates.clear()
+        recoveryError = null
         if(data.exists()) try {
             val bytes=ByteArrayOutputStream()
             decrypt(data.inputStream(),bytes)
@@ -144,7 +147,11 @@ class VaultRepository(private val context: Context) {
             for(i in 0 until p.length()) { val e=p.getJSONObject(i); profiles.add(VaultProfile(e.getString("id"),e.getString("name"))) }
             val t=root.optJSONArray("templates") ?: JSONArray()
             for(i in 0 until t.length()){ val e=t.getJSONObject(i);customTemplates.add(CardTemplate(e.getString("id"),e.getString("name"),strings(e.optJSONArray("fields")))) }
-        } catch(e:Exception) { throw IllegalStateException("Cannot decrypt the vault. Data was preserved.",e) }
+        } catch(e:Exception) {
+            // Never overwrite an unreadable vault or crash-loop: backup restore remains available.
+            cards.clear(); profiles.clear(); customTemplates.clear()
+            recoveryError = "The saved vault could not be decrypted. Existing files were preserved. Restore a valid backup or recover the original encryption key."
+        }
         if(profiles.none{it.id=="self"}) profiles.add(0,VaultProfile("self","Me"))
     }
     private fun strings(a:JSONArray?):List<String> = (0 until (a?.length()?:0)).map{a!!.optString(it)}
@@ -173,8 +180,18 @@ class VaultRepository(private val context: Context) {
         .toString()
 
     @Synchronized fun persist() {
+        check(recoveryError == null) { recoveryError ?: "Vault recovery required" }
         val tmp=File(context.filesDir,"vault.state.tmp")
-        ByteArrayInputStream(snapshot().toByteArray(Charsets.UTF_8)).use { src -> FileOutputStream(tmp).use{ output ->encrypt(src,output);output.fd.sync()} }
+        ByteArrayInputStream(snapshot().toByteArray(Charsets.UTF_8)).use { src ->
+            FileOutputStream(tmp).use { output ->
+                // CipherOutputStream.close() must not close the descriptor before fsync.
+                val nonClosing=object:FilterOutputStream(output) {
+                    override fun close() { flush() }
+                }
+                encrypt(src,nonClosing)
+                output.fd.sync()
+            }
+        }
         if(!tmp.renameTo(data)) { tmp.copyTo(data,overwrite=true);tmp.delete() }
     }
     @Synchronized fun saveCard(card:VaultCard) {
@@ -183,15 +200,19 @@ class VaultRepository(private val context: Context) {
         persist()
     }
     @Synchronized fun deleteCard(card:VaultCard) {
+        val previous=cards.toList()
         cards.removeAll{it.id==card.id}
-        card.files.forEach{f->blob(f.id).delete()}
-        persist()
+        try { persist() } catch(e:Exception) { cards.clear();cards.addAll(previous);throw e }
+        // Never delete file data until the new encrypted index is durable.
+        val stillUsed=cards.flatMap { it.files }.map{it.id}.toSet()
+        card.files.filter { it.id !in stillUsed }.forEach{f->blob(f.id).delete()}
     }
     fun saveProfile(p:VaultProfile) {val i=profiles.indexOfFirst{it.id==p.id};if(i<0)profiles.add(p) else profiles[i]=p;persist()}
     fun saveTemplate(t:CardTemplate){val i=customTemplates.indexOfFirst{it.id==t.id};if(i<0)customTemplates.add(t) else customTemplates[i]=t;persist()}
     private fun blob(id:String)=File(blobDir,id+".dat")
     fun isDuplicate(sha:String)=cards.any{c->c.files.any{it.sha256==sha}}
     fun importFile(uri:Uri):VaultFile {
+        require(uri.scheme=="content") { "Import only from Android's secure document provider" }
         val name=filename(uri)
         val mime=context.contentResolver.getType(uri) ?: when(name.substringAfterLast('.',"").lowercase()){
             "pdf"->"application/pdf";"txt"->"text/plain";"docx"->"application/vnd.openxmlformats-officedocument.wordprocessingml.document";"doc"->"application/msword"
@@ -228,7 +249,17 @@ class VaultRepository(private val context: Context) {
     }
     fun encryptedBlobExists(file:VaultFile)=blob(file.id).exists()
     fun cleanupPreviews() {
-        listOf("preview","shared").forEach{ folder -> File(context.cacheDir,folder).listFiles()?.forEach { if(System.currentTimeMillis()-it.lastModified()>3600000)it.delete() } }
+        listOf("preview","shared","camera").forEach{ folder -> File(context.cacheDir,folder).listFiles()?.forEach { if(System.currentTimeMillis()-it.lastModified()>3600000)it.delete() } }
+        File(context.cacheDir,".").listFiles()?.filter { it.isDirectory && it.name.startsWith("restore-") }?.forEach {
+            if(System.currentTimeMillis()-it.lastModified()>3600000)it.deleteRecursively()
+        }
+    }
+    fun sweepOrphanBlobs() {
+        if(recoveryError != null) return // Do not touch encrypted files during recovery.
+        val referenced=cards.flatMap{it.files}.map{it.id}.toSet()
+        blobDir.listFiles()?.filter{it.name.endsWith(".dat") && it.name.removeSuffix(".dat") !in referenced}?.forEach{file ->
+            if(System.currentTimeMillis()-file.lastModified()>24L*3600000L)file.delete()
+        }
     }
     fun newCard(kind:String="Custom",profile:String="self"):VaultCard {
         val t=(FieldSuggestions.templates+customTemplates).firstOrNull{it.name==kind}
@@ -297,7 +328,10 @@ class VaultRepository(private val context: Context) {
             val t=json.optJSONArray("templates")?:JSONArray()
             for(i in 0 until t.length()){val it=t.getJSONObject(i);customTemplates.add(CardTemplate(it.getString("id"),it.getString("name"),strings(it.optJSONArray("fields"))))}
             if(profiles.none{it.id=="self"})profiles.add(VaultProfile("self","Me"))
+            recoveryError = null
             persist()
+            val keep=cards.flatMap{it.files}.map{it.id}.toSet()
+            blobDir.listFiles()?.filter{it.name.endsWith(".dat") && it.name.removeSuffix(".dat") !in keep}?.forEach{it.delete()}
         } finally {staged.deleteRecursively()}
     }
 }
