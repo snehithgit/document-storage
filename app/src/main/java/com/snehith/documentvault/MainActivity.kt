@@ -15,14 +15,23 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
+/** Survives rotation but not a killed process or a cold start. */
+internal class VaultLockViewModel : ViewModel() {
+    val unlocked=mutableStateOf(false)
+    var initialized=false
+}
+
 class MainActivity : FragmentActivity() {
     val incoming = mutableStateListOf<Uri>()
-    val unlocked = mutableStateOf(true)
+    private val lockModel by lazy { ViewModelProvider(this)[VaultLockViewModel::class.java] }
+    val unlocked get()=lockModel.unlocked
     val loaded = mutableStateOf(false)
     lateinit var repo:VaultRepository
     lateinit var engine:DocumentEngine
@@ -74,7 +83,10 @@ class MainActivity : FragmentActivity() {
                 }
                 repo=pair.first
                 engine=pair.second
-                unlocked.value=!repo.hasPin()
+                if(!lockModel.initialized) {
+                    unlocked.value=!repo.hasPin()
+                    lockModel.initialized=true
+                }
                 if(savedInstanceState==null)receive(intent)
                 ExpiryWorker.schedule(applicationContext)
                 loaded.value=true
