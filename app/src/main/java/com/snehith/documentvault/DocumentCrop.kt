@@ -101,7 +101,6 @@ object DocumentCropEngine {
     var dragging by remember{mutableIntStateOf(-1)}
     DisposableEffect(original) {
         onDispose {
-            preview?.takeIf{it!==original && !it.isRecycled}?.recycle()
             if(image !== original && !image.isRecycled)image.recycle()
             if(!original.isRecycled)original.recycle()
         }
@@ -109,6 +108,10 @@ object DocumentCropEngine {
     LaunchedEffect(image,settings){
         val filtered=withContext(Dispatchers.Default){ScanEnhance.apply(image,settings)}
         preview=filtered
+    }
+    DisposableEffect(preview) {
+        val oldPreview=preview
+        onDispose {if(oldPreview!=null && oldPreview!==image && !oldPreview.isRecycled)oldPreview.recycle()}
     }
     val color=if(auto)VaultColors.valid else VaultColors.expiring
     val scheme=MaterialTheme.colorScheme
