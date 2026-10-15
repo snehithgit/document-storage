@@ -18,6 +18,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -62,12 +65,12 @@ fun copyToClipboard(context:Context,label:String,value:String) {
                     null,tint=if(card.expiry.isNotBlank())Gold else Blue,modifier=Modifier.padding(10.dp).size(23.dp))
             }
             Column {
-                Text(card.title,maxLines=2,overflow=TextOverflow.Ellipsis,fontWeight=FontWeight.SemiBold)
+                Text(VaultNames.title(card.title),maxLines=2,overflow=TextOverflow.Ellipsis,fontWeight=FontWeight.SemiBold)
                 Text(card.category,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(4.dp)) {
                     Icon(Icons.Outlined.AttachFile,null,modifier=Modifier.size(14.dp))
-                    Text(card.files.size.toString()+" files",style=MaterialTheme.typography.labelSmall)
+                    Text(VaultCounts.format(card.files.size,"file"),style=MaterialTheme.typography.labelSmall)
                     if(card.expiry.isNotBlank())Text(" · "+card.expiry,style=MaterialTheme.typography.labelSmall,maxLines=1)
                 }
             }
@@ -200,7 +203,7 @@ fun copyToClipboard(context:Context,label:String,value:String) {
                 }
             }
         }
-        item{Text("Documents ("+card.files.size+")",fontWeight=FontWeight.SemiBold,style=MaterialTheme.typography.titleMedium)}
+        item{Text(VaultCounts.format(card.files.size,"document"),fontWeight=FontWeight.SemiBold,style=MaterialTheme.typography.titleMedium)}
         items(card.files,key={it.id}){f->
             ElevatedCard {
                 Column(Modifier.padding(13.dp),verticalArrangement=Arrangement.spacedBy(9.dp)) {
@@ -208,7 +211,7 @@ fun copyToClipboard(context:Context,label:String,value:String) {
                         Icon(if(f.mime.startsWith("image"))Icons.Outlined.Image else Icons.Outlined.Description,null,tint=Blue)
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)){
-                            Text(f.name,fontWeight=FontWeight.SemiBold,maxLines=2,overflow=TextOverflow.Ellipsis)
+                            Text(VaultNames.label(f.name),fontWeight=FontWeight.SemiBold,maxLines=2,overflow=TextOverflow.Ellipsis)
                             Text(((f.bytes/1024).coerceAtLeast(1)).toString()+" KB · "+f.ocrStatus,style=MaterialTheme.typography.labelSmall)
                         }
                     }
@@ -263,18 +266,28 @@ fun copyToClipboard(context:Context,label:String,value:String) {
     }
 }
 @Composable fun CardEditorScreen(card:VaultCard,profiles:List<VaultProfile>,onSave:(VaultCard)->Unit,onCancel:()->Unit,onSaveTemplate:(CardTemplate)->Unit) {
-    var title by remember(card.id){mutableStateOf(card.title)}
-    var category by remember(card.id){mutableStateOf(card.category)}
-    var kind by remember(card.id){mutableStateOf(card.kind)}
-    var tags by remember(card.id){mutableStateOf(card.tags)}
-    var notes by remember(card.id){mutableStateOf(card.notes)}
-    var expiry by remember(card.id){mutableStateOf(card.expiry)}
-    var profile by remember(card.id){mutableStateOf(card.profile)}
-    var fields= remember(card.id){mutableStateListOf<DataField>().apply{addAll(card.fields)}}
-    var categoryExpanded by remember{mutableStateOf(false)}
-    var kindExpanded by remember{mutableStateOf(false)}
-    var profileExpanded by remember{mutableStateOf(false)}
-    var error by remember{mutableStateOf("")}
+    var title by rememberSaveable(card.id){mutableStateOf(card.title)}
+    var category by rememberSaveable(card.id){mutableStateOf(card.category)}
+    var kind by rememberSaveable(card.id){mutableStateOf(card.kind)}
+    var tags by rememberSaveable(card.id){mutableStateOf(card.tags)}
+    var notes by rememberSaveable(card.id){mutableStateOf(card.notes)}
+    var expiry by rememberSaveable(card.id){mutableStateOf(card.expiry)}
+    var profile by rememberSaveable(card.id){mutableStateOf(card.profile)}
+    val fieldsSaver=listSaver<SnapshotStateList<DataField>,String>(
+        save={list->list.flatMap{listOf(it.id,it.name,it.value,it.page.toString(),it.source)}},
+        restore={items->mutableStateListOf<DataField>().apply {
+            items.chunked(5).forEach{v->if(v.size==5)
+                add(DataField(v[1],v[2],v[3].toIntOrNull()?:-1,v[4],v[0]))
+            }
+        }}
+    )
+    val fields=rememberSaveable(card.id,saver=fieldsSaver){
+        mutableStateListOf<DataField>().apply{addAll(card.fields)}
+    }
+    var categoryExpanded by rememberSaveable{mutableStateOf(false)}
+    var kindExpanded by rememberSaveable{mutableStateOf(false)}
+    var profileExpanded by rememberSaveable{mutableStateOf(false)}
+    var error by rememberSaveable{mutableStateOf("")}
     LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp,8.dp,16.dp,105.dp),verticalArrangement=Arrangement.spacedBy(13.dp)){
         item{Heading(if(card.title=="New Card")"Create card" else "Edit card","Customize details and attach documents later")}
         item{OutlinedTextField(title,{title=it},label={Text("Card title")},modifier=Modifier.fillMaxWidth(),singleLine=true)}
