@@ -77,6 +77,7 @@ private val thumbnailCache=object:LruCache<String,Bitmap>(16*1024*1024){
 fun vaultValidity(card:VaultCard):Pair<String,Color> {
     val days=try{ChronoUnit.DAYS.between(LocalDate.now(),LocalDate.parse(card.expiry))}catch(_:Exception){null}
     return when {
+        days==null && card.expiry.isNotBlank()->"Check expiry" to Color(0xFFB45309)
         days==null->"Saved" to Color(0xFF64748B)
         days<0->"Expired" to Color(0xFFFF7E85)
         days<=30->"Expiring" to Color(0xFFFFC26A)
@@ -152,7 +153,7 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
             Row(horizontalArrangement=Arrangement.spacedBy(9.dp)){
                 VaultMetric(visible.size.toString(),"Cards",Modifier.weight(1f))
                 VaultMetric(visible.sumOf{it.files.size}.toString(),"Files",Modifier.weight(1f))
-                VaultMetric(visible.count{vaultValidity(it).first in listOf("Expired","Expiring")}.toString(),
+                VaultMetric(visible.count{vaultValidity(it).first in listOf("Expired","Expiring","Check expiry")}.toString(),
                     "Expiring",Modifier.weight(1f),onExpiries)
             }
         }
