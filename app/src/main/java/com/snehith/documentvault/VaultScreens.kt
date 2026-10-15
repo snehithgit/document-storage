@@ -274,10 +274,10 @@ fun copyToClipboard(context:Context,label:String,value:String) {
     var expiry by rememberSaveable(card.id){mutableStateOf(card.expiry)}
     var profile by rememberSaveable(card.id){mutableStateOf(card.profile)}
     val fieldsSaver=listSaver<SnapshotStateList<DataField>,String>(
-        save={list->list.flatMap{listOf(it.id,it.name,it.value,it.page.toString(),it.source)}},
+        save={list->list.flatMap{listOf(it.id,it.name,it.value,it.page.toString(),it.source,it.confidence.toString())}},
         restore={items->mutableStateListOf<DataField>().apply {
-            items.chunked(5).forEach{v->if(v.size==5)
-                add(DataField(v[1],v[2],v[3].toIntOrNull()?:-1,v[4],v[0]))
+            items.chunked(6).forEach{v->if(v.size==6)
+                add(DataField(v[1],v[2],v[3].toIntOrNull()?:-1,v[4],v[0],v[5].toFloatOrNull()?:0f))
             }
         }}
     )
