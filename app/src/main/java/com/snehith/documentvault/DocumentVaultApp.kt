@@ -44,7 +44,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     val scope=rememberCoroutineScope()
     val savedScreens=rememberSaveableStateHolder()
     var route by rememberSaveable{mutableStateOf("home")}
-    var privacyScreen by remember{mutableStateOf(activity.isPrivacyScreenEnabled())}
+    var privacyScreen by rememberSaveable{mutableStateOf(activity.isPrivacyScreenEnabled())}
     var lastRoot by rememberSaveable{mutableStateOf("cards")}
     var selectedCardId by rememberSaveable{mutableStateOf("")}
     var editing by remember{mutableStateOf<VaultCard?>(null)}
@@ -53,9 +53,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var cropBitmap by remember{mutableStateOf<android.graphics.Bitmap?>(null)}
     var cropResult by remember{mutableStateOf<DetectedScan?>(null)}
     var cameraPath by rememberSaveable{mutableStateOf("")}
-    var scanTarget by remember{mutableStateOf<String?>(null)}
-    var addToCardId by remember{mutableStateOf<String?>(null)}
-    var importTarget by remember{mutableStateOf<String?>(null)}
+    var scanTarget by rememberSaveable{mutableStateOf<String?>(null)}
+    var addToCardId by rememberSaveable{mutableStateOf<String?>(null)}
+    var importTarget by rememberSaveable{mutableStateOf<String?>(null)}
     var userProfile by rememberSaveable{mutableStateOf("all")}
     var ocrLanguage by rememberSaveable{mutableStateOf("Latin")}
     var busy by remember{mutableStateOf("")}
@@ -246,8 +246,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             }
         }
     }
-    var restoreUri by remember{mutableStateOf<Uri?>(null)}
-    var confirmRestore by remember{mutableStateOf(false)}
+    var restoreUri by rememberSaveable{mutableStateOf<Uri?>(null)}
+    var confirmRestore by rememberSaveable{mutableStateOf(false)}
     val backupImport=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->
         if(uri!=null){restoreUri=uri;confirmRestore=true}
     }
