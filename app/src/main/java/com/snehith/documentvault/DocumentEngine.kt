@@ -67,8 +67,7 @@ class PdfPageSession(private val source:File):Closeable {
     }
     @Synchronized override fun close(){
         cached.clear()
-        renderer.close()
-        descriptor.close()
+        try{renderer.close()}finally{descriptor.close()}
     }
 }
 class DocumentEngine(private val context:Context, private val repo:VaultRepository) {
