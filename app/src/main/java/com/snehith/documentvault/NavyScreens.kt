@@ -225,7 +225,7 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
                 if(query.isNotBlank()) {
                     val snippet=c.fields.firstOrNull{it.value.contains(query,true)}?.let{"${it.name}: ${it.value}"}
                         ?:c.files.firstNotNullOfOrNull{f->
-                            val p=f.extractedText.indexOf(query,true)
+                            val p=f.extractedText.indexOf(query,ignoreCase=true)
                             if(p<0)null else f.extractedText.substring((p-25).coerceAtLeast(0),
                                 (p+query.length+55).coerceAtMost(f.extractedText.length))
                         }
