@@ -141,7 +141,7 @@ class VaultRepository(private val context: Context) {
         // The original v1.0 app could write a valid encrypted temporary index and
         // then crash before rename because it closed its FD before fsync.
         // Read the valid temporary index when the primary index is unavailable.
-        val candidateFiles = listOf(data, File(context.filesDir,"vault.state.tmp")).filter { it.exists() }
+        val candidateFiles = listOf(data, File(context.filesDir,"vault.state.tmp")).filter { it.exists() }.sortedByDescending { it.lastModified() }
         var loadedFrom:File?=null
         for (candidate in candidateFiles) {
             try {
@@ -168,8 +168,11 @@ class VaultRepository(private val context: Context) {
         if(candidateFiles.isNotEmpty() && loadedFrom==null) {
             recoveryError="Encrypted vault index could not be opened. Files are untouched. Restore a backup to recover the cards."
         }
-        if(loadedFrom!=null && loadedFrom!=data && !data.exists()) {
-            try { loadedFrom.copyTo(data,overwrite=false) }catch(_:Exception){ /* Keep recoverable temporary file. */ }
+        if(loadedFrom!=null && loadedFrom!=data) {
+            try {
+                if(data.exists())data.copyTo(File(context.filesDir,"vault.state.previous"),overwrite=true)
+                loadedFrom.copyTo(data,overwrite=true)
+            }catch(_:Exception){ /* Keep recoverable temporary file. */ }
         }
         if(profiles.none{it.id=="self"})profiles.add(0,VaultProfile("self","Me"))
     }
@@ -229,11 +232,26 @@ class VaultRepository(private val context: Context) {
         try { persist() } catch(e:Exception) { cards.clear();cards.addAll(previous);throw e }
         // Never delete file data until the new encrypted index is durable.
         val stillUsed=cards.flatMap { it.files }.map{it.id}.toSet()
-        card.files.filter { it.id !in stillUsed }.forEach{f->blob(f.id).delete()}
+        card.files.filter { it.id !in stillUsed }.forEach{f->blob(f.id).delete();meta(f.id).delete()}
     }
     fun saveProfile(p:VaultProfile) {val i=profiles.indexOfFirst{it.id==p.id};if(i<0)profiles.add(p) else profiles[i]=p;persist()}
     fun saveTemplate(t:CardTemplate){val i=customTemplates.indexOfFirst{it.id==t.id};if(i<0)customTemplates.add(t) else customTemplates[i]=t;persist()}
     private fun blob(id:String)=File(blobDir,id+".dat")
+    private fun meta(id:String)=File(blobDir,id+".meta")
+    private fun writeMeta(file:VaultFile) {
+        val bytes=JSONObject().put("name",file.name).put("mime",file.mime).put("size",file.bytes)
+            .put("sha",file.sha256).toString().toByteArray(Charsets.UTF_8)
+        ByteArrayInputStream(bytes).use{src->FileOutputStream(meta(file.id)).use{out->encrypt(src,out)}}
+    }
+    private fun readMeta(id:String):VaultFile? = try {
+        val file=meta(id)
+        if(!file.exists())null else {
+            val out=ByteArrayOutputStream()
+            file.inputStream().use{decrypt(it,out)}
+            val o=JSONObject(out.toString("UTF-8"))
+            VaultFile(id,o.getString("name"),o.getString("mime"),o.getLong("size"),o.getString("sha"),"", "Recovered attachment")
+        }
+    }catch(_:Exception){null}
     fun isDuplicate(sha:String)=cards.any{c->c.files.any{it.sha256==sha}}
     fun importFile(uri:Uri):VaultFile {
         require(uri.scheme=="content") { "Import only from Android's secure document provider" }
@@ -254,7 +272,9 @@ class VaultRepository(private val context: Context) {
                 FileOutputStream(blob(id)).use{encrypt(input,it)}
             } ?: throw IOException("Cannot read selected file")
             val sha=dig.digest().joinToString(""){ "%02x".format(it) }
-            return VaultFile(id,name,mime,size,sha)
+            val stored=VaultFile(id,name,mime,size,sha)
+            try{writeMeta(stored)}catch(_:Exception){ /* File data is still safely stored. */ }
+            return stored
         } catch(e:Exception){blob(id).delete();throw e}
     }
     private fun filename(uri:Uri):String {
@@ -264,7 +284,7 @@ class VaultRepository(private val context: Context) {
         }
         return (name.ifBlank{uri.lastPathSegment?: "document"}).replace(Regex("[\\r\\n\\u0000-\\u001f/]"),"_").take(150)
     }
-    fun removeOrphan(file:VaultFile) { blob(file.id).delete() }
+    fun removeOrphan(file:VaultFile) { blob(file.id).delete();meta(file.id).delete() }
     fun openDecrypted(file:VaultFile):File {
         val dir=File(context.cacheDir,"preview").apply{mkdirs()}
         val destination=File(dir,file.id+"-"+file.name.substringAfterLast('.', "dat").take(8))
@@ -288,11 +308,16 @@ class VaultRepository(private val context: Context) {
             it.name.endsWith(".dat") && it.name.removeSuffix(".dat") !in referenced
         }?.map { b ->
             val id=b.name.removeSuffix(".dat")
-            VaultFile(id,"Recovered-"+id.take(8), "application/octet-stream",b.length(),"","", "Recovered attachment")
+            readMeta(id)?:VaultFile(id,"Recovered-"+id.take(8), "application/octet-stream",b.length(),"","", "Recovered attachment")
         }?:emptyList()
     }
     fun attachRecovered(id:String,cardTitle:String) {
         val recovered=recoverableFiles().firstOrNull{it.id==id}?:return
+        if(meta(id).exists() && readMeta(id)!=null) {
+            val old=readMeta(id)!!
+            saveCard(VaultCard(title=cardTitle.ifBlank{old.name.substringBeforeLast('.',old.name)},kind="Recovered",category="Recovered",files=listOf(old)))
+            return
+        }
         val plain=openDecrypted(recovered)
         try {
             val digest=MessageDigest.getInstance("SHA-256")
@@ -387,7 +412,8 @@ class VaultRepository(private val context: Context) {
             recoveryError = null
             persist()
             val keep=cards.flatMap{it.files}.map{it.id}.toSet()
-            blobDir.listFiles()?.filter{it.name.endsWith(".dat") && it.name.removeSuffix(".dat") !in keep}?.forEach{it.delete()}
+            // Keep orphan data from earlier failed saves available for recovery.
+            // Never delete encrypted attachments here automatically.
         } finally {staged.deleteRecursively()}
     }
 }
