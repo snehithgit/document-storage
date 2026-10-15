@@ -3,6 +3,11 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+val vaultKeystorePath = System.getenv("VAULT_KEYSTORE_PATH")
+val vaultStorePassword = System.getenv("VAULT_STORE_PASSWORD")
+val vaultKeyAlias = System.getenv("VAULT_KEY_ALIAS")
+val vaultKeyPassword = System.getenv("VAULT_KEY_PASSWORD")
+val releaseKeysAvailable = listOf(vaultKeystorePath, vaultStorePassword, vaultKeyAlias, vaultKeyPassword).all { !it.isNullOrBlank() }
 android {
     namespace = "com.snehith.documentvault"
     compileSdk = 35
@@ -14,10 +19,25 @@ android {
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    signingConfigs {
+        if (releaseKeysAvailable) {
+            create("vaultRelease") {
+                storeFile = file(vaultKeystorePath!!)
+                storePassword = vaultStorePassword
+                keyAlias = vaultKeyAlias
+                keyPassword = vaultKeyPassword
+            }
+        }
+    }
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-test"
+        }
         release {
             isMinifyEnabled = false
             isShrinkResources = false
+            if (releaseKeysAvailable) signingConfig = signingConfigs.getByName("vaultRelease")
         }
     }
     buildFeatures { compose = true; buildConfig = true }
