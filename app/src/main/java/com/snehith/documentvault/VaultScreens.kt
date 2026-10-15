@@ -226,7 +226,9 @@ fun copyToClipboard(context:Context,label:String,value:String) {
                 TextButton(onClick=onEdit){Text("Edit fields")}
             }
         }
-        items(card.fields,key={it.name+it.value}){f->
+        // Index keys are unique even when two manual fields have identical names/values.
+        items(card.fields.size){i->
+            val f=card.fields[i]
             Surface(color=MaterialTheme.colorScheme.surfaceContainerLow,shape=RoundedCornerShape(13.dp)){
                 Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically){
                     Column(Modifier.weight(1f)){
