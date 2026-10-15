@@ -57,12 +57,23 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var pdfJob by remember{mutableStateOf<PdfJob?>(null)}
     var backupPassword by remember{mutableStateOf("")}
     val reviewQueue= remember{mutableStateListOf<ReviewJob>()}
-    val scheme=darkColorScheme(
-        primary=VaultBlue,onPrimary=Color.White,
-        secondary=VaultSky,background=VaultNavy,onBackground=Color.White,
-        surface=VaultRaised,onSurface=Color.White,
-        surfaceContainer=VaultPanel,surfaceContainerLow=VaultPanel,
-        outline=Color(0xFF64819E),onSurfaceVariant=VaultMuted)
+    val options=remember { activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE) }
+    var themeMode by remember { mutableStateOf(options.getString("displayTheme","light") ?: "light") }
+    val dark=themeMode=="dark"
+    val scheme=if(dark) darkColorScheme(
+        primary=Color(0xFF8DB8FF),onPrimary=Color(0xFF0D203A),
+        background=Color(0xFF10151C),onBackground=Color(0xFFF1F5F9),
+        surface=Color(0xFF171E28),onSurface=Color(0xFFF1F5F9),
+        surfaceContainer=Color(0xFF171E28),surfaceContainerLow=Color(0xFF171E28),
+        surfaceVariant=Color(0xFF222D3A),outline=Color(0xFF738194),
+        outlineVariant=Color(0xFF354252),onSurfaceVariant=Color(0xFFAAB8C8))
+    else lightColorScheme(
+        primary=Color(0xFF2456AC),onPrimary=Color.White,
+        background=Color.White,onBackground=Color(0xFF172234),
+        surface=Color.White,onSurface=Color(0xFF172234),
+        surfaceContainer=Color.White,surfaceContainerLow=Color.White,
+        surfaceVariant=Color(0xFFF5F7FA),outline=Color(0xFF9BA5B2),
+        outlineVariant=Color(0xFFDFE4EB),onSurfaceVariant=Color(0xFF64748B))
     val current=repo.cards.firstOrNull{it.id==selectedCardId}
     val regular=route in setOf("home","cards","scan","search","more")
     fun openCard(c:VaultCard){if(regular)lastRoot=route;selectedCardId=c.id;route="detail"}
@@ -118,7 +129,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 else -> "Custom"
                             }
                             repo.newCard(t,if(userProfile=="all")"self" else userProfile)
-                                .copy(title=file.name.substringBeforeLast('.',file.name),files=listOf(file))
+                                .copy(title=if(file.name.startsWith("scan-",true)||file.name.startsWith("capture-",true))
+                                    "Scanned document · "+java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("dd MMM HH:mm"))
+                                else file.name.substringBeforeLast('.',file.name),files=listOf(file))
                         }
                     withContext(Dispatchers.IO){repo.saveCard(card)}
                     lastCard=card
@@ -259,6 +272,14 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             confirmButton={TextButton(onClick={error=""}){Text("OK")}})
     }
 
+    SideEffect { 
+        activity.window.statusBarColor=if(dark)android.graphics.Color.rgb(16,21,28) else android.graphics.Color.WHITE
+        activity.window.navigationBarColor=if(dark)android.graphics.Color.rgb(16,21,28) else android.graphics.Color.WHITE
+        androidx.core.view.WindowCompat.getInsetsController(activity.window,activity.window.decorView).apply {
+            isAppearanceLightStatusBars=!dark
+            isAppearanceLightNavigationBars=!dark
+        }
+    }
     MaterialTheme(colorScheme=scheme,shapes=Shapes(medium=RoundedCornerShape(17.dp),large=RoundedCornerShape(22.dp))) {
         if(!activity.unlocked.value) {
             UnlockScreen(onPin={pin->
@@ -296,7 +317,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                     })
                 },
                 bottomBar={
-                    if(regular)NavigationBar(containerColor=VaultRaised) {
+                    if(regular)NavigationBar(containerColor=MaterialTheme.colorScheme.surface,tonalElevation=0.dp) {
                         listOf(
                             Triple("home",Icons.Outlined.Home,"Home"),
                             Triple("cards",Icons.Outlined.Dashboard,"Cards"),
@@ -305,9 +326,11 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             Triple("more",Icons.Outlined.Settings,"More")
                         ).forEach{(id,icon,label)->
                             NavigationBarItem(selected=route==id,onClick={route=id},
-                                colors=NavigationBarItemDefaults.colors(selectedIconColor=Color.White,
-                                    unselectedIconColor=VaultMuted,selectedTextColor=VaultSky,
-                                    unselectedTextColor=VaultMuted,indicatorColor=VaultBlue),
+                                colors=NavigationBarItemDefaults.colors(selectedIconColor=MaterialTheme.colorScheme.primary,
+                                    unselectedIconColor=MaterialTheme.colorScheme.onSurfaceVariant,
+                                    selectedTextColor=MaterialTheme.colorScheme.primary,
+                                    unselectedTextColor=MaterialTheme.colorScheme.onSurfaceVariant,
+                                    indicatorColor=MaterialTheme.colorScheme.primary.copy(alpha=.10f)),
                                 icon={Icon(icon,label)},label={Text(label)})
                         }
                     }
@@ -325,6 +348,11 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         "scan"->NavyScanScreen({camera()},
                             {importTarget=null;importPicker.launch(arrayOf("*/*"))},{startEdit(repo.newCard())})
                         "more"->PremiumSettings(repo.hasPin(),engine.availableLanguages(),ocrLanguage,privacyScreen,
+                            themeMode=="dark",
+                            {value->
+                                themeMode=if(value)"dark" else "light"
+                                options.edit().putString("displayTheme",themeMode).apply()
+                            },
                             {enabled->privacyScreen=enabled;activity.setPrivacyScreenEnabled(enabled)},
                             {pin,old->try{repo.setPin(pin,old);activity.notify("PIN saved")}catch(e:Exception){error=e.message?:"PIN failed"}},
                             {pin->if(repo.checkPin(pin)){repo.clearPin();activity.notify("PIN removed")} else activity.notify("Wrong PIN")},
@@ -357,11 +385,11 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         "crop"->{
                             val image=cropBitmap;val result=cropResult
                             if(image!=null&&result!=null)CropReviewScreen(image,result,
-                                {corners->scope.launch{
+                                {imageToCrop,corners->scope.launch{
                                     busy="Applying perspective correction"
                                     try{
                                         val uri=withContext(Dispatchers.IO){
-                                            val corrected=DocumentCropEngine.crop(image,corners)
+                                            val corrected=DocumentCropEngine.crop(imageToCrop,corners)
                                             try{
                                                 val output=File(activity.cacheDir,"camera/scan-"+UUID.randomUUID()+".jpg")
                                                 DocumentCropEngine.save(corrected,output)

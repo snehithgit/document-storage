@@ -16,10 +16,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
-private val dBlue=Color(0xFF1779FF)
-private val dNavy=Color(0xFF061A32)
-private val dPanel=Color(0xFF0E3054)
-private val dMuted=Color(0xFF9DBBD9)
+private val dBlue=Color(0xFF2563EB)
+private val dNavy:Color @Composable get()=MaterialTheme.colorScheme.background
+private val dPanel:Color @Composable get()=MaterialTheme.colorScheme.surface
+private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVariant
 
 @Composable fun FullDetailsPage(card:VaultCard,onSave:(VaultCard)->Unit,onSelect:()->Unit) {
     val context=LocalContext.current
@@ -55,7 +55,7 @@ private val dMuted=Color(0xFF9DBBD9)
         dismissButton={TextButton(onClick={editIndex=-1}){Text("Cancel")}})
     Column(Modifier.fillMaxSize().background(dNavy)){
         Column(Modifier.padding(16.dp)){
-            Text("Full Details",color=Color.White,style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
+            Text("Full Details",color=MaterialTheme.colorScheme.onSurface,style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
             Text(card.title+" · "+fields.size+" fields",color=dMuted)
             Spacer(Modifier.height(11.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(7.dp)){
@@ -76,7 +76,8 @@ private val dMuted=Color(0xFF9DBBD9)
         LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(horizontal=14.dp,vertical=4.dp),
             verticalArrangement=Arrangement.spacedBy(8.dp)){
             items(rows,key={it.first}){(index,f)->
-                Surface(color=dPanel,shape=RoundedCornerShape(14.dp)){
+                Surface(color=dPanel,shape=RoundedCornerShape(10.dp),
+                    border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
                     Column(Modifier.padding(10.dp)){
                         Row(verticalAlignment=Alignment.CenterVertically){
                             Checkbox(checked=index in selected,onCheckedChange={yes->
@@ -84,12 +85,12 @@ private val dMuted=Color(0xFF9DBBD9)
                             })
                             Column(Modifier.weight(1f)){
                                 Text(f.name,color=dMuted,style=MaterialTheme.typography.labelMedium)
-                                SelectionContainer{Text(f.value.ifBlank{"—"},color=Color.White,fontWeight=FontWeight.Medium)}
+                                SelectionContainer{Text(f.value.ifBlank{"—"},color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Medium)}
                                 Text(if(f.page>=0)"Page ${f.page+1} · ${f.source}" else f.source,
-                                    color=Color(0xFF76B7FF),style=MaterialTheme.typography.labelSmall)
+                                    color=MaterialTheme.colorScheme.primary,style=MaterialTheme.typography.labelSmall)
                             }
                             IconButton(onClick={copyToClipboard(context,f.name,f.value)}){
-                                Icon(Icons.Outlined.ContentCopy,"Copy "+f.name,tint=Color(0xFF76B7FF))
+                                Icon(Icons.Outlined.ContentCopy,"Copy "+f.name,tint=MaterialTheme.colorScheme.primary)
                             }
                             IconButton(onClick={editIndex=index;name=f.name;value=f.value}){
                                 Icon(Icons.Outlined.Edit,"Edit field",tint=dMuted)
@@ -122,7 +123,8 @@ private val dMuted=Color(0xFF9DBBD9)
                     color=dMuted,modifier=Modifier.padding(12.dp))
             }
         }
-        Surface(color=Color(0xFF092742),shadowElevation=7.dp){
+        Surface(color=MaterialTheme.colorScheme.surface,shadowElevation=0.dp,
+            border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
             Row(Modifier.padding(12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 OutlinedButton(onClick={copyToClipboard(context,"Selected information",copied(selected.sorted()))},
                     enabled=selected.isNotEmpty(),modifier=Modifier.weight(1f)){
@@ -162,7 +164,7 @@ private val dMuted=Color(0xFF9DBBD9)
         }){Text("Add to Full Details")}},
         dismissButton={TextButton(onClick={candidate=null}){Text("Cancel")}})
     Column(Modifier.fillMaxSize().background(dNavy).padding(14.dp)){
-        Text("Select from Document",color=Color.White,style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+        Text("Select from Document",color=MaterialTheme.colorScheme.onSurface,style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
         Text("Tap a line of OCR text, give it a name, then save it.",color=dMuted)
         Spacer(Modifier.height(10.dp))
         Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(7.dp)){
@@ -180,8 +182,9 @@ private val dMuted=Color(0xFF9DBBD9)
             Spacer(Modifier.height(8.dp))
             LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp)){
                 items(choices){(page,line)->
-                    Card(onClick={candidate=line;label="";chosenPage=page},colors=CardDefaults.cardColors(containerColor=dPanel)){
-                        Text(line,color=Color.White,modifier=Modifier.fillMaxWidth().padding(13.dp))
+                    Card(onClick={candidate=line;label="";chosenPage=page},colors=CardDefaults.cardColors(containerColor=dPanel),
+                        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
+                        Text(line,color=MaterialTheme.colorScheme.onSurface,modifier=Modifier.fillMaxWidth().padding(13.dp))
                     }
                 }
             }
