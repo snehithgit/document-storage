@@ -45,7 +45,7 @@ class ExpiryWorker(context:Context,params:WorkerParameters):Worker(context,param
                 val notification=NotificationCompat.Builder(applicationContext,"expiry")
                     .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
                     .setSmallIcon(R.drawable.ic_notification)
-                                        .setContentTitle(VaultCounts.format(expiring.size+invalid.size,"document")+" need attention")
+                                        .setContentTitle(applicationContext.resources.getQuantityString(R.plurals.vault_attention,expiring.size+invalid.size,expiring.size+invalid.size))
                     .setContentText(fullBody).setStyle(NotificationCompat.BigTextStyle().bigText(fullBody))
                     .setContentIntent(intent).setAutoCancel(true).build()
                 if(Build.VERSION.SDK_INT<33 || applicationContext.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)==android.content.pm.PackageManager.PERMISSION_GRANTED){
