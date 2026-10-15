@@ -35,46 +35,15 @@ import kotlin.math.*
 data class DetectedScan(val corners:List<PointF>,val automatic:Boolean)
 object DocumentCropEngine {
     private fun ready():Boolean=OpenCVLoader.initLocal()
-    fun detect(bitmap:Bitmap):DetectedScan{
-        val defaults=listOf(PointF(.025f,.025f),PointF(.975f,.025f),PointF(.975f,.975f),PointF(.025f,.975f))
-        if(!ready())return DetectedScan(defaults,false)
-        val rgba=Mat();val gray=Mat();val blurred=Mat();val edges=Mat();val hierarchy=Mat()
-        try {
-            Utils.bitmapToMat(bitmap,rgba)
-            Imgproc.cvtColor(rgba,gray,Imgproc.COLOR_RGBA2GRAY)
-            Imgproc.GaussianBlur(gray,blurred,Size(5.0,5.0),0.0)
-            Imgproc.Canny(blurred,edges,45.0,140.0)
-            val contours=mutableListOf<MatOfPoint>()
-            Imgproc.findContours(edges,contours,hierarchy,Imgproc.RETR_LIST,Imgproc.CHAIN_APPROX_SIMPLE)
-            val minimumArea=bitmap.width.toDouble()*bitmap.height.toDouble()*.16
-            var best:List<Point>?=null
-            var bestArea=0.0
-            for(contour in contours) {
-                val area=Imgproc.contourArea(contour)
-                if(area<minimumArea||area<=bestArea)continue
-                val contour2=MatOfPoint2f(*contour.toArray())
-                val candidate=MatOfPoint2f()
-                try {
-                    Imgproc.approxPolyDP(contour2,candidate,.025*Imgproc.arcLength(contour2,true),true)
-                    if(candidate.total()==4L) {
-                        val pts=candidate.toArray().toList()
-                        val convex=MatOfPoint(*pts.toTypedArray())
-                        if(Imgproc.isContourConvex(convex)){best=pts;bestArea=area}
-                        convex.release()
-                    }
-                }finally{candidate.release();contour2.release()}
-            }
-            contours.forEach{it.release()}
-            val pts=best?:return DetectedScan(defaults,false)
-            val top=pts.sortedBy{it.y}.take(2).sortedBy{it.x}
-            val bottom=pts.sortedByDescending{it.y}.take(2).sortedBy{it.x}
-            if(top.size!=2||bottom.size!=2)return DetectedScan(defaults,false)
-            val ordered=listOf(top[0],top[1],bottom[1],bottom[0])
-            val norm=ordered.map{p->PointF((p.x/bitmap.width).toFloat().coerceIn(0f,1f),
-                (p.y/bitmap.height).toFloat().coerceIn(0f,1f))}
-            return DetectedScan(norm,true)
-        }catch(_:Exception){return DetectedScan(defaults,false)}
-        finally{rgba.release();gray.release();blurred.release();edges.release();hierarchy.release()}
+    /** GitHub DocuScan's multi-pass OpenCV quad detector, fully offline. */
+    fun detect(bitmap:Bitmap):DetectedScan {
+        val defaults=listOf(PointF(.07f,.07f),PointF(.93f,.07f),PointF(.93f,.93f),PointF(.07f,.93f))
+        return try {
+            val detected=com.docuscan.app.scan.Cleanup.detectCorners(bitmap)
+            if(detected==null||detected.size!=4)DetectedScan(defaults,false)
+            else DetectedScan(detected.map{p->PointF((p.x/bitmap.width).coerceIn(0f,1f),
+                (p.y/bitmap.height).coerceIn(0f,1f))},true)
+        } catch(_:Throwable){DetectedScan(defaults,false)}
     }
     fun crop(bitmap:Bitmap,corners:List<PointF>):Bitmap {
         require(corners.size==4)
