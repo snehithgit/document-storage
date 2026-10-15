@@ -140,6 +140,7 @@ class VaultRepository(private val context: Context) {
         val candidates=listOf(data,tmp).filter { it.exists() }.sortedByDescending { it.lastModified() } +
             listOf(backup).filter { it.exists() }
         var accepted:File?=null
+        var needsFieldIdMigration=false
         for (candidate in candidates) {
             try {
                 val root=JSONObject(candidate.readText(Charsets.UTF_8))
@@ -147,7 +148,15 @@ class VaultRepository(private val context: Context) {
                 val loadedProfiles=mutableListOf<VaultProfile>()
                 val loadedTemplates=mutableListOf<CardTemplate>()
                 val c=root.optJSONArray("cards")?:JSONArray()
-                for(i in 0 until c.length())loadedCards.add(readCard(c.getJSONObject(i)))
+                var legacy=false
+                for(i in 0 until c.length()) {
+                    val obj=c.getJSONObject(i)
+                    val fs=obj.optJSONArray("fields")?:JSONArray()
+                    if((0 until fs.length()).any{j->fs.getJSONObject(j).optString("id").isBlank()})
+                        legacy=true
+                    loadedCards.add(readCard(obj))
+                }
+                needsFieldIdMigration=legacy
                 val p=root.optJSONArray("profiles")?:JSONArray()
                 for(i in 0 until p.length()){
                     val e=p.getJSONObject(i);loadedProfiles.add(VaultProfile(e.getString("id"),e.getString("name")))
@@ -165,6 +174,10 @@ class VaultRepository(private val context: Context) {
             recoveryError="The local vault index cannot be read. No documents were deleted."
         }
         if(accepted!=null && accepted!=data)try { accepted.copyTo(data,overwrite=true) }catch(_:Exception){}
+        if(accepted!=null && needsFieldIdMigration) {
+            // Make generated legacy IDs durable before a later process recreation.
+            try{persist()}catch(_:Exception){ /* Cards remain usable; next save will retry. */ }
+        }
         // The original valid index always remains available in the rolling backup.
         if(profiles.none { it.id=="self" })profiles.add(0,VaultProfile("self","Me"))
     }
