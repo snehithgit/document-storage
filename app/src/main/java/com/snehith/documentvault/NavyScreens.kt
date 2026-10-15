@@ -25,18 +25,18 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
-val VaultNavy=Color(0xFF06182D)
-val VaultPanel=Color(0xFF103252)
-val VaultRaised=Color(0xFF09243D)
-val VaultBlue=Color(0xFF217FFF)
-val VaultSky=Color(0xFF91C3FF)
-val VaultMuted=Color(0xFF9EBBD9)
-private val bgBrush=Brush.verticalGradient(listOf(Color(0xFF0A3159),VaultNavy))
+val VaultNavy:Color @Composable get()=MaterialTheme.colorScheme.background
+val VaultPanel:Color @Composable get()=MaterialTheme.colorScheme.surface
+val VaultRaised:Color @Composable get()=MaterialTheme.colorScheme.surface
+val VaultBlue=Color(0xFF2563EB)
+val VaultSky:Color @Composable get()=MaterialTheme.colorScheme.primary
+val VaultMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVariant
+val bgBrush:Brush @Composable get()=Brush.verticalGradient(listOf(VaultNavy,VaultNavy))
 private val rounded=RoundedCornerShape(15.dp)
 
 @Composable fun VaultHeader(title:String,subtitle:String?=null) {
     Column {
-        Text(title,color=Color.White,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.headlineSmall)
+        Text(title,color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.headlineSmall)
         if(subtitle!=null)Text(subtitle,color=VaultMuted,style=MaterialTheme.typography.bodySmall)
     }
 }
@@ -60,7 +60,7 @@ private val rounded=RoundedCornerShape(15.dp)
             }
         }catch(_:Exception){}
     }
-    Box(modifier.background(Color(0xFF244969),rounded),contentAlignment=Alignment.Center){
+    Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant,rounded),contentAlignment=Alignment.Center){
         if(bitmap!=null)Image(bitmap!!.asImageBitmap(),"Document",Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
         else Icon(Icons.Outlined.Description,null,tint=VaultSky,modifier=Modifier.size(37.dp))
     }
@@ -68,43 +68,46 @@ private val rounded=RoundedCornerShape(15.dp)
 fun vaultValidity(card:VaultCard):Pair<String,Color> {
     val days=try{ChronoUnit.DAYS.between(LocalDate.now(),LocalDate.parse(card.expiry))}catch(_:Exception){null}
     return when {
-        days==null->"Saved" to VaultSky
+        days==null->"Saved" to Color(0xFF64748B)
         days<0->"Expired" to Color(0xFFFF7E85)
         days<=30->"Expiring" to Color(0xFFFFC26A)
         else->"Valid" to Color(0xFF53DDA8)
     }
 }
 @Composable fun VaultPill(text:String,color:Color=VaultBlue){
-    Surface(color=color.copy(alpha=.18f),shape=RoundedCornerShape(8.dp)){
+    Surface(color=MaterialTheme.colorScheme.surface,shape=RoundedCornerShape(8.dp),
+        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
         Text(text,color=if(color==VaultBlue)VaultSky else color,style=MaterialTheme.typography.labelSmall,
             modifier=Modifier.padding(horizontal=8.dp,vertical=4.dp),maxLines=1)
     }
 }
 @Composable fun VaultTile(card:VaultCard,repo:VaultRepository,onClick:()->Unit){
-    Card(onClick=onClick,colors=CardDefaults.cardColors(containerColor=Color(0xFFF1F6FF)),shape=rounded){
+    Card(onClick=onClick,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=rounded,
+        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
         Column(Modifier.fillMaxWidth().padding(9.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
             Box {
                 VaultThumbnail(card.files.firstOrNull(),repo,Modifier.fillMaxWidth().height(140.dp))
                 Box(Modifier.align(Alignment.TopEnd).padding(5.dp)){VaultPill(card.kind.take(12))}
             }
-            Text(card.title,color=Color(0xFF102741),fontWeight=FontWeight.Bold,
+            Text(card.title,color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold,
                 style=MaterialTheme.typography.bodyMedium,maxLines=2,minLines=2,overflow=TextOverflow.Ellipsis)
             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){
                 val(v,c)=vaultValidity(card)
                 VaultPill(v,c)
-                Text("${card.files.size} files",color=Color(0xFF60738A),style=MaterialTheme.typography.labelSmall)
+                Text("${card.files.size} files",color=VaultMuted,style=MaterialTheme.typography.labelSmall)
             }
         }
     }
 }
 @Composable fun VaultRow(card:VaultCard,repo:VaultRepository,onClick:()->Unit){
     val(v,c)=vaultValidity(card)
-    Card(onClick=onClick,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=rounded){
+    Card(onClick=onClick,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=rounded,
+        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
         Row(Modifier.padding(9.dp).fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
             VaultThumbnail(card.files.firstOrNull(),repo,Modifier.size(65.dp,72.dp))
             Spacer(Modifier.width(11.dp))
             Column(Modifier.weight(1f)){
-                Text(card.title,color=Color.White,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
+                Text(card.title,color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
                 Text(card.kind+" · "+card.category,color=VaultMuted,style=MaterialTheme.typography.labelSmall)
                 Text("${card.files.size} attachments",color=VaultSky,style=MaterialTheme.typography.labelSmall)
             }
@@ -119,9 +122,10 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
     LazyColumn(Modifier.fillMaxSize().background(bgBrush),contentPadding=PaddingValues(15.dp,12.dp,15.dp,95.dp),
         verticalArrangement=Arrangement.spacedBy(15.dp)){
         item {
-            Column(Modifier.fillMaxWidth().background(Brush.horizontalGradient(listOf(Color(0xFF15569B),Color(0xFF0D2E53))),rounded).padding(17.dp)){
+            Column(Modifier.fillMaxWidth().background(VaultPanel,rounded)
+                .border(1.dp,MaterialTheme.colorScheme.outlineVariant,rounded).padding(17.dp)){
                 Text("MY DOCUMENT SPACE",color=VaultSky,style=MaterialTheme.typography.labelSmall)
-                Text("Your essentials, organized.",color=Color.White,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleLarge)
+                Text("Your essentials, organized.",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(12.dp))
                 OutlinedButton(onClick=onSearch,modifier=Modifier.fillMaxWidth()){
                     Icon(Icons.Outlined.Search,null);Text(" Search documents and details")
@@ -144,7 +148,7 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
             }
         }
         item {
-            Text("Quick actions",color=Color.White,fontWeight=FontWeight.Bold)
+            Text("Quick actions",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold)
             Spacer(Modifier.height(9.dp))
             Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
                 VaultQuick("Scan",Icons.Outlined.DocumentScanner,Modifier.weight(1f),onScan)
@@ -161,7 +165,8 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
     }
 }
 @Composable fun VaultMetric(n:String,label:String,modifier:Modifier,onClick:()->Unit={}){
-    Card(onClick=onClick,modifier=modifier,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=rounded){
+    Card(onClick=onClick,modifier=modifier,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=rounded,
+        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
         Column(Modifier.padding(11.dp)){
             Text(n,color=VaultSky,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.headlineSmall)
             Text(label,color=VaultMuted,style=MaterialTheme.typography.labelSmall)
@@ -169,10 +174,11 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
     }
 }
 @Composable fun VaultQuick(label:String,icon:androidx.compose.ui.graphics.vector.ImageVector,modifier:Modifier,onClick:()->Unit){
-    Card(onClick=onClick,modifier=modifier,colors=CardDefaults.cardColors(containerColor=VaultBlue),shape=RoundedCornerShape(12.dp)){
+    Card(onClick=onClick,modifier=modifier,colors=CardDefaults.cardColors(containerColor=VaultPanel),
+         border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),shape=RoundedCornerShape(12.dp)){
         Column(Modifier.padding(vertical=12.dp,horizontal=2.dp),horizontalAlignment=Alignment.CenterHorizontally){
-            Icon(icon,null,tint=Color.White)
-            Text(label,color=Color.White,style=MaterialTheme.typography.labelSmall)
+            Icon(icon,null,tint=MaterialTheme.colorScheme.onSurface)
+            Text(label,color=MaterialTheme.colorScheme.onSurface,style=MaterialTheme.typography.labelSmall)
         }
     }
 }
@@ -259,7 +265,7 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
                         VaultThumbnail(f,repo,Modifier.size(66.dp,69.dp))
                     }
                 }
-                Card(onClick=onAdd,colors=CardDefaults.cardColors(containerColor=VaultPanel)){
+                Card(onClick=onAdd,colors=CardDefaults.cardColors(containerColor=VaultPanel),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
                     Column(Modifier.size(66.dp,75.dp),horizontalAlignment=Alignment.CenterHorizontally,
                         verticalArrangement=Arrangement.Center){
                         Icon(Icons.Outlined.Add,null,tint=VaultSky)
@@ -295,7 +301,7 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
         item {
             Column(Modifier.fillMaxWidth().background(VaultPanel,rounded).padding(12.dp)){
                 Row(verticalAlignment=Alignment.CenterVertically) {
-                    Text("Quick Copy",color=Color.White,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f))
+                    Text("Quick Copy",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f))
                     TextButton(onClick=onFull){Text("All fields →")}
                 }
                 card.fields.take(4).forEach{f->
@@ -303,7 +309,7 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
                     Row(Modifier.padding(vertical=7.dp),verticalAlignment=Alignment.CenterVertically){
                         Column(Modifier.weight(1f)){
                             Text(f.name,color=VaultMuted,style=MaterialTheme.typography.labelSmall)
-                            Text(f.value.ifBlank{"—"},color=Color.White)
+                            Text(f.value.ifBlank{"—"},color=MaterialTheme.colorScheme.onSurface)
                         }
                         IconButton(onClick={copyToClipboard(context,f.name,f.value)}){
                             Icon(Icons.Outlined.ContentCopy,null,tint=VaultSky)
@@ -330,11 +336,11 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
     Column(Modifier.fillMaxSize().background(VaultNavy).padding(16.dp),
         verticalArrangement=Arrangement.spacedBy(14.dp)){
         VaultHeader("Scan & add","Capture clean multi-page documents, all on device")
-        Card(onClick=onCamera,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=RoundedCornerShape(19.dp)){
+        Card(onClick=onCamera,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=RoundedCornerShape(19.dp),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
             Column(Modifier.fillMaxWidth().padding(20.dp),horizontalAlignment=Alignment.CenterHorizontally){
                 Icon(Icons.Outlined.DocumentScanner,null,tint=VaultSky,modifier=Modifier.size(61.dp))
                 Spacer(Modifier.height(12.dp))
-                Text("Scan with auto-crop",color=Color.White,fontWeight=FontWeight.Bold,
+                Text("Scan with auto-crop",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold,
                     style=MaterialTheme.typography.titleMedium)
                 Text("Detect edges · adjust four corners · straighten perspective",
                     color=VaultMuted,style=MaterialTheme.typography.bodySmall)
@@ -344,26 +350,26 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
         }
         Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
             Card(onClick=onImport,modifier=Modifier.weight(1f),
-                colors=CardDefaults.cardColors(containerColor=VaultPanel)){
+                colors=CardDefaults.cardColors(containerColor=VaultPanel),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
                 Column(Modifier.padding(17.dp)){
                     Icon(Icons.Outlined.UploadFile,null,tint=VaultSky,modifier=Modifier.size(29.dp))
                     Spacer(Modifier.height(9.dp))
-                    Text("Import files",color=Color.White,fontWeight=FontWeight.SemiBold)
+                    Text("Import files",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.SemiBold)
                     Text("PDF, JPG, PNG, DOCX",color=VaultMuted,style=MaterialTheme.typography.labelSmall)
                 }
             }
             Card(onClick=onNew,modifier=Modifier.weight(1f),
-                colors=CardDefaults.cardColors(containerColor=VaultPanel)){
+                colors=CardDefaults.cardColors(containerColor=VaultPanel),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
                 Column(Modifier.padding(17.dp)){
                     Icon(Icons.Outlined.AddCard,null,tint=VaultSky,modifier=Modifier.size(29.dp))
                     Spacer(Modifier.height(9.dp))
-                    Text("Information card",color=Color.White,fontWeight=FontWeight.SemiBold)
+                    Text("Information card",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.SemiBold)
                     Text("Create without files",color=VaultMuted,style=MaterialTheme.typography.labelSmall)
                 }
             }
         }
         Column(Modifier.background(VaultPanel,RoundedCornerShape(15.dp)).padding(15.dp)){
-            Text("Multi-page document workflow",color=Color.White,fontWeight=FontWeight.Bold)
+            Text("Multi-page document workflow",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold)
             Spacer(Modifier.height(7.dp))
             Text("1. Open a document card, then tap Add to attach more scans or PDFs.",
                 color=VaultMuted,style=MaterialTheme.typography.bodyMedium)
