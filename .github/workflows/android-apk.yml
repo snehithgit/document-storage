@@ -36,6 +36,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
+      - name: Bundle pinned Apache-2.0 DocQuadNet model (build-time only)
+        run: |
+          mkdir -p app/src/main/assets/docquad
+          curl --fail --location --retry 4 --silent --show-error \
+            https://raw.githubusercontent.com/egdels/makeacopy/cdf0e66833e5a918b90643692e2894a25262f284/app/src/main/assets/docquad/docquadnet256_trained_opset17.ort \
+            -o app/src/main/assets/docquad/docquadnet256_trained_opset17.ort
+          test "$(git hash-object app/src/main/assets/docquad/docquadnet256_trained_opset17.ort)" = "1cfaaf7ff3fdc04c29749f62051e961fe60accdc" || exit 1
       - name: Test and assemble debug APK
         run: gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug
       - name: Android lint (fail on errors)

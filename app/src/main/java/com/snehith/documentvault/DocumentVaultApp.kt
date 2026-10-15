@@ -52,8 +52,11 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var editingJson by rememberSaveable{mutableStateOf("")}
     var viewingId by rememberSaveable{mutableStateOf("")}
     var cropBitmap by remember{mutableStateOf<android.graphics.Bitmap?>(null)}
+    var initialCropRotation by rememberSaveable{mutableIntStateOf(0)}
     var cropResult by remember{mutableStateOf<DetectedScan?>(null)}
     var cameraPath by rememberSaveable{mutableStateOf("")}
+    var cropFromAttachment by rememberSaveable{mutableStateOf(false)}
+    var scanSessionContinue by rememberSaveable{mutableStateOf("")}
     var scanTarget by rememberSaveable{mutableStateOf<String?>(null)}
     var addToCardId by rememberSaveable{mutableStateOf<String?>(null)}
     var importTarget by rememberSaveable{mutableStateOf<String?>(null)}
@@ -104,7 +107,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             finally{busy="";ocrJob=null}
         }
     }
-    fun importUris(uris:List<Uri>,targetId:String?=null) {
+    fun importUris(uris:List<Uri>,targetId:String?=null,addPage:Boolean=false,originalUri:Uri?=null) {
         if(uris.isEmpty())return
         busy="Importing "+VaultCounts.format(uris.size,"document")
         scope.launch {
@@ -139,8 +142,19 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                     // from each document's OCR button, so a scan cannot stall View/Share.
                 }
                 if(lastCard!=null) {
-                    openCard(repo.cards.first{it.id==lastCard!!.id})
-                    activity.notify("Imported. Tap OCR to extract and copy information.")
+                    val card=repo.cards.first{it.id==lastCard!!.id}
+                    if(originalUri!=null) {
+                        withContext(Dispatchers.IO) {
+                            val retained=repo.importFile(originalUri)
+                            if(!repo.isDuplicate(retained.sha256)) {
+                                val updated=repo.cards.first{it.id==card.id}
+                                repo.saveCard(updated.copy(files=updated.files+retained))
+                            }else repo.removeOrphan(retained)
+                        }
+                    }
+                    openCard(repo.cards.first{it.id==card.id})
+                    if(addPage)scanSessionContinue=card.id
+                    else activity.notify("Imported. Tap OCR to extract and copy information.")
                 }
             }catch(e:Exception){error="Import failed: "+(e.message?:"Unknown error")}
             finally {busy="";importTarget=null}
@@ -156,13 +170,13 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             if(uri!=null)scope.launch{
                 busy="Detecting document borders"
                 try{
-                    val(bitmap,detected)=withContext(Dispatchers.IO){
+                    val prepared=withContext(Dispatchers.IO){
                         val file=File(cameraPath).takeIf{it.isFile}
                             ?:throw IllegalStateException("Camera file missing")
-                        val image=engine.scaledBitmap(file,2050)
-                        image to DocumentCropEngine.detect(image)
+                        ScanPrepare.load(activity.applicationContext,file)
                     }
-                    cropBitmap=bitmap;cropResult=detected;route="crop"
+                    cropBitmap=prepared.preview;cropResult=prepared.corners
+                    initialCropRotation=prepared.rotation;route="crop"
                 }catch(e:Exception){error="Scan preparation failed: "+(e.message?:"Unknown error")}
                 finally{busy=""}
             }
@@ -172,17 +186,14 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         if(route=="crop" && cropBitmap==null && cameraPath.isNotBlank()) {
             val recovered=withContext(Dispatchers.IO){
                 val file=File(cameraPath)
-                if(file.isFile) {
-                    val photo=engine.scaledBitmap(file,2050)
-                    photo to DocumentCropEngine.detect(photo)
-                }else null
+                if(file.isFile)ScanPrepare.load(activity.applicationContext,file) else null
             }
-            if(recovered!=null){cropBitmap=recovered.first;cropResult=recovered.second}
+            if(recovered!=null){cropBitmap=recovered.preview;cropResult=recovered.corners;initialCropRotation=recovered.rotation}
             else route="scan"
         }
     }
     fun camera(target:String?=null) {
-        importTarget=target;scanTarget=target
+        importTarget=target;scanTarget=target;cropFromAttachment=false
         scope.launch {
             try {
                 val f=withContext(Dispatchers.IO){
@@ -195,6 +206,10 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 cameraLauncher.launch(cameraUri!!)
             }catch(e:Exception){error="Could not start camera: "+(e.message?:"Storage error")}
         }
+    }
+    LaunchedEffect(scanSessionContinue) {
+        val next=scanSessionContinue
+        if(next.isNotBlank()){scanSessionContinue="";camera(next)}
     }
     var pdfJobToExport by remember{mutableStateOf<PdfJob?>(null)}
     val pdfExport=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")){uri->
@@ -382,7 +397,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {modelPicker.launch(arrayOf("*/*"))},{ocrLanguage=it},
                             {days->activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE).edit().putInt("remindDays",days).apply()
                                 if(Build.VERSION.SDK_INT>=33)notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                activity.notify("Expiry reminders: "+days+" days")})
+                                activity.notify("Expiry reminders: "+days+" days")},
+                            options.getBoolean("keepScanOriginal",true),
+                            {keep->options.edit().putBoolean("keepScanOriginal",keep).apply()})
                         "detail"->current?.let{c->VaultNavDetail(c,repo,
                             {f->viewingId=f.id;route="viewer"},
                             {f->startOcr(c.id,f)},{f->activity.share(f)},{activity.shareAll(c.files)},
@@ -390,7 +407,21 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {route="fulldetails"},{route="tools"},
                             {startEdit(c)},
                             {scope.launch{try{withContext(Dispatchers.IO){repo.deleteCard(c)};route="cards"}
-                                catch(e:Exception){error=e.message?:"Delete failed"}}})}
+                                catch(e:Exception){error=e.message?:"Delete failed"}}},
+                            {imageFile->scope.launch {
+                                busy="Preparing photo for non-destructive enhancement"
+                                try {
+                                    val source=withContext(Dispatchers.IO){repo.documentFile(imageFile)}
+                                    val prepared=withContext(Dispatchers.IO){
+                                        ScanPrepare.load(activity.applicationContext,source)
+                                    }
+                                    scanTarget=c.id;cropFromAttachment=true
+                                    cameraUri=null;cameraPath=source.absolutePath
+                                    cropBitmap=prepared.preview;cropResult=prepared.corners
+                                    initialCropRotation=prepared.rotation;route="crop"
+                                }catch(e:Exception){error="Cannot enhance image: "+(e.message?:"Error")}
+                                finally{busy=""}
+                            }})}
                         "fulldetails"->current?.let{c->FullDetailsPage(c,
                             {updated->scope.launch{try{withContext(Dispatchers.IO){repo.saveCard(updated)}}
                                 catch(e:Exception){error=e.message?:"Cannot save field"}}},
@@ -406,36 +437,50 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {f->startOcr(c.id,f)})}
                         "crop"->{
                             val image=cropBitmap;val result=cropResult
-                            if(image!=null&&result!=null)CropReviewScreen(image,result,
-                                {rotation,corners->scope.launch{
-                                    busy="Applying full-resolution perspective correction"
-                                    try{
+                            if(image!=null && result!=null)CropReviewScreen(image,result,
+                                {rotation,corners,settings,addAnother->scope.launch{
+                                    busy="Cropping and enhancing full-resolution scan"
+                                    try {
                                         val uri=withContext(Dispatchers.IO){
                                             val original=ImageDecode.decode(File(cameraPath),Int.MAX_VALUE,fullResolution=true)
-                                            val source=if(rotation==0)original else {
+                                            val fullRotation=(initialCropRotation+rotation)%360
+                                            val oriented=if(fullRotation==0)original else{
                                                 try {
-                                                    val matrix=android.graphics.Matrix().apply{postRotate(rotation.toFloat())}
+                                                    val matrix=android.graphics.Matrix().apply{postRotate(fullRotation.toFloat())}
                                                     android.graphics.Bitmap.createBitmap(original,0,0,original.width,original.height,matrix,true)
                                                 }finally{original.recycle()}
                                             }
                                             try {
-                                                val corrected=DocumentCropEngine.crop(source,corners)
-                                                try{
-                                                    val output=File(activity.cacheDir,"camera/scan-"+UUID.randomUUID()+".jpg")
-                                                    DocumentCropEngine.save(corrected,output)
-                                                    FileProvider.getUriForFile(activity,activity.packageName+".provider",output)
+                                                val corrected=DocumentCropEngine.crop(oriented,corners)
+                                                try {
+                                                    val processed=ScanEnhance.apply(corrected,settings)
+                                                    try {
+                                                        val output=File(activity.cacheDir,"camera/scan-"+UUID.randomUUID()+".jpg")
+                                                        DocumentCropEngine.save(processed,output)
+                                                        FileProvider.getUriForFile(activity,activity.packageName+".provider",output)
+                                                    }finally{if(processed!==corrected)processed.recycle()}
                                                 }finally{corrected.recycle()}
-                                            }finally{source.recycle()}
+                                            }finally{oriented.recycle()}
                                         }
                                         route=if(scanTarget==null)"scan" else "detail"
-                                        importUris(listOf(uri),scanTarget)
+                                        val keep=activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE)
+                                            .getBoolean("keepScanOriginal",true)
+                                        importUris(listOf(uri),scanTarget,addAnother,
+                                            if(keep&&!cropFromAttachment)cameraUri else null)
                                     }catch(e:Exception){error="Crop failed: "+(e.message?:"Error")}
-                                    catch(e:OutOfMemoryError){error="This photo is too large to crop safely; please retake at a lower resolution"}
+                                    catch(e:OutOfMemoryError){error="Image too large to process safely; try a lower camera resolution"}
                                     finally{busy="";cropBitmap=null;cropResult=null}
                                 }},
-                                {cameraUri?.let{uri->route=if(scanTarget==null)"scan" else "detail";importUris(listOf(uri),scanTarget)}
-                                    cropBitmap=null;cropResult=null},
-                                {cropBitmap=null;cropResult=null;goBack()})
+                                {
+                                    if(cropFromAttachment)route="detail"
+                                    else cameraUri?.let{uri->
+                                        route=if(scanTarget==null)"scan" else "detail"
+                                        importUris(listOf(uri),scanTarget)
+                                    }
+                                    cropBitmap=null;cropResult=null
+                                },
+                                {cropBitmap=null;cropResult=null;goBack()},
+                                {cropBitmap=null;cropResult=null;camera(scanTarget)})
                         }
                         "edit"->(editing?:editingJson.takeIf{it.isNotBlank()}?.let{repo.decodeCard(it)})?.let{c->
                             CardEditorScreen(c,repo.profiles.toList(),

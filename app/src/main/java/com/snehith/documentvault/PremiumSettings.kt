@@ -22,7 +22,8 @@ import androidx.compose.ui.unit.dp
     themeMode:String,onThemeModeChanged:(String)->Unit,
     onPrivacyScreenChanged:(Boolean)->Unit,onPin:(String,String)->Unit,onClearPin:(String)->Unit,
     onProfiles:()->Unit,onTemplates:()->Unit,onBackups:()->Unit,onRecovery:()->Unit,
-    onImportLanguage:()->Unit,onScript:(String)->Unit,onRemindDays:(Int)->Unit
+    onImportLanguage:()->Unit,onScript:(String)->Unit,onRemindDays:(Int)->Unit,
+    keepOriginal:Boolean,onKeepOriginalChanged:(Boolean)->Unit
 ){
     val context=LocalContext.current
     var dialog by rememberSaveable{mutableStateOf("")}
@@ -91,6 +92,21 @@ import androidx.compose.ui.unit.dp
             Text("OCR & SCANNING",color=VaultSky,fontWeight=FontWeight.Bold)
         }
         item{NavySettingRow(Icons.Outlined.Translate,"OCR language",currentScript,{dialog="ocr"})}
+        item{
+            HubCard(Modifier.fillMaxWidth()){
+                Row(verticalAlignment=Alignment.CenterVertically){
+                    HubIcon(Icons.Outlined.Collections)
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)){
+                        Text("Keep untouched scan original",fontWeight=FontWeight.SemiBold)
+                        Text("Adds the raw camera photo beside the enhanced page",
+                            color=MaterialTheme.colorScheme.onSurfaceVariant,
+                            style=MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(checked=keepOriginal,onCheckedChange=onKeepOriginalChanged)
+                }
+            }
+        }
         item{
             Spacer(Modifier.height(5.dp))
             Text("APPEARANCE & PRIVACY",color=VaultSky,fontWeight=FontWeight.Bold)

@@ -21,11 +21,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import org.opencv.android.OpenCVLoader
 import org.opencv.android.Utils
 import org.opencv.core.*
@@ -38,10 +41,16 @@ data class DetectedScan(val corners:List<PointF>,val automatic:Boolean)
 object DocumentCropEngine {
     private fun ready():Boolean=OpenCVLoader.initLocal()
     /** GitHub DocuScan's multi-pass OpenCV quad detector, fully offline. */
-    fun detect(bitmap:Bitmap):DetectedScan {
+    fun detect(bitmap:Bitmap,context:android.content.Context?=null):DetectedScan {
         val defaults=listOf(PointF(.07f,.07f),PointF(.93f,.07f),PointF(.93f,.93f),PointF(.07f,.93f))
         return try {
-            val detected=com.docuscan.app.scan.Cleanup.detectCorners(bitmap)
+            val detected=context?.let{ctx->
+                try {
+                    DocQuadModel.detect(ctx.applicationContext,bitmap)?.map{
+                        p->PointF(p.x*bitmap.width,p.y*bitmap.height)
+                    }
+                }catch(_:Throwable){null}
+            } ?: com.docuscan.app.scan.Cleanup.detectCorners(bitmap)
             if(detected==null||detected.size!=4)DetectedScan(defaults,false)
             else DetectedScan(detected.map{p->PointF((p.x/bitmap.width).coerceIn(0f,1f),
                 (p.y/bitmap.height).coerceIn(0f,1f))},true)
@@ -77,7 +86,13 @@ object DocumentCropEngine {
 }
 
 @Composable fun CropReviewScreen(original:Bitmap,initial:DetectedScan,
-    onSave:(Int,List<PointF>)->Unit,onKeepOriginal:()->Unit,onCancel:()->Unit){
+    onSave:(Int,List<PointF>,ScanSettings,Boolean)->Unit,onKeepOriginal:()->Unit,
+    onCancel:()->Unit,onRetake:()->Unit){
+    val scanContext=LocalContext.current
+    val scope=rememberCoroutineScope()
+    var settings by remember{mutableStateOf(ScanSettings())}
+    var preview by remember{mutableStateOf<Bitmap?>(null)}
+    var detecting by remember{mutableStateOf(false)}
     var image by remember(original){mutableStateOf(original)}
     val points=remember(original){mutableStateListOf<PointF>().apply{addAll(initial.corners)}}
     var auto by remember{mutableStateOf(initial.automatic)}
@@ -90,11 +105,28 @@ object DocumentCropEngine {
             if(!original.isRecycled)original.recycle()
         }
     }
-    val color=if(auto)Color(0xFF18A676) else Color(0xFFFF9D35)
+    LaunchedEffect(image,settings){
+        val filtered=withContext(Dispatchers.Default){ScanEnhance.apply(image,settings)}
+        preview=filtered
+    }
+    DisposableEffect(preview) {
+        val oldPreview=preview
+        onDispose {if(oldPreview!=null && oldPreview!==image && !oldPreview.isRecycled)oldPreview.recycle()}
+    }
+    val color=if(auto)VaultColors.valid else VaultColors.expiring
     val scheme=MaterialTheme.colorScheme
     fun reset(){
-        val fresh=DocumentCropEngine.detect(image)
-        points.clear();points.addAll(fresh.corners);auto=fresh.automatic
+        if(detecting)return
+        val snapshot=image
+        scope.launch {
+            detecting=true
+            try {
+                val fresh=withContext(Dispatchers.Default){DocumentCropEngine.detect(snapshot,scanContext)}
+                if(image===snapshot){
+                    points.clear();points.addAll(fresh.corners);auto=fresh.automatic
+                }
+            }finally{detecting=false}
+        }
     }
     Column(Modifier.fillMaxSize().background(scheme.background).padding(horizontal=15.dp,vertical=10.dp),
         verticalArrangement=Arrangement.spacedBy(9.dp)){
@@ -121,7 +153,7 @@ object DocumentCropEngine {
             val drawingH=drawingW/ratio
             Box(Modifier.width(drawingW).height(drawingH).border(1.dp,scheme.outlineVariant)
                 .onSizeChanged{viewSize=it}){
-                Image(image.asImageBitmap(),"Photo to crop",modifier=Modifier.fillMaxSize(),
+                Image((preview?:image).asImageBitmap(),"Photo to crop",modifier=Modifier.fillMaxSize(),
                     contentScale=ContentScale.FillBounds)
                 Canvas(Modifier.fillMaxSize().pointerInput(image,viewSize){
                     detectDragGestures(onDragStart={start->
@@ -158,8 +190,9 @@ object DocumentCropEngine {
                 }
             }
         }
+        ScanEnhanceControls(settings,{settings=it})
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-            OutlinedButton(onClick={reset()},modifier=Modifier.weight(1f)){
+            OutlinedButton(onClick={reset()},enabled=!detecting,modifier=Modifier.weight(1f)){
                 Icon(Icons.Outlined.AutoFixHigh,null,Modifier.size(17.dp));Text(" Detect")
             }
             OutlinedButton(onClick={
@@ -172,11 +205,17 @@ object DocumentCropEngine {
             },modifier=Modifier.weight(1f)){
                 Icon(Icons.Outlined.RotateRight,null,Modifier.size(17.dp));Text(" Rotate")
             }
-            OutlinedButton(onClick=onKeepOriginal,modifier=Modifier.weight(1f)){Text(" Original")}
+            OutlinedButton(onClick=onRetake,modifier=Modifier.weight(1f)){Text(" Retake")}
         }
-        Button(onClick={onSave(quarterTurns*90,points.toList())},modifier=Modifier.fillMaxWidth()){
-            Icon(Icons.Outlined.Crop,null);Spacer(Modifier.width(7.dp));Text("Apply perspective crop")
+        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            OutlinedButton(onClick={onSave(quarterTurns*90,points.toList(),settings,true)},
+                modifier=Modifier.weight(1f)){Text("Add page")}
+            Button(onClick={onSave(quarterTurns*90,points.toList(),settings,false)},
+                modifier=Modifier.weight(1f)){Text("Done")}
         }
-        TextButton(onClick=onCancel,modifier=Modifier.fillMaxWidth()){Text("Cancel")}
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
+            TextButton(onClick=onKeepOriginal){Text("Keep original")}
+            TextButton(onClick=onCancel){Text("Cancel")}
+        }
     }
 }
