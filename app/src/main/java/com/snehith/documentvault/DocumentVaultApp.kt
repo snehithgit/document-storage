@@ -59,6 +59,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var cropResult by remember{mutableStateOf<DetectedScan?>(null)}
     var cameraPath by rememberSaveable{mutableStateOf("")}
     var cropFromAttachment by rememberSaveable{mutableStateOf(false)}
+    var enhancingFileId by rememberSaveable{mutableStateOf<String?>(null)}
     var scanSessionContinue by rememberSaveable{mutableStateOf("")}
     var scanTarget by rememberSaveable{mutableStateOf<String?>(null)}
     var addToCardId by rememberSaveable{mutableStateOf<String?>(null)}
@@ -161,7 +162,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             else->Unit
         }
     }
-    fun importUris(uris:List<Uri>,targetId:String?=null,addPage:Boolean=false,originalUri:Uri?=null,onSaved:(()->Unit)?=null) {
+    fun importUris(uris:List<Uri>,targetId:String?=null,addPage:Boolean=false,originalUri:Uri?=null,
+        savedCorners:String="",savedRotation:Int=0,onSaved:(()->Unit)?=null) {
         if(uris.isEmpty())return
         busy="Importing "+VaultCounts.format(uris.size,"document")
         scope.launch {
@@ -201,12 +203,11 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                     if(originalUri!=null) {
                         withContext(Dispatchers.IO) {
                             val retained=repo.importFile(originalUri)
-                            if(!repo.isDuplicate(retained.sha256)) {
-                                val updated=repo.cards.first{it.id==card.id}
-                                repo.saveCard(updated.copy(files=updated.files+retained))
-                            }else repo.removeOrphan(retained)
+                            try { repo.keepScanSource(card.id,card.files.last().id,retained,savedCorners,savedRotation) }
+                            catch(e:Exception){repo.removeOrphan(retained);throw e}
                         }
                     }
+                    onSaved?.invoke()
                     openCard(repo.cards.first{it.id==card.id})
                     if(addPage)scanSessionContinue=card.id
                     else activity.notify("Import complete. Use Get Details to read and copy information.")
@@ -251,7 +252,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         }
     }
     fun camera(target:String?=null) {
-        importTarget=target;scanTarget=target;cropFromAttachment=false
+        importTarget=target;scanTarget=target;cropFromAttachment=false;enhancingFileId=null
         scope.launch {
             try {
                 val f=withContext(Dispatchers.IO){
@@ -513,14 +514,17 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {imageFile->scope.launch {
                                 busy="Preparing photo for non-destructive enhancement"
                                 try {
-                                    val source=withContext(Dispatchers.IO){repo.documentFile(imageFile)}
                                     val prepared=withContext(Dispatchers.IO){
-                                        ScanPrepare.load(activity.applicationContext,source)
+                                        val source=repo.originalDocumentFile(imageFile)
+                                        val scan=ScanPrepare.loadForEdit(source,
+                                            imageFile.cropCorners,imageFile.cropRotation)
+                                        source.absolutePath to scan
                                     }
                                     scanTarget=c.id;cropFromAttachment=true
-                                    cameraUri=null;cameraPath=source.absolutePath
-                                    cropBitmap=prepared.preview;cropResult=prepared.corners
-                                    initialCropRotation=prepared.rotation;navigate("crop")
+                                    enhancingFileId=imageFile.id
+                                    cameraUri=null;cameraPath=prepared.first
+                                    cropBitmap=prepared.second.preview;cropResult=prepared.second.corners
+                                    initialCropRotation=prepared.second.rotation;navigate("crop")
                                 }catch(e:Exception){error="Cannot enhance image: "+(e.message?:"Error")}
                                 finally{busy=""}
                             }})}
@@ -559,9 +563,10 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 {rotation,corners,settings,addAnother->scope.launch{
                                     busy="Cropping and enhancing full-resolution scan"
                                     try {
+                                        val fullRotationForSave=(initialCropRotation+rotation)%360
                                         val uri=withContext(Dispatchers.IO){
                                             val original=ImageDecode.decode(File(cameraPath),Int.MAX_VALUE,fullResolution=true)
-                                            val fullRotation=(initialCropRotation+rotation)%360
+                                            val fullRotation=fullRotationForSave
                                             val oriented=if(fullRotation==0)original else{
                                                 try {
                                                     val matrix=android.graphics.Matrix().apply{postRotate(fullRotation.toFloat())}
@@ -582,11 +587,34 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                                 }finally{corrected.recycle()}
                                             }finally{oriented.recycle()}
                                         }
-                                        val keep=activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE)
-                                            .getBoolean("keepScanOriginal",true)
-                                        importUris(listOf(uri),scanTarget,addAnother,
-                                            if(keep&&!cropFromAttachment)cameraUri else null,
-                                            onSaved={goBack();cropBitmap=null;cropResult=null})
+                                        if(cropFromAttachment) {
+                                            val target=scanTarget
+                                            val selected=enhancingFileId
+                                            check(target!=null&&selected!=null){"Photo to enhance is no longer selected"}
+                                            val next=withContext(Dispatchers.IO){repo.importFile(uri)}
+                                            try {
+                                                withContext(Dispatchers.IO){
+                                                    repo.replaceImageFile(target,selected,next,
+                                                        CropGeometry.encode(corners.map{it.x to it.y}),
+                                                        fullRotationForSave)
+                                                }
+                                            }catch(e:Exception){
+                                                withContext(Dispatchers.IO){repo.removeOrphan(next)}
+                                                throw e
+                                            }
+                                            enhancingFileId=null
+                                            cropBitmap=null;cropResult=null
+                                            goBack()
+                                            activity.notify("Photo updated")
+                                        } else {
+                                            val keep=activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE)
+                                                .getBoolean("keepScanOriginal",true)
+                                            importUris(listOf(uri),scanTarget,addAnother,
+                                                if(keep)cameraUri else null,
+                                                savedCorners=CropGeometry.encode(corners.map{it.x to it.y}),
+                                                savedRotation=fullRotationForSave,
+                                                onSaved={goBack();cropBitmap=null;cropResult=null})
+                                        }
                                     }catch(e:java.io.IOException){
                                         error="Could not save the cropped page. Check free storage and retry. Your original image is still available."
                                     }catch(e:Exception){error="Crop failed: "+(e.message?:"Error")}
