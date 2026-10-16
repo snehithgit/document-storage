@@ -78,9 +78,17 @@ object DocumentCropEngine {
         }finally{src.release();warped.release();source.release();dst.release();transform.release()}
     }
     fun save(bitmap:Bitmap,output:File) {
-        FileOutputStream(output).use{out->
-            if(!bitmap.compress(Bitmap.CompressFormat.JPEG,93,out))throw IllegalStateException("Cannot save corrected image")
-            out.fd.sync()
+        ScanOutputFiles.ensureParent(output)
+        try {
+            FileOutputStream(output).use{out->
+                if(!bitmap.compress(Bitmap.CompressFormat.JPEG,93,out))
+                    throw IllegalStateException("Cannot save corrected image")
+                out.fd.sync()
+            }
+        }catch(e:Exception){
+            // Do not leave a corrupt, half-written JPEG in the import picker.
+            output.delete()
+            throw e
         }
     }
 }
