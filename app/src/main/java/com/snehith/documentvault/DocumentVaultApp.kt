@@ -499,7 +499,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 }catch(e:Exception){error="Cannot enhance image: "+(e.message?:"Error")}
                                 finally{busy=""}
                             }})}
-                        "attachments"->current?.let{c->AttachmentManagerScreen(c,
+                        "attachments"->current?.let{c->AttachmentManagerScreen(c,repo,
                             {f->viewingId=f.id;navigate("viewer")},
                             {f,name->scope.launch {
                                 try{withContext(Dispatchers.IO){repo.renameFile(c.id,f.id,name)}}
