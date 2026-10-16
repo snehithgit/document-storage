@@ -404,7 +404,7 @@ class VaultRepository(private val context: Context) {
         VaultFile(id,o.getString("name"),o.getString("mime"),o.getLong("size"),o.getString("sha"),"","Recovered attachment")
     }catch(_:Exception){null}
     fun recoverableFiles():List<VaultFile> {
-        val linked=cards.flatMap{it.files}.map{it.id}.toSet()
+        val linked=referencedIds() // Includes deliberately hidden retained scan originals.
         return blobDir.listFiles()?.filter {it.name.endsWith(".dat") && it.name.removeSuffix(".dat") !in linked}
             ?.map {f->
                 val id=f.name.removeSuffix(".dat")
