@@ -506,11 +506,12 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     }
 
     SideEffect { 
-        activity.window.statusBarColor=if(dark)android.graphics.Color.BLACK else android.graphics.Color.rgb(11,13,16)
-        activity.window.navigationBarColor=if(dark)android.graphics.Color.BLACK else android.graphics.Color.rgb(11,13,16)
+        activity.window.statusBarColor=if(dark)android.graphics.Color.BLACK else android.graphics.Color.rgb(230,236,237)
+        activity.window.navigationBarColor=if(dark)android.graphics.Color.BLACK else android.graphics.Color.rgb(230,236,237)
         androidx.core.view.WindowCompat.getInsetsController(activity.window,activity.window.decorView).apply {
-            isAppearanceLightStatusBars=false
-            isAppearanceLightNavigationBars=false
+            // Android's "light" flags mean DARK icons on a light system bar.
+            isAppearanceLightStatusBars=!dark
+            isAppearanceLightNavigationBars=!dark
         }
     }
     VaultTheme(dark) {
@@ -543,7 +544,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     "scan"->"Scan"
                                     "crop"->"Crop document"
                                     "edit"->"Edit Document"
-                                    "viewer"->"Document viewer"
+                                    "viewer"->current?.files?.firstOrNull{it.id==viewingId}
+                                        ?.let{VaultNames.label(it.name)} ?: "Document viewer"
                                     "externalviewer"->"Open PDF"
                                     "review"->"OCR review"
                                     "tools"->"PDF Tools"

@@ -47,10 +47,12 @@ private val rounded=RoundedCornerShape(14.dp)
 private val thumbnailCache=object:LruCache<String,Bitmap>(16*1024*1024){
     override fun sizeOf(key:String,value:Bitmap):Int=value.byteCount
 }
-@Composable fun VaultThumbnail(file:VaultFile?,repo:VaultRepository,modifier:Modifier=Modifier,maxEdge:Int=640) {
+@Composable fun VaultThumbnail(file:VaultFile?,repo:VaultRepository,modifier:Modifier=Modifier,maxEdge:Int=360) {
     var bitmap by remember(file?.id,maxEdge){mutableStateOf<Bitmap?>(null)}
+    var loading by remember(file?.id,maxEdge){mutableStateOf(file!=null)}
     LaunchedEffect(file?.id,maxEdge) {
         bitmap=null
+        loading=file!=null
         if(file==null)return@LaunchedEffect
         try {
             val image=withContext(Dispatchers.IO) {
@@ -67,11 +69,15 @@ private val thumbnailCache=object:LruCache<String,Bitmap>(16*1024*1024){
                 }
             }
             bitmap=image
-        }catch(_:Exception){ /* Invalid attachment falls back to the document icon. */ }
+        }catch(cancelled:kotlinx.coroutines.CancellationException){throw cancelled}
+        catch(e:Exception){
+            android.util.Log.w("VaultThumbnail","Cannot preview attachment",e)
+        }finally{loading=false}
     }
     Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant,rounded),contentAlignment=Alignment.Center){
         if(bitmap!=null)Image(bitmap!!.asImageBitmap(),"Document",Modifier.fillMaxSize(),contentScale=ContentScale.Fit)
-        else Icon(Icons.Outlined.Description,null,tint=VaultSky,modifier=Modifier.size(37.dp))
+        else if(loading)CircularProgressIndicator(Modifier.size(22.dp),strokeWidth=2.dp)
+        else Icon(Icons.Outlined.Description,"Preview unavailable",tint=VaultSky,modifier=Modifier.size(37.dp))
     }
 }
 fun vaultValidity(card:VaultCard):Pair<String,Color> {
@@ -97,7 +103,8 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
         border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
         Column(Modifier.fillMaxWidth().padding(9.dp),
             verticalArrangement=Arrangement.spacedBy(7.dp)){
-            CardFace(card)
+            VaultThumbnail(card.files.firstOrNull(),repo,
+                Modifier.fillMaxWidth().height(138.dp),maxEdge=560)
             Text(VaultNames.title(card.title),style=MaterialTheme.typography.titleMedium,
                 color=MaterialTheme.colorScheme.onSurface,
                 maxLines=2,minLines=2,overflow=TextOverflow.Ellipsis)
@@ -115,7 +122,7 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
         border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline),
         elevation=CardDefaults.cardElevation(defaultElevation=0.dp)){
         Row(Modifier.padding(9.dp).fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
-            VaultThumbnail(card.files.firstOrNull(),repo,Modifier.size(65.dp,72.dp))
+            VaultThumbnail(card.files.firstOrNull(),repo,Modifier.size(65.dp,72.dp),maxEdge=280)
             Spacer(Modifier.width(11.dp))
             Column(Modifier.weight(1f)){
                 Text(VaultNames.title(card.title),color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
@@ -519,13 +526,18 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
                 shape=RoundedCornerShape(14.dp)){
                 Row(Modifier.fillMaxWidth().padding(start=10.dp,end=4.dp,top=10.dp,bottom=10.dp),
                     verticalAlignment=Alignment.CenterVertically){
-                    VaultThumbnail(file,repo,Modifier.size(58.dp,67.dp))
+                    VaultThumbnail(file,repo,Modifier.size(58.dp,67.dp),maxEdge=280)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f).clickable{onFile(file)}){
                         Text(VaultNames.label(file.name),style=MaterialTheme.typography.bodyMedium,
                             maxLines=2,overflow=TextOverflow.Ellipsis)
-                        Text(file.mime.substringAfterLast('/')+" · "+
-                            (file.bytes/1024).coerceAtLeast(1)+" KB",
+                        Text(when {
+                            file.mime=="application/pdf"->"PDF"
+                            file.mime.startsWith("image/")->"Image"
+                            file.mime.contains("word")||file.mime.contains("document")->"Word document"
+                            file.mime.startsWith("text/")->"Text file"
+                            else->"File"
+                        }+" · "+(file.bytes/1024).coerceAtLeast(1)+" KB",
                             color=MaterialTheme.colorScheme.onSurfaceVariant,
                             style=MaterialTheme.typography.bodySmall)
                     }

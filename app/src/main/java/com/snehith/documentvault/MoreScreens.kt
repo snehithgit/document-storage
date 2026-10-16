@@ -321,7 +321,9 @@ import java.util.UUID
 @Composable fun ProfilesScreen(profiles:List<VaultProfile>,onSave:(VaultProfile)->Unit) {
     var name by remember{mutableStateOf("")}
     LazyColumn(contentPadding=PaddingValues(16.dp,12.dp,16.dp,90.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-        item{Heading("Family profiles","Organize documents by person without uploading identity details")}
+        item{Text("Organize documents by person, entirely on this device.",
+            style=MaterialTheme.typography.bodyMedium,
+            color=MaterialTheme.colorScheme.onSurfaceVariant)}
         items(profiles){p->ElevatedCard{
             Row(Modifier.fillMaxWidth().padding(16.dp),verticalAlignment=Alignment.CenterVertically) {
                 Icon(Icons.Outlined.Person,null);Spacer(Modifier.width(12.dp))
@@ -335,7 +337,9 @@ import java.util.UUID
 }
 @Composable fun TemplatesScreen(templates:List<CardTemplate>,onUse:(CardTemplate)->Unit) {
     LazyColumn(contentPadding=PaddingValues(16.dp,12.dp,16.dp,90.dp),verticalArrangement=Arrangement.spacedBy(9.dp)) {
-        item{Heading("Card templates","Start from a structure and edit any field")}
+        item{Text("Start from a structure and edit any field.",
+            style=MaterialTheme.typography.bodyMedium,
+            color=MaterialTheme.colorScheme.onSurfaceVariant)}
         items(templates){t->Card(onClick={onUse(t)}) {
             Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically){
                 Icon(Icons.Outlined.ViewAgenda,null);Spacer(Modifier.width(12.dp))

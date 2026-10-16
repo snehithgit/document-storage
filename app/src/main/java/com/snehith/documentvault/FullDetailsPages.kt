@@ -113,10 +113,18 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                     Text(" Select from page")
                 }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick={selectMode=!selectMode; if(!selectMode)selected=emptySet()}){
+                TextButton(onClick={
+                    val next=!selectMode
+                    selectMode=next
+                    arranging=false
+                    if(!next)selected=emptySet()
+                }){
                     Text(if(selectMode)"Done" else "Select")
                 }
-                TextButton(onClick={arranging=!arranging}){
+                TextButton(onClick={
+                    arranging=!arranging
+                    if(arranging){selectMode=false;selected=emptySet()}
+                }){
                     Text(if(arranging)"Done" else "Arrange")
                 }
             }
@@ -203,14 +211,14 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
             }
         }
         HorizontalDivider(color=MaterialTheme.colorScheme.outline)
-        Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=10.dp)
-            .navigationBarsPadding(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
+        Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=10.dp),
+            horizontalArrangement=Arrangement.spacedBy(10.dp)){
             OutlinedButton(onClick={copyToClipboard(context,"Selected information",copyText(selected))},
                 enabled=fields.any{it.id in selected&&it.value.isNotBlank()},
                 modifier=Modifier.weight(1f).heightIn(min=48.dp)){
                 Icon(Icons.Outlined.Checklist,"Copy selected fields",Modifier.size(19.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("Selected (${selected.size})")
+                Text("Copy Selected")
             }
             if(fields.any{it.id in selected&&it.value.isNotBlank()}) {
                 Button(onClick={choosingPerson=true},
@@ -283,7 +291,11 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
             Spacer(Modifier.height(8.dp))
             if(truncated) Text("Showing first 350 matches. Refine search to see more.",
                 color=dMuted,style=MaterialTheme.typography.bodySmall)
-            LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp)){
+            LazyColumn(
+                modifier=Modifier.weight(1f).fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.background),
+                contentPadding=PaddingValues(bottom=16.dp),
+                verticalArrangement=Arrangement.spacedBy(8.dp)){
                 items(choices.take(350)){(page,line)->
                     Card(onClick={candidate=line;label="";chosenPage=page},
                         colors=CardDefaults.cardColors(containerColor=dPanel),
@@ -293,8 +305,8 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                             Text((page+1).toString().padStart(2,'0'),color=VaultColors.lineNumber,
                                 style=MaterialTheme.typography.labelSmall,modifier=Modifier.width(30.dp))
                             Text(line,color=MaterialTheme.colorScheme.onSurface,
-                                fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace,
-                                style=MaterialTheme.typography.bodyMedium,modifier=Modifier.weight(1f))
+                                style=MaterialTheme.typography.bodyMedium,
+                                modifier=Modifier.weight(1f))
                             Icon(Icons.Outlined.Add,null,tint=VaultColors.syntax,modifier=Modifier.size(18.dp))
                         }
                     }

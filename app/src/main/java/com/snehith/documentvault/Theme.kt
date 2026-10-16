@@ -48,7 +48,7 @@ object VaultColors{
     val expiring=Color(0xFFD98A1F)
     val expired=Color(0xFFD9503A)
     val syntax=Color(0xFF2A8FA6)
-    val keyword=Color(0xFF7C6BD6)
+    val keyword=Color(0xFF2A8FA6)
     val lineNumber=Color(0xFF7F9096)
     fun statusTint(c:Color)=c.copy(alpha=.12f)
 }
@@ -56,6 +56,8 @@ val VaultLightScheme=lightColorScheme(
     primary=VaultColors.lightAccent,onPrimary=Color.White,
     primaryContainer=VaultColors.lightAccentSoft,onPrimaryContainer=VaultColors.lightAccent,
     secondary=VaultColors.lightAccent,onSecondary=Color.White,
+    secondaryContainer=VaultColors.lightAccentSoft,onSecondaryContainer=VaultColors.lightInk,
+    tertiaryContainer=VaultColors.lightAccentSoft,onTertiaryContainer=VaultColors.lightInk,
     background=VaultColors.lightBg,onBackground=VaultColors.lightInk,
     surface=VaultColors.lightPanel2,onSurface=VaultColors.lightInk,
     surfaceVariant=VaultColors.lightPanel,onSurfaceVariant=VaultColors.lightInk2,
@@ -71,6 +73,8 @@ val VaultDarkScheme=darkColorScheme(
     primary=VaultColors.darkAccent,onPrimary=Color(0xFF031418),
     primaryContainer=VaultColors.darkAccentSoft,onPrimaryContainer=VaultColors.darkAccent,
     secondary=VaultColors.darkAccent,onSecondary=Color(0xFF031418),
+    secondaryContainer=VaultColors.darkAccentSoft,onSecondaryContainer=VaultColors.darkInk,
+    tertiaryContainer=VaultColors.darkAccentSoft,onTertiaryContainer=VaultColors.darkInk,
     background=VaultColors.darkBg,onBackground=VaultColors.darkInk,
     surface=VaultColors.darkSurface,onSurface=VaultColors.darkInk,
     surfaceVariant=VaultColors.darkPanel,onSurfaceVariant=VaultColors.darkInk2,

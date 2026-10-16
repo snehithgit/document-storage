@@ -105,7 +105,19 @@ private fun categoryIcon(category:String):ImageVector=when {
                             Text(VaultCounts.format(attention.size,"item")+" to review")
                         }
                     }
-                    HealthRing(DesignLogic.healthyShare(displayed))
+                    val tracked=DesignLogic.trackedExpiryCount(displayed)
+                    if(tracked>0){
+                        Column(horizontalAlignment=Alignment.CenterHorizontally){
+                            HealthRing(DesignLogic.healthyShare(displayed),size=80.dp)
+                            Text("Valid expiry dates",style=MaterialTheme.typography.labelSmall,
+                                color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }else{
+                        Text("No expiry dates\nbeing tracked",
+                            textAlign=androidx.compose.ui.text.style.TextAlign.End,
+                            style=MaterialTheme.typography.bodySmall,
+                            color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
         }
@@ -129,10 +141,8 @@ private fun categoryIcon(category:String):ImageVector=when {
                 }
             }
         }
-        if(latest.isNotEmpty()){
-            item{SectionTitle("Your cards","View all"){onCategory("All")}}
-            item{CardFace(latest.first(),onClick={onOpen(latest.first())})}
-        }
+        // Recent Documents already lists every card on a small vault; don't repeat
+        // a giant decorative card with no useful thumbnail.
         item{
             SectionTitle("Categories","Search",onSearch)
             Spacer(Modifier.height(9.dp))
@@ -186,44 +196,14 @@ private fun readableBytes(bytes:Long):String=when{
     }
 }
 @Composable fun HubBottomBar(active:String,onNavigate:(String)->Unit,onScan:()->Unit){
-    Surface(color=MaterialTheme.colorScheme.surface,
-        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
-        Row(Modifier.fillMaxWidth().navigationBarsPadding().height(76.dp)
-            .padding(horizontal=6.dp),
-            verticalAlignment=Alignment.CenterVertically,
-            horizontalArrangement=Arrangement.SpaceEvenly){
-            @Composable fun tab(id:String,label:String,icon:ImageVector,modifier:Modifier=Modifier){
-                val selected=active==id
-                Column(modifier.weight(1f).fillMaxHeight()
-                    .clickable{onNavigate(id)}
-                    .padding(vertical=8.dp),
-                    horizontalAlignment=Alignment.CenterHorizontally,
-                    verticalArrangement=Arrangement.Center){
-                    Icon(icon,label,modifier=Modifier.size(22.dp),
-                        tint=if(selected)VaultColors.syntax else MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(5.dp))
-                    Text(label,style=MaterialTheme.typography.labelSmall,maxLines=1,
-                        color=if(selected)VaultColors.syntax else MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            tab("home","Home",Icons.Outlined.Home)
-            tab("cards","Documents",Icons.Outlined.FolderOpen)
-            Column(Modifier.weight(1f).fillMaxHeight().clickable(onClick=onScan),
-                horizontalAlignment=Alignment.CenterHorizontally,
-                verticalArrangement=Arrangement.Center){
-                Surface(shape=CircleShape,color=MaterialTheme.colorScheme.primary,
-                    modifier=Modifier.size(52.dp)){
-                    Box(contentAlignment=Alignment.Center){
-                        Icon(Icons.Outlined.Add,"Add Document",Modifier.size(28.dp),
-                            tint=MaterialTheme.colorScheme.onPrimary)
-                    }
-                }
-                Spacer(Modifier.height(2.dp))
-                Text("Scan",style=MaterialTheme.typography.labelSmall,
-                    color=MaterialTheme.colorScheme.onSurface)
-            }
-            tab("search","Search",Icons.Outlined.Search)
-            tab("more","Settings",Icons.Outlined.Settings)
-        }
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)
+        .navigationBarsPadding()){
+        // Search stays accessible from Home and Documents; People is a true root tab.
+        VaultDock(listOf(
+            DockItem("home",Icons.Outlined.Home,"Home"),
+            DockItem("cards",Icons.Outlined.FolderOpen,"Documents"),
+            DockItem("people",Icons.Outlined.People,"People"),
+            DockItem("more",Icons.Outlined.Settings,"Settings")
+        ),active,onNavigate,onScan)
     }
 }
