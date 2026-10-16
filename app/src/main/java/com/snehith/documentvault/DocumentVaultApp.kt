@@ -629,7 +629,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 })
                             else navigate("detail")
                         }
-                        "tools"->current?.let{c->PdfToolsScreen(c,
+                        "tools"->current?.let{c->PdfToolsScreen(c,repo,
                             {addToCardId=c.id},
                             {op,files,from,to->
                                 pdfJobToExport=PdfJob(op,files,from,to)
