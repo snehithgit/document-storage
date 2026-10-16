@@ -97,7 +97,7 @@ object DocumentCropEngine {
 
 @Composable fun CropReviewScreen(original:Bitmap,initial:DetectedScan,
     onSave:(Int,List<PointF>,ScanSettings,Boolean)->Unit,onKeepOriginal:()->Unit,
-    onCancel:()->Unit,onRetake:()->Unit){
+    onCancel:()->Unit,onRetake:()->Unit,canRetake:Boolean=true){
     val scanContext=LocalContext.current
     val scope=rememberCoroutineScope()
     var settings by remember{mutableStateOf(ScanSettings())}
@@ -289,7 +289,7 @@ object DocumentCropEngine {
                 Icon(Icons.Outlined.RotateRight,null,Modifier.size(18.dp))
                 Text(" Rotate")
             }
-            OutlinedButton(onClick=onRetake,enabled=!busy,
+            if(canRetake)OutlinedButton(onClick=onRetake,enabled=!busy,
                 modifier=Modifier.weight(1f).heightIn(min=48.dp)){Text("Retake")}
         }
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
