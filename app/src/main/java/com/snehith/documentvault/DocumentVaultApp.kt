@@ -162,6 +162,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             var lastCard:VaultCard?=null
             try {
                 for((index,uri) in uris.withIndex()) {
+                    ImportTargetPolicy.requireAvailable(targetId,repo.cards.map{it.id}.toSet())
                     val file=withContext(Dispatchers.IO){repo.importFile(uri)}
                     if(repo.isDuplicate(file.sha256)) {
                         withContext(Dispatchers.IO){repo.removeOrphan(file)}
