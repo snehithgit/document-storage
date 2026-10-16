@@ -331,31 +331,36 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     }
     if(addToCardId!=null){
         val target=addToCardId
-        AlertDialog(onDismissRequest={addToCardId=null},
-            title={Text("Add to this document")},
-            text={
-                Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
-                    Text("Choose where the next page or attachment comes from.",
-                        color=MaterialTheme.colorScheme.onSurfaceVariant)
-                    Button(onClick={addToCardId=null;camera(target)},modifier=Modifier.fillMaxWidth()){
-                        Icon(Icons.Outlined.DocumentScanner,null)
-                        Text("  Scan with camera")
+        ModalBottomSheet(onDismissRequest={addToCardId=null},
+            containerColor=MaterialTheme.colorScheme.surface){
+            Column(Modifier.fillMaxWidth().padding(start=20.dp,end=20.dp,bottom=24.dp),
+                verticalArrangement=Arrangement.spacedBy(8.dp)){
+                Text("Add Page",style=MaterialTheme.typography.titleLarge)
+                Text("Choose a source to add to this document.",
+                    style=MaterialTheme.typography.bodySmall,
+                    color=MaterialTheme.colorScheme.onSurfaceVariant)
+                listOf(
+                    Triple("Scan with Camera",Icons.Outlined.CameraAlt,
+                        {addToCardId=null;camera(target)}),
+                    Triple("Import Photos",Icons.Outlined.PhotoLibrary,
+                        {addToCardId=null;importTarget=target;galleryPicker.launch("image/*")}),
+                    Triple("Import Files or PDF",Icons.Outlined.FolderOpen,
+                        {addToCardId=null;importTarget=target;importPicker.launch(arrayOf("*/*"))})
+                ).forEach{(label,icon,action)->
+                    Row(Modifier.fillMaxWidth().heightIn(min=62.dp)
+                        .clickable(onClick=action).padding(horizontal=8.dp),
+                        verticalAlignment=Alignment.CenterVertically){
+                        Icon(icon,null,Modifier.size(24.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Text(label,style=MaterialTheme.typography.bodyLarge,
+                            modifier=Modifier.weight(1f))
+                        Icon(Icons.Outlined.ChevronRight,null,
+                            tint=MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    OutlinedButton(onClick={
-                        addToCardId=null;importTarget=target;galleryPicker.launch("image/*")
-                    },modifier=Modifier.fillMaxWidth()){
-                        Icon(Icons.Outlined.PhotoLibrary,null)
-                        Text("  Import gallery photos")
-                    }
-                    OutlinedButton(onClick={
-                        addToCardId=null;importTarget=target;importPicker.launch(arrayOf("*/*"))
-                    },modifier=Modifier.fillMaxWidth()){
-                        Icon(Icons.Outlined.FolderOpen,null)
-                        Text("  Import PDF or files")
-                    }
+                    HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
                 }
-            },
-            confirmButton={TextButton(onClick={addToCardId=null}){Text("Done")}})
+            }
+        }
     }
     if(confirmRestore) {
         AlertDialog(onDismissRequest={confirmRestore=false},title={Text("Replace current vault?")},
