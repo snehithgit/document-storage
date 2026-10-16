@@ -274,10 +274,10 @@ fun copyToClipboard(context:Context,label:String,value:String) {
     var expiry by rememberSaveable(card.id){mutableStateOf(card.expiry)}
     var profile by rememberSaveable(card.id){mutableStateOf(card.profile)}
     val fieldsSaver=listSaver<SnapshotStateList<DataField>,String>(
-        save={list->list.flatMap{listOf(it.id,it.name,it.value,it.page.toString(),it.source)}},
+        save={list->list.flatMap{listOf(it.id,it.name,it.value,it.page.toString(),it.source,it.confidence.toString())}},
         restore={items->mutableStateListOf<DataField>().apply {
-            items.chunked(5).forEach{v->if(v.size==5)
-                add(DataField(v[1],v[2],v[3].toIntOrNull()?:-1,v[4],v[0]))
+            items.chunked(6).forEach{v->if(v.size==6)
+                add(DataField(v[1],v[2],v[3].toIntOrNull()?:-1,v[4],v[0],v[5].toFloatOrNull()?:0f))
             }
         }}
     )
@@ -365,6 +365,15 @@ fun copyToClipboard(context:Context,label:String,value:String) {
                         OutlinedTextField(fields[i].name,{fields[i]=fields[i].copy(name=it)},
                             modifier=Modifier.weight(1f),label={Text("Field name")})
                         IconButton(onClick={fields.removeAt(i)}){Icon(Icons.Outlined.Delete,null)}
+                    }
+                    if(fields[i].confidence>0f) {
+                        Surface(shape=RoundedCornerShape(50),
+                            color=MaterialTheme.colorScheme.primary.copy(alpha=.12f)){
+                            Text("Confidence ${(fields[i].confidence*100).toInt()}% · review",
+                                color=MaterialTheme.colorScheme.secondary,
+                                style=MaterialTheme.typography.labelSmall,
+                                modifier=Modifier.padding(horizontal=9.dp,vertical=5.dp))
+                        }
                     }
                     OutlinedTextField(fields[i].value,{fields[i]=fields[i].copy(value=it)},
                         modifier=Modifier.fillMaxWidth(),label={Text("Extracted value")})

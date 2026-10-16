@@ -99,7 +99,20 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 }
                 val fresh=repo.cards.firstOrNull{it.id==cardId} ?:return@launch
                 val update=f.copy(extractedText=result.text,ocrStatus=result.method)
-                withContext(Dispatchers.IO){repo.saveCard(fresh.copy(files=fresh.files.map{if(it.id==f.id)update else it}))}
+                val identified=result.document
+                val autoTitle=identified?.takeIf{it.confidence>=.7f && !it.fullName.isNullOrBlank()}
+                    ?.title
+                val isGenericTitle=fresh.title.isBlank()||fresh.title.startsWith("Scan ",true)||
+                    fresh.title.startsWith("Scanned document",true)||
+                    fresh.title.equals(f.name.substringBeforeLast('.'),true)
+                val autoKind=identified?.kind?.takeIf{fresh.kind=="Custom"||fresh.kind=="Recovered"}
+                    ?:fresh.kind
+                val refreshed=fresh.copy(
+                    files=fresh.files.map{if(it.id==f.id)update else it},
+                    kind=autoKind,
+                    title=if(isGenericTitle && autoTitle!=null)autoTitle else fresh.title,
+                    expiry=if(fresh.expiry.isBlank())identified?.expiry?:fresh.expiry else fresh.expiry)
+                withContext(Dispatchers.IO){repo.saveCard(refreshed)}
                 if(result.fields.isNotEmpty()) {reviewQueue.add(ReviewJob(cardId,update,result));route="review"}
                 else {activity.notify("Text extracted. Open the document Text tab to copy it.");route="detail"}
             }catch(_:CancellationException){activity.notify("OCR cancelled")}

@@ -18,7 +18,8 @@ import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 data class DataField(val name: String, val value: String, val page: Int = -1,
-    val source: String = "manual", val id: String = UUID.randomUUID().toString())
+    val source: String = "manual", val id: String = UUID.randomUUID().toString(),
+    val confidence:Float=0f)
 data class VaultFile(val id: String, val name: String, val mime: String, val bytes: Long, val sha256: String, val extractedText: String = "", val ocrStatus: String = "pending")
 data class VaultCard(
     val id: String = UUID.randomUUID().toString(),
@@ -191,7 +192,7 @@ class VaultRepository(private val context: Context) {
             tags=o.optString("tags"),notes=o.optString("notes"),expiry=o.optString("expiry"),
             previousId=o.optString("previousId"),created=o.optLong("created",System.currentTimeMillis()),
             fields=(0 until fields.length()).map { val f=fields.getJSONObject(it);DataField(f.optString("name"),f.optString("value"),f.optInt("page",-1),
-                f.optString("source","manual"),f.optString("id").ifBlank{uid()}) },
+                f.optString("source","manual"),f.optString("id").ifBlank{uid()},f.optDouble("confidence",0.0).toFloat()) },
             files=(0 until files.length()).map { val f=files.getJSONObject(it);VaultFile(f.getString("id"),f.optString("name"),f.optString("mime"),f.optLong("bytes"),f.optString("sha256"),f.optString("extractedText"),f.optString("ocrStatus","pending")) }
         )
     }
@@ -201,7 +202,7 @@ class VaultRepository(private val context: Context) {
         .put("id",c.id).put("title",c.title).put("kind",c.kind).put("category",c.category)
         .put("profile",c.profile).put("tags",c.tags).put("notes",c.notes).put("expiry",c.expiry)
         .put("previousId",c.previousId).put("created",c.created)
-        .put("fields",JSONArray().apply { c.fields.forEach{ put(JSONObject().put("name",it.name).put("value",it.value).put("page",it.page).put("source",it.source).put("id",it.id)) } })
+        .put("fields",JSONArray().apply { c.fields.forEach{ put(JSONObject().put("name",it.name).put("value",it.value).put("page",it.page).put("source",it.source).put("id",it.id).put("confidence",it.confidence.toDouble())) } })
         .put("files",JSONArray().apply { c.files.forEach{ put(JSONObject().put("id",it.id).put("name",it.name).put("mime",it.mime).put("bytes",it.bytes).put("sha256",it.sha256).put("extractedText",it.extractedText).put("ocrStatus",it.ocrStatus)) } })
     private fun snapshot():String=JSONObject()
         .put("cards",JSONArray().apply { cards.forEach{put(writeCard(it))} })
