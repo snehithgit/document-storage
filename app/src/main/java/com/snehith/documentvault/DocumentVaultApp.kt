@@ -86,12 +86,12 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     fun goBack(){
         when(route) {
             "edit"->route=if(repo.cards.any{it.id==editing?.id})"detail" else lastRoot
-            "viewer","tools","fulldetails"->route="detail"
+            "viewer","tools","fulldetails","attachments"->route="detail"
             "selectfields"->route="fulldetails"
             "crop"->route=if(scanTarget!=null)"detail" else "scan"
             "review"->{if(reviewQueue.isNotEmpty())reviewQueue.removeAt(0);route=if(reviewQueue.isNotEmpty())"review" else if(selectedCardId.isNotBlank())"detail" else "cards"}
             "detail"->route=lastRoot
-            "profiles","templates","backup","recovery"->route="more"
+            "profiles","templates","backup","recovery","about"->route="more"
             "expiry"->route="home"
             else->route="home"
         }
@@ -350,6 +350,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 Text(when(route){
                                     "detail"->current?.let{VaultNames.title(it.title)} ?: "Document"
                                     "fulldetails"->"Full Details"
+                                    "attachments"->"Manage attachments"
+                                    "about"->"About"
                                     "selectfields"->"Select from document"
                                     "scan"->"Scan"
                                     "crop"->"Crop document"
@@ -410,13 +412,13 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 if(Build.VERSION.SDK_INT>=33)notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                                 activity.notify("Expiry reminders: "+days+" days")},
                             options.getBoolean("keepScanOriginal",true),
-                            {keep->options.edit().putBoolean("keepScanOriginal",keep).apply()})
+                            {keep->options.edit().putBoolean("keepScanOriginal",keep).apply()},{route="about"})
                         "detail"->current?.let{c->VaultNavDetail(c,repo,
                             {f->viewingId=f.id;route="viewer"},
                             {f->startOcr(c.id,f)},{f->activity.share(f)},{activity.shareAll(c.files)},
                             {addToCardId=c.id},
                             {route="fulldetails"},{route="tools"},
-                            {startEdit(c)},
+                            {startEdit(c)},{route="attachments"},
                             {scope.launch{try{withContext(Dispatchers.IO){repo.deleteCard(c)};route="cards"}
                                 catch(e:Exception){error=e.message?:"Delete failed"}}},
                             {imageFile->scope.launch {
@@ -433,6 +435,21 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 }catch(e:Exception){error="Cannot enhance image: "+(e.message?:"Error")}
                                 finally{busy=""}
                             }})}
+                        "attachments"->current?.let{c->AttachmentManagerScreen(c,
+                            {f->viewingId=f.id;route="viewer"},
+                            {f,name->scope.launch {
+                                try{withContext(Dispatchers.IO){repo.renameFile(c.id,f.id,name)}}
+                                catch(e:Exception){error="Rename failed: "+(e.message?:"Invalid filename")}
+                            }},
+                            {f->scope.launch {
+                                try{withContext(Dispatchers.IO){repo.removeFile(c.id,f.id)}}
+                                catch(e:Exception){error="Remove failed: "+(e.message?:"Storage error")}
+                            }},
+                            {ids->scope.launch {
+                                try{withContext(Dispatchers.IO){repo.reorderFiles(c.id,ids)}}
+                                catch(e:Exception){error="Reorder failed: "+(e.message?:"Storage error")}
+                            }})}
+                        "about"->VaultAboutScreen()
                         "fulldetails"->current?.let{c->FullDetailsPage(c,
                             {updated->scope.launch{try{withContext(Dispatchers.IO){repo.saveCard(updated)}}
                                 catch(e:Exception){error=e.message?:"Cannot save field"}}},
@@ -574,18 +591,33 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         }
                     }
                     }
+                    if(runningOcr!=null && busy.isBlank()) {
+                        val page=runningOcr.progress.getInt(VaultOcrWorker.KEY_PAGE,0)
+                        val total=runningOcr.progress.getInt(VaultOcrWorker.KEY_TOTAL,0)
+                        Surface(modifier=Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp),
+                            shape=RoundedCornerShape(20.dp),color=MaterialTheme.colorScheme.surface,
+                            shadowElevation=5.dp) {
+                            Row(Modifier.padding(12.dp),verticalAlignment=Alignment.CenterVertically) {
+                                CircularProgressIndicator(Modifier.size(24.dp),strokeWidth=2.dp)
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(if(total>0)"OCR page "+page+" / "+total else "OCR preparing…")
+                                    Text("Runs on device",color=MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style=MaterialTheme.typography.bodySmall)
+                                }
+                                TextButton(onClick={workManager.cancelUniqueWork(VaultOcrWorker.UNIQUE)}){
+                                    Text("Cancel")
+                                }
+                            }
+                        }
+                    }
                     if(busy.isNotBlank()) {
                         Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.scrim.copy(alpha=.62f)) {
                             Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){
                                 CircularProgressIndicator()
                                 Spacer(Modifier.height(16.dp))
                                 Text(busy,color=Color.White)
-                                if(ocrJob?.isActive==true){
-                                    Spacer(Modifier.height(16.dp))
-                                    OutlinedButton(onClick={ocrJob?.cancel()}){
-                                        Text("Cancel OCR")
-                                    }
-                                }
+
                             }
                         }
                     }
