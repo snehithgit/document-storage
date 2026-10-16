@@ -76,7 +76,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var backupPassword by remember{mutableStateOf("")}
     val reviewQueue= remember{mutableStateListOf<ReviewJob>()}
     val options=remember { activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE) }
-    var themeMode by rememberSaveable { mutableStateOf(options.getString("displayTheme","system") ?: "system") }
+    var themeMode by rememberSaveable { mutableStateOf(options.getString("displayTheme","dark") ?: "dark") }
     val dark=when(themeMode){"dark"->true;"light"->false;else->isSystemInDarkTheme()}
     val current=repo.cards.firstOrNull{it.id==selectedCardId}
     val regular=route in setOf("home","cards","search","more")
@@ -172,6 +172,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     }
     val importPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()){uriList->
         importUris(uriList,importTarget)
+    }
+    val galleryPicker=rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()){photos->
+        importUris(photos,importTarget)
     }
     var cameraUri by rememberSaveable{mutableStateOf<Uri?>(null)}
     val cameraLauncher=rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()){success->
@@ -290,17 +293,31 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     }
     if(addToCardId!=null){
         val target=addToCardId
-        AlertDialog(onDismissRequest={addToCardId=null},title={Text("Add document pages")},
-            text={Text("Add another scan with automatic crop or import existing PDFs and images.")},
-            confirmButton={TextButton(onClick={
-                addToCardId=null
-                camera(target)
-            }){Text("Scan new page")}},
-            dismissButton={TextButton(onClick={
-                addToCardId=null
-                importTarget=target
-                importPicker.launch(arrayOf("*/*"))
-            }){Text("Import files")}})
+        AlertDialog(onDismissRequest={addToCardId=null},
+            title={Text("Add to this document")},
+            text={
+                Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+                    Text("Choose where the next page or attachment comes from.",
+                        color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Button(onClick={addToCardId=null;camera(target)},modifier=Modifier.fillMaxWidth()){
+                        Icon(Icons.Outlined.DocumentScanner,null)
+                        Text("  Scan with camera")
+                    }
+                    OutlinedButton(onClick={
+                        addToCardId=null;importTarget=target;galleryPicker.launch("image/*")
+                    },modifier=Modifier.fillMaxWidth()){
+                        Icon(Icons.Outlined.PhotoLibrary,null)
+                        Text("  Import gallery photos")
+                    }
+                    OutlinedButton(onClick={
+                        addToCardId=null;importTarget=target;importPicker.launch(arrayOf("*/*"))
+                    },modifier=Modifier.fillMaxWidth()){
+                        Icon(Icons.Outlined.FolderOpen,null)
+                        Text("  Import PDF or files")
+                    }
+                }
+            },
+            confirmButton={TextButton(onClick={addToCardId=null}){Text("Done")}})
     }
     if(confirmRestore) {
         AlertDialog(onDismissRequest={confirmRestore=false},title={Text("Replace current vault?")},
@@ -380,22 +397,26 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                     )
                 },
                 bottomBar={
-                    if(regular)HubBottomBar(route,{route=it},{camera()})
+                    if(regular)HubBottomBar(route,{route=it},{route="scan"})
                 }
             ){ padding ->
                 Box(Modifier.fillMaxSize().padding(padding)) {
                     savedScreens.SaveableStateProvider(route) {
                     when(route){
                         "home"->HubHome(repo.cards.toList(),repo,repo.profiles.toList(),userProfile,
-                            {userProfile=it},{openCard(it)},{route="search"},{camera()},
+                            {userProfile=it},{openCard(it)},{route="search"},{route="scan"},
                             {importTarget=null;importPicker.launch(arrayOf("*/*"))},
                             {startEdit(repo.newCard(profile=if(userProfile=="all")"self" else userProfile))},
                             {route="cards";activity.notify("Open any card and tap PDF to merge its attachments")},{route="expiry"},
                             {categoryFilter=it;route="cards"})
                         "cards"->VaultNavCards(repo.cards.toList(),repo,{openCard(it)},{startEdit(repo.newCard())},categoryFilter)
                         "search"->VaultNavSearch(repo.cards.toList(),repo){openCard(it)}
-                        "scan"->NavyScanScreen({camera()},
-                            {importTarget=null;importPicker.launch(arrayOf("*/*"))},{startEdit(repo.newCard())})
+                        "scan"->NavyScanScreen(
+                            onCamera={camera()},
+                            onGallery={importTarget=null;galleryPicker.launch("image/*")},
+                            onFiles={importTarget=null;importPicker.launch(arrayOf("*/*"))},
+                            onNew={startEdit(repo.newCard())}
+                        )
                         "more"->PremiumSettings(repo.hasPin(),engine.availableLanguages(),ocrLanguage,privacyScreen,
                             themeMode,
                             {value->
