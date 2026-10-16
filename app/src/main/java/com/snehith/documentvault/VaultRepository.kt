@@ -267,12 +267,7 @@ class VaultRepository(private val context: Context) {
     }
     @Synchronized fun reorderFiles(cardId:String,orderedIds:List<String>) {
         val current=cards.firstOrNull{it.id==cardId}?:throw IOException("Card not found")
-        val byId=current.files.associateBy{it.id}
-        require(orderedIds.size==current.files.size &&
-            orderedIds.size==orderedIds.distinct().size && orderedIds.toSet()==byId.keys) {
-            "Reorder must contain every attachment exactly once"
-        }
-        saveCard(current.copy(files=orderedIds.map{byId.getValue(it)}))
+        saveCard(current.copy(files=VaultOrder.reorder(current.files,orderedIds)))
     }
     private fun writeMeta(file:VaultFile) {
         meta(file.id).writeText(JSONObject().put("name",file.name).put("mime",file.mime)
