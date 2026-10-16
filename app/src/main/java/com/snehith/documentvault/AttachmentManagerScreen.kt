@@ -96,7 +96,7 @@ import androidx.compose.ui.unit.dp
                 Text("Offline document wallet with local-only OCR and PDF tools.")
                 Text("Documents and ZIP backups are not encrypted. Your optional PIN protects the interface only.",
                     color=MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Third-party attribution: THIRD_PARTY_SCAN_NOTICES.md in the repository.",
+                Text("Third-party software acknowledgements are available in the project documentation.",
                     color=MaterialTheme.colorScheme.onSurfaceVariant,
                     style=MaterialTheme.typography.bodySmall)
             }
