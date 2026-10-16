@@ -503,7 +503,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                                 try {
                                                     val processed=ScanEnhance.apply(corrected,settings)
                                                     try {
-                                                        val output=File(activity.cacheDir,"camera/scan-"+UUID.randomUUID()+".jpg")
+                                                        // The cache/camera directory can be removed by Android
+                                                        // after the photo was captured. Recreate it at save time.
+                                                        val output=ScanOutputFiles.newScan(activity.cacheDir)
                                                         DocumentCropEngine.save(processed,output)
                                                         FileProvider.getUriForFile(activity,activity.packageName+".provider",output)
                                                     }finally{if(processed!==corrected)processed.recycle()}
@@ -515,9 +517,12 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                             .getBoolean("keepScanOriginal",true)
                                         importUris(listOf(uri),scanTarget,addAnother,
                                             if(keep&&!cropFromAttachment)cameraUri else null)
+                                        cropBitmap=null;cropResult=null
+                                    }catch(e:java.io.IOException){
+                                        error="Could not save the cropped page. Check free storage and retry. Your original image is still available."
                                     }catch(e:Exception){error="Crop failed: "+(e.message?:"Error")}
                                     catch(e:OutOfMemoryError){error="Image too large to process safely; try a lower camera resolution"}
-                                    finally{busy="";cropBitmap=null;cropResult=null}
+                                    finally{busy=""}
                                 }},
                                 {
                                     if(cropFromAttachment)route="detail"
