@@ -255,8 +255,12 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
         }){Text("Add to Full Details")}},
         dismissButton={TextButton(onClick={candidate=null}){Text("Cancel")}})
     Column(Modifier.fillMaxSize().background(dNavy).padding(14.dp)){
-        Text("Select from Document",color=MaterialTheme.colorScheme.onSurface,style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
-        Text("Tap a line of OCR text, give it a name, then save it.",color=dMuted)
+        Text("OCR / SELECT SOURCE",color=VaultColors.syntax,style=MaterialTheme.typography.labelSmall)
+        Spacer(Modifier.height(7.dp))
+        Text("text.extract",color=MaterialTheme.colorScheme.onSurface,
+            style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.SemiBold)
+        Text("// Tap a source line, name it, save to details.json",color=dMuted,
+            style=MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(10.dp))
         Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(7.dp)){
             card.files.forEachIndexed{i,f->FilterChip(selected=i==selectedFile,onClick={selectedFile=i},
@@ -275,9 +279,18 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                 color=dMuted,style=MaterialTheme.typography.bodySmall)
             LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp)){
                 items(choices.take(350)){(page,line)->
-                    Card(onClick={candidate=line;label="";chosenPage=page},colors=CardDefaults.cardColors(containerColor=dPanel),
-                        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
-                        Text(line,color=MaterialTheme.colorScheme.onSurface,modifier=Modifier.fillMaxWidth().padding(13.dp))
+                    Card(onClick={candidate=line;label="";chosenPage=page},
+                        colors=CardDefaults.cardColors(containerColor=dPanel),
+                        shape=RoundedCornerShape(11.dp),
+                        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
+                        Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically){
+                            Text((page+1).toString().padStart(2,'0'),color=VaultColors.lineNumber,
+                                style=MaterialTheme.typography.labelSmall,modifier=Modifier.width(30.dp))
+                            Text(line,color=MaterialTheme.colorScheme.onSurface,
+                                fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace,
+                                style=MaterialTheme.typography.bodyMedium,modifier=Modifier.weight(1f))
+                            Icon(Icons.Outlined.Add,null,tint=VaultColors.syntax,modifier=Modifier.size(18.dp))
+                        }
                     }
                 }
             }
