@@ -22,12 +22,19 @@ import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
 @Composable fun HubCard(modifier:Modifier=Modifier,onClick:(()->Unit)?=null,content:@Composable ColumnScope.()->Unit){
-    Card(modifier=modifier,shape=RoundedCornerShape(14.dp),
-        colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface),
-        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline),
-        elevation=CardDefaults.cardElevation(defaultElevation=0.dp),
-        onClick=onClick?:{},enabled=onClick!=null){
-        Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp),content=content)
+    val colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface)
+    val outline=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)
+    if(onClick==null){
+        Card(modifier=modifier,shape=RoundedCornerShape(14.dp),colors=colors,
+            border=outline,elevation=CardDefaults.cardElevation(defaultElevation=0.dp)){
+            Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp),content=content)
+        }
+    }else{
+        Card(onClick=onClick,modifier=modifier,shape=RoundedCornerShape(14.dp),
+            colors=colors,border=outline,
+            elevation=CardDefaults.cardElevation(defaultElevation=0.dp)){
+            Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp),content=content)
+        }
     }
 }
 @Composable fun HubIcon(icon:ImageVector,tint:Color=MaterialTheme.colorScheme.secondary,modifier:Modifier=Modifier){
