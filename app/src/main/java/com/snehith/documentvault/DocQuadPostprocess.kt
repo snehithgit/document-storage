@@ -36,10 +36,17 @@ internal object DocQuadPostprocess {
         val maskQuad=mask?.let(::quadFromMask)
         val cornerValid=valid256(cornerQuad)
         val maskValid=maskQuad!=null&&valid256(maskQuad)
-        // Preserve reliable corner order; use mask only if the corners are malformed
-        // or clearly weak and the mask has a geometrically plausible page.
-        val chooseMask=maskValid&&(!cornerValid ||
-            (peakMin<.35 && maskQuad!=null && largestDistance(cornerQuad,maskQuad)<32))
+        // MakeACopy chooses MASK only when CORNERS have severe geometry faults
+        // or MASK has a clear geometry-score advantage with <=32px agreement.
+        // An uncertain heatmap peak alone must not override usable corners.
+        val cornerPenalty=geometryPenalty(cornerQuad)
+        val maskPenalty=if(maskValid)geometryPenalty(maskQuad!!) else Double.POSITIVE_INFINITY
+        val chooseMask=maskValid && (
+            (!cornerValid || cornerPenalty>=100_000.0) && maskPenalty<100_000.0 ||
+            (cornerValid && maskPenalty<100_000.0 &&
+                maskPenalty < cornerPenalty-50.0 &&
+                largestDistance(cornerQuad,maskQuad!!)<=32.0)
+        )
         if(!cornerValid&&!chooseMask)return null
         val chosen=if(chooseMask)maskQuad!! else cornerQuad
         val overlap=mask?.let{cornerMaskIou(chosen,it)}?:1.0
@@ -47,6 +54,42 @@ internal object DocQuadPostprocess {
         val confidence=peakMin*overlap
         return Result(chosen,confidence,peakMin,overlap,chooseMask)
     }
+    /** Geometry penalty adapted from MakeACopy DocQuadPostprocessor.choosePath
+     * (Apache-2.0, pinned cdf0e66833e5a918b90643692e2894a25262f284).
+     * Invalid, crossing, or out-of-frame corners must never beat a valid mask. */
+    internal fun geometryPenalty(quad:List<Pair<Double,Double>>):Double {
+        if(quad.size!=4||quad.any{!it.first.isFinite()||!it.second.isFinite()})
+            return 1_000_000.0
+        var penalty=0.0
+        var area=0.0
+        var direction=0.0
+        val edges=ArrayList<Double>(4)
+        for(i in 0..3){
+            val a=quad[i];val b=quad[(i+1)%4];val next=quad[(i+2)%4]
+            val dist=hypot(b.first-a.first,b.second-a.second)
+            edges.add(dist)
+            area+=a.first*b.second-b.first*a.second
+            val cross=(b.first-a.first)*(next.second-b.second)-
+                (b.second-a.second)*(next.first-b.first)
+            if(abs(cross)<1e-8||direction!=0.0&&cross*direction<=0)
+                penalty+=1_000_000.0
+            direction=cross
+            for(coord in listOf(a.first,a.second)){
+                val out=if(coord< -2.0) -2.0-coord
+                    else if(coord>258.0)coord-258.0 else 0.0
+                penalty+=out*10.0
+                if(out>16.0)penalty+=100_000.0+(out-16.0)*1000.0
+            }
+        }
+        if(abs(area)/2<=1.0)penalty+=1_000_000.0
+        val shortest=edges.minOrNull()?:0.0
+        val longest=edges.maxOrNull()?:0.0
+        if(shortest<8.0)penalty+=(8.0-shortest)*1000.0
+        val ratio=longest/shortest.coerceAtLeast(1e-9)
+        if(ratio>25.0)penalty+=(ratio-25.0)*100.0
+        return penalty
+    }
+
     private fun largestDistance(a:List<Pair<Double,Double>>,b:List<Pair<Double,Double>>):Double =
         a.indices.maxOf{hypot(a[it].first-b[it].first,a[it].second-b[it].second)}
 
