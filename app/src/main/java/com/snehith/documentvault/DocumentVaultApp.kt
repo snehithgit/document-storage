@@ -627,10 +627,11 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                         goBack()
                                         importUris(listOf(uri),scanTarget)
                                     }
-                                    cropBitmap=null;cropResult=null
+                                    cropBitmap=null;cropResult=null;enhancingFileId=null
                                 },
-                                {cropBitmap=null;cropResult=null;goBack()},
-                                {cropBitmap=null;cropResult=null;camera(scanTarget)})
+                                {cropBitmap=null;cropResult=null;enhancingFileId=null;goBack()},
+                                {cropBitmap=null;cropResult=null;camera(scanTarget)},
+                                canRetake=!cropFromAttachment)
                         }
                         "edit"->(editing?:editingJson.takeIf{it.isNotBlank()}?.let{repo.decodeCard(it)})?.let{c->
                             CardEditorScreen(c,repo.profiles.toList(),
