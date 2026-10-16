@@ -330,8 +330,13 @@ class VaultRepository(private val context: Context) {
     }
     @Synchronized fun deleteCard(card:VaultCard) {
         val previous=cards.toList()
-        cards.removeAll{it.id==card.id}
-        try{persist()}catch(e:Exception){cards.clear();cards.addAll(previous);throw e}
+        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            cards.removeAll{it.id==card.id}
+            try{persist()}catch(e:Exception){
+                cards.clear();cards.addAll(previous)
+                throw e
+            }
+        }
         card.files.forEach(::cleanupReplacedBlobs)
     }
     @Synchronized fun saveProfile(p:VaultProfile){
