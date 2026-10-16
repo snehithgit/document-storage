@@ -47,7 +47,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     val savedScreens=rememberSaveableStateHolder()
     var route by rememberSaveable{mutableStateOf("home")}
     var privacyScreen by rememberSaveable{mutableStateOf(activity.isPrivacyScreenEnabled())}
-    var lastRoot by rememberSaveable{mutableStateOf("cards")}
+    var backStack by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var selectedCardId by rememberSaveable{mutableStateOf("")}
     var editing by remember{mutableStateOf<VaultCard?>(null)}
     var editingJson by rememberSaveable{mutableStateOf("")}
@@ -81,20 +81,30 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     val dark=when(themeMode){"dark"->true;"light"->false;else->isSystemInDarkTheme()}
     val current=repo.cards.firstOrNull{it.id==selectedCardId}
     val regular=route in setOf("home","cards","search","more")
-    fun openCard(c:VaultCard){if(regular)lastRoot=route;selectedCardId=c.id;route="detail"}
-    fun startEdit(card:VaultCard){editing=card;editingJson=repo.encodeCard(card);route="edit"}
+    // A saved, ordered history replaces route-specific guesses in Back handling.
+    // Root tab changes clear the history; nested screens push their actual caller.
+    fun navigate(destination:String) {
+        if(route==destination)return
+        backStack=backStack+route
+        route=destination
+    }
+    fun navigateRoot(destination:String) {
+        backStack=emptyList()
+        route=destination
+    }
+    fun openCard(card:VaultCard){
+        selectedCardId=card.id
+        navigate("detail")
+    }
+    fun startEdit(card:VaultCard){
+        editing=card
+        editingJson=repo.encodeCard(card)
+        navigate("edit")
+    }
     fun goBack(){
-        when(route) {
-            "edit"->route=if(repo.cards.any{it.id==editing?.id})"detail" else lastRoot
-            "viewer","tools","fulldetails","attachments"->route="detail"
-            "selectfields"->route="fulldetails"
-            "crop"->route=if(scanTarget!=null)"detail" else "scan"
-            "review"->{if(reviewQueue.isNotEmpty())reviewQueue.removeAt(0);route=if(reviewQueue.isNotEmpty())"review" else if(selectedCardId.isNotBlank())"detail" else "cards"}
-            "detail"->route=lastRoot
-            "profiles","templates","backup","recovery","about"->route="more"
-            "expiry"->route="home"
-            else->route="home"
-        }
+        val previous=backStack.lastOrNull()
+        backStack=if(backStack.isEmpty())emptyList()else backStack.dropLast(1)
+        route=previous?:"home"
     }
     fun startOcr(cardId:String,f:VaultFile) {
         if(runningOcr!=null) {
@@ -140,7 +150,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         if(!info.state.isFinished || info.id.toString()==notifiedOcrId)return@LaunchedEffect
         notifiedOcrId=info.id.toString()
         when(info.state) {
-            WorkInfo.State.SUCCEEDED->activity.notify("OCR finished. Review extracted fields in Full Details.")
+            WorkInfo.State.SUCCEEDED->activity.notify("Reading complete. Review results in Document Information.")
             WorkInfo.State.FAILED->error="OCR failed: "+info.outputData.getString(VaultOcrWorker.KEY_ERROR).orEmpty()
             else->Unit
         }
@@ -192,7 +202,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                     }
                     openCard(repo.cards.first{it.id==card.id})
                     if(addPage)scanSessionContinue=card.id
-                    else activity.notify("Imported. Tap OCR to extract and copy information.")
+                    else activity.notify("Import complete. Use Get Details to read and copy information.")
                 }
             }catch(e:Exception){error="Import failed: "+(e.message?:"Unknown error")}
             finally {busy="";importTarget=null}
@@ -217,7 +227,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         ScanPrepare.load(activity.applicationContext,file)
                     }
                     cropBitmap=prepared.preview;cropResult=prepared.corners
-                    initialCropRotation=prepared.rotation;route="crop"
+                    initialCropRotation=prepared.rotation;navigate("crop")
                 }catch(e:Exception){error="Scan preparation failed: "+(e.message?:"Unknown error")}
                 finally{busy=""}
             }
@@ -230,7 +240,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 if(file.isFile)ScanPrepare.load(activity.applicationContext,file) else null
             }
             if(recovered!=null){cropBitmap=recovered.preview;cropResult=recovered.corners;initialCropRotation=recovered.rotation}
-            else route="scan"
+            else navigate("scan")
         }
     }
     fun camera(target:String?=null) {
@@ -356,7 +366,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 if(uri!=null){
                     busy="Restoring ZIP backup"
                     scope.launch{
-                        try{withContext(Dispatchers.IO){repo.restoreBackup(uri,backupPassword)};route="home";activity.notify("Restore complete")}
+                        try{withContext(Dispatchers.IO){repo.restoreBackup(uri,backupPassword)};navigateRoot("home");activity.notify("Restore complete")}
                         catch(e:Exception){error="Restore failed: "+(e.message?:"Invalid or damaged ZIP archive")}
                         finally{busy=""}
                     }
@@ -370,11 +380,11 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     }
 
     SideEffect { 
-        activity.window.statusBarColor=if(dark)android.graphics.Color.rgb(16,21,28) else android.graphics.Color.WHITE
-        activity.window.navigationBarColor=if(dark)android.graphics.Color.rgb(16,21,28) else android.graphics.Color.WHITE
+        activity.window.statusBarColor=if(dark)android.graphics.Color.BLACK else android.graphics.Color.rgb(11,13,16)
+        activity.window.navigationBarColor=if(dark)android.graphics.Color.BLACK else android.graphics.Color.rgb(11,13,16)
         androidx.core.view.WindowCompat.getInsetsController(activity.window,activity.window.decorView).apply {
-            isAppearanceLightStatusBars=!dark
-            isAppearanceLightNavigationBars=!dark
+            isAppearanceLightStatusBars=false
+            isAppearanceLightNavigationBars=false
         }
     }
     VaultTheme(dark) {
@@ -393,16 +403,16 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center){
                                 Text(when(route){
                                     "detail"->current?.let{VaultNames.title(it.title)} ?: "Document"
-                                    "fulldetails"->"Full Details"
+                                    "fulldetails"->"Document Information"
                                     "attachments"->"Manage attachments"
                                     "about"->"About"
                                     "selectfields"->"Select from document"
                                     "scan"->"Scan"
                                     "crop"->"Crop document"
-                                    "edit"->"Edit information"
+                                    "edit"->"Edit Document"
                                     "viewer"->"Document viewer"
                                     "review"->"OCR review"
-                                    "tools"->"PDF Studio"
+                                    "tools"->"PDF Tools"
                                     "expiry"->"Expiry and renewal"
                                     "profiles"->"Family profiles"
                                     "templates"->"Card templates"
@@ -415,7 +425,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         navigationIcon={
                             Surface(shape=androidx.compose.foundation.shape.CircleShape,
                                 color=MaterialTheme.colorScheme.surface,
-                                modifier=Modifier.padding(start=8.dp).size(40.dp).clickable{goBack()}){
+                                modifier=Modifier.padding(start=8.dp).size(48.dp).clickable{goBack()}){
                                 Box(contentAlignment=Alignment.Center){
                                     Icon(Icons.Outlined.ArrowBack,"Back",tint=MaterialTheme.colorScheme.onSurface)
                                 }
@@ -425,18 +435,18 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                     )
                 },
                 bottomBar={
-                    if(regular)HubBottomBar(route,{route=it},{route="scan"})
+                    if(regular)HubBottomBar(route,{navigateRoot(it)},{navigate("scan")})
                 }
             ){ padding ->
                 Box(Modifier.fillMaxSize().padding(padding)) {
                     savedScreens.SaveableStateProvider(route) {
                     when(route){
                         "home"->HubHome(repo.cards.toList(),repo,repo.profiles.toList(),userProfile,
-                            {userProfile=it},{openCard(it)},{route="search"},{route="scan"},
+                            {userProfile=it},{openCard(it)},{navigate("search")},{navigate("scan")},
                             {importTarget=null;importPicker.launch(arrayOf("*/*"))},
                             {startEdit(repo.newCard(profile=if(userProfile=="all")"self" else userProfile))},
-                            {route="cards";activity.notify("Open any card and tap PDF to merge its attachments")},{route="expiry"},
-                            {categoryFilter=it;route="cards"})
+                            {navigate("cards");activity.notify("Open any card and tap PDF to merge its attachments")},{navigate("expiry")},
+                            {categoryFilter=it;navigate("cards")})
                         "cards"->VaultNavCards(repo.cards.toList(),repo,{openCard(it)},{startEdit(repo.newCard())},categoryFilter)
                         "search"->VaultNavSearch(repo.cards.toList(),repo){openCard(it)}
                         "scan"->NavyScanScreen(
@@ -454,20 +464,20 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {enabled->privacyScreen=enabled;activity.setPrivacyScreenEnabled(enabled)},
                             {pin,old->try{repo.setPin(pin,old);activity.notify("PIN saved")}catch(e:Exception){error=e.message?:"PIN failed"}},
                             {pin->if(repo.checkPin(pin)){repo.clearPin(pin);activity.notify("PIN removed")} else activity.notify("Wrong PIN")},
-                            {route="profiles"},{route="templates"},{route="backup"},{route="recovery"},
+                            {navigate("profiles")},{navigate("templates")},{navigate("backup")},{navigate("recovery")},
                             {modelPicker.launch(arrayOf("*/*"))},{ocrLanguage=it},
                             {days->activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE).edit().putInt("remindDays",days).apply()
                                 if(Build.VERSION.SDK_INT>=33)notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                                 activity.notify("Expiry reminders: "+days+" days")},
                             options.getBoolean("keepScanOriginal",true),
-                            {keep->options.edit().putBoolean("keepScanOriginal",keep).apply()},{route="about"})
+                            {keep->options.edit().putBoolean("keepScanOriginal",keep).apply()},{navigate("about")})
                         "detail"->current?.let{c->VaultNavDetail(c,repo,
-                            {f->viewingId=f.id;route="viewer"},
+                            {f->viewingId=f.id;navigate("viewer")},
                             {f->startOcr(c.id,f)},{f->activity.share(f)},{activity.shareAll(c.files)},
                             {addToCardId=c.id},
-                            {route="fulldetails"},{route="tools"},
-                            {startEdit(c)},{route="attachments"},
-                            {scope.launch{try{withContext(Dispatchers.IO){repo.deleteCard(c)};route="cards"}
+                            {navigate("fulldetails")},{navigate("tools")},
+                            {startEdit(c)},{navigate("attachments")},
+                            {scope.launch{try{withContext(Dispatchers.IO){repo.deleteCard(c)};navigate("cards")}
                                 catch(e:Exception){error=e.message?:"Delete failed"}}},
                             {fetchDetailsForCard(c)},runningOcr!=null,
                             {imageFile->scope.launch {
@@ -480,12 +490,12 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     scanTarget=c.id;cropFromAttachment=true
                                     cameraUri=null;cameraPath=source.absolutePath
                                     cropBitmap=prepared.preview;cropResult=prepared.corners
-                                    initialCropRotation=prepared.rotation;route="crop"
+                                    initialCropRotation=prepared.rotation;navigate("crop")
                                 }catch(e:Exception){error="Cannot enhance image: "+(e.message?:"Error")}
                                 finally{busy=""}
                             }})}
                         "attachments"->current?.let{c->AttachmentManagerScreen(c,
-                            {f->viewingId=f.id;route="viewer"},
+                            {f->viewingId=f.id;navigate("viewer")},
                             {f,name->scope.launch {
                                 try{withContext(Dispatchers.IO){repo.renameFile(c.id,f.id,name)}}
                                 catch(e:Exception){error="Rename failed: "+(e.message?:"Invalid filename")}
@@ -502,14 +512,14 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         "fulldetails"->current?.let{c->FullDetailsPage(c,
                             {updated->scope.launch{try{withContext(Dispatchers.IO){repo.saveCard(updated)}}
                                 catch(e:Exception){error=e.message?:"Cannot save field"}}},
-                            {route="selectfields"},
+                            {navigate("selectfields")},
                             {fetchDetailsForCard(c)},runningOcr!=null)}
                         "selectfields"->current?.let{c->SelectDocumentTextPage(c,
                             {f->scope.launch{
                                 try{withContext(Dispatchers.IO){
                                     val latest=repo.cards.firstOrNull{it.id==c.id}?:return@withContext
                                     repo.saveCard(latest.copy(fields=latest.fields+f))
-                                };route="fulldetails"}
+                                };navigate("fulldetails")}
                                 catch(e:Exception){error="Cannot save selected field: "+(e.message?:"Error")}
                             }},
                             {f->startOcr(c.id,f)})}
@@ -542,7 +552,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                                 }finally{corrected.recycle()}
                                             }finally{oriented.recycle()}
                                         }
-                                        route=if(scanTarget==null)"scan" else "detail"
+                                        navigate(if(scanTarget==null)"scan" else "detail")
                                         val keep=activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE)
                                             .getBoolean("keepScanOriginal",true)
                                         importUris(listOf(uri),scanTarget,addAnother,
@@ -555,7 +565,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     finally{busy=""}
                                 }},
                                 {
-                                    if(cropFromAttachment)route="detail"
+                                    if(cropFromAttachment)navigate("detail")
                                     else cameraUri?.let{uri->
                                         route=if(scanTarget==null)"scan" else "detail"
                                         importUris(listOf(uri),scanTarget)
@@ -571,7 +581,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 busy="Saving card"
                                 try {
                                     withContext(Dispatchers.IO){repo.saveCard(saved)}
-                                    selectedCardId=saved.id;editing=null;editingJson="";route="detail"
+                                    selectedCardId=saved.id;editing=null;editingJson="";navigate("detail")
                                 }catch(e:Exception){error="Cannot save card: "+(e.message?:"Storage error")}
                                 finally{busy=""}
                             }},
@@ -606,12 +616,12 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                         selectedCardId=job.cardId
                                     }
                                     reviewQueue.removeAt(0)
-                                    route=if(reviewQueue.isEmpty())"detail" else "review"
+                                    navigate(if(reviewQueue.isEmpty())"detail" else "review")
                                 },{
                                     selectedCardId=job.cardId;reviewQueue.removeAt(0)
                                     route=if(reviewQueue.isEmpty())"detail" else "review"
                                 })
-                            else route="detail"
+                            else navigate("detail")
                         }
                         "tools"->current?.let{c->PdfToolsScreen(c,
                             {addToCardId=c.id},
@@ -638,11 +648,11 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {file,title->scope.launch{
                                 busy="Recovering old document"
                                 try{withContext(Dispatchers.IO){repo.attachRecovered(file.id,title)}
-                                    activity.notify("Recovered document into a new card");route="cards"}
+                                    activity.notify("Recovered document into a new card");navigate("cards")}
                                 catch(e:Exception){error="Recovery failed: "+(e.message?:"Storage error")}
                                 finally{busy=""}
                             }},
-                            {route="backup"})
+                            {navigate("backup")})
                         }
                     }
                     }
