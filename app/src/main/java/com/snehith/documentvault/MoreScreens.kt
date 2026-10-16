@@ -296,7 +296,7 @@ import java.util.UUID
                 }
             }
             OutlinedButton(onClick=onImportLanguage,modifier=Modifier.fillMaxWidth()){
-                Icon(Icons.Outlined.Translate,null);Text(" Import offline .traineddata OCR pack")
+                Icon(Icons.Outlined.Translate,null);Text(" Add an offline recognition language")
             }
             Text("Latin, Hindi/Devanagari, Chinese, Japanese and Korean models are bundled. Add Tesseract traineddata for Telugu or other scripts.",
                 style=MaterialTheme.typography.bodySmall)
@@ -362,7 +362,7 @@ import java.util.UUID
             Icon(Icons.Outlined.FileUpload,null);Text(" Export ZIP backup")
         }
         HorizontalDivider()
-        Text("Restoring replaces the card list. Create a ZIP backup first. Older encrypted .dvault backups are not supported in this plaintext test version.",
+        Text("Restoring replaces the card list. Create a ZIP backup first. Backups from older, incompatible app versions may not be supported.",
             style=MaterialTheme.typography.bodyMedium)
         OutlinedButton(onClick={onRestore("")},modifier=Modifier.fillMaxWidth()) {
             Icon(Icons.Outlined.Restore,null);Text(" Restore ZIP backup")
@@ -384,8 +384,8 @@ import java.util.UUID
             ElevatedCard {
                 Column(Modifier.padding(13.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
                     Text(file.name,fontWeight=FontWeight.SemiBold)
-                    Text(file.id,style=MaterialTheme.typography.labelSmall)
-                    OutlinedButton(onClick={selected=file;name="Recovered "+file.id.take(8)}){Text("Recover into new card")}
+                    Text(((file.bytes/1024).coerceAtLeast(1)).toString()+" KB",style=MaterialTheme.typography.labelSmall)
+                    OutlinedButton(onClick={selected=file;name="Recovered document"}){Text("Recover into new card")}
                 }
             }
         }
