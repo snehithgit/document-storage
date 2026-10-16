@@ -55,17 +55,27 @@ object FieldSuggestions {
         val patterns = listOf(
             "Email" to Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"),
             "IFSC" to Regex("\\b[A-Z]{4}0[A-Z0-9]{6}\\b"),
-            "Date" to Regex("\\b\\d{1,2}[/.-]\\d{1,2}[/.-]\\d{4}\\b"),
-            "Passport Number (verify)" to Regex("\\b[A-Z][0-9]{7}\\b"),
-            "Phone (verify)" to Regex("(?<![0-9])(?:\\+?91[- ]?)?[6-9][0-9]{9}(?![0-9])")
+            "Phone Number" to Regex("(?<![0-9])(?:\\+?91[- ]?)?[6-9][0-9]{9}(?![0-9])")
         )
         patterns.forEach { (key,re)->re.find(source)?.value?.let { put(key,it) } }
         val lines=source.lines()
         val labelPattern=Regex("(?i)^\\s*(full\\s*name|name|passport\\s*(?:no|number)|document\\s*(?:no|number)|date of birth|dob|expiry\\s*date|date of expiry|issue\\s*date|date of issue|place of issue|address|account\\s*(?:no|number)|certificate\\s*(?:no|number))\\s*[:=-]\\s*(.+)$")
         for((page,line) in lines.withIndex()) {
             val m=labelPattern.find(line.trim()) ?: continue
-            val key=m.groupValues[1].trim().replaceFirstChar { it.uppercase() }
-            val value=m.groupValues[2].trim().take(250)
+            val rawName=m.groupValues[1].trim()
+            val key=when(rawName.lowercase(java.util.Locale.ROOT).replace(Regex("\\s+")," ")){
+                "dob","date of birth"->"Date of Birth"
+                "expiry date","date of expiry"->"Expiry Date"
+                "issue date","date of issue"->"Issue Date"
+                "full name","name"->"Full Name"
+                "passport no","passport number"->"Passport Number"
+                "document no","document number"->"Document Number"
+                "place of issue"->"Place of Issue"
+                else->rawName.replaceFirstChar{it.uppercase()}
+            }
+            val rawValue=m.groupValues[2].trim().take(250)
+            val value=if(key=="Date of Birth" || key=="Expiry Date" || key=="Issue Date")
+                SmartDocuments.normalizeDate(rawValue)?:rawValue else rawValue
             if(value.isNotBlank() && value.length<251) found[key] = DataField(key,value,-1,"extracted")
         }
         return found.values.toList()
@@ -267,12 +277,7 @@ class VaultRepository(private val context: Context) {
     }
     @Synchronized fun reorderFiles(cardId:String,orderedIds:List<String>) {
         val current=cards.firstOrNull{it.id==cardId}?:throw IOException("Card not found")
-        val byId=current.files.associateBy{it.id}
-        require(orderedIds.size==current.files.size &&
-            orderedIds.size==orderedIds.distinct().size && orderedIds.toSet()==byId.keys) {
-            "Reorder must contain every attachment exactly once"
-        }
-        saveCard(current.copy(files=orderedIds.map{byId.getValue(it)}))
+        saveCard(current.copy(files=VaultOrder.reorder(current.files,orderedIds)))
     }
     private fun writeMeta(file:VaultFile) {
         meta(file.id).writeText(JSONObject().put("name",file.name).put("mime",file.mime)

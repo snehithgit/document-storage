@@ -15,8 +15,8 @@ android {
         applicationId = "com.snehith.documentvault"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.4.1"
+        versionCode = 7
+        versionName = "2.0.0"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -32,7 +32,7 @@ android {
     }
     buildTypes {
         debug {
-            applicationIdSuffix = ".phase0"
+            applicationIdSuffix = ".v2"
             versionNameSuffix = "-test"
         }
         release {

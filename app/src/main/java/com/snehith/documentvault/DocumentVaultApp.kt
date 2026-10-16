@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.work.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -64,7 +65,12 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var categoryFilter by rememberSaveable{mutableStateOf("All")}
     var ocrLanguage by rememberSaveable{mutableStateOf("Latin")}
     var busy by remember{mutableStateOf("")}
-    var ocrJob by remember{mutableStateOf<Job?>(null)}
+    val workManager=remember(activity){WorkManager.getInstance(activity.applicationContext)}
+    val ocrFlow=remember(workManager){workManager.getWorkInfosForUniqueWorkFlow(VaultOcrWorker.UNIQUE)}
+    val ocrInfos by ocrFlow.collectAsState(initial=emptyList())
+    val runningOcr=ocrInfos.firstOrNull{it.state==WorkInfo.State.RUNNING||it.state==WorkInfo.State.ENQUEUED}
+    val latestOcr=ocrInfos.firstOrNull()
+    var notifiedOcrId by rememberSaveable{mutableStateOf("")}
     var error by remember{mutableStateOf("")}
     var pdfJob by remember{mutableStateOf<PdfJob?>(null)}
     var backupPassword by remember{mutableStateOf("")}
@@ -79,45 +85,36 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     fun goBack(){
         when(route) {
             "edit"->route=if(repo.cards.any{it.id==editing?.id})"detail" else lastRoot
-            "viewer","tools","fulldetails"->route="detail"
+            "viewer","tools","fulldetails","attachments"->route="detail"
             "selectfields"->route="fulldetails"
             "crop"->route=if(scanTarget!=null)"detail" else "scan"
             "review"->{if(reviewQueue.isNotEmpty())reviewQueue.removeAt(0);route=if(reviewQueue.isNotEmpty())"review" else if(selectedCardId.isNotBlank())"detail" else "cards"}
             "detail"->route=lastRoot
-            "profiles","templates","backup","recovery"->route="more"
+            "profiles","templates","backup","recovery","about"->route="more"
             "expiry"->route="home"
             else->route="home"
         }
     }
     fun startOcr(cardId:String,f:VaultFile) {
-        if(ocrJob?.isActive==true)return
-        busy="Preparing OCR: "+VaultNames.title(f.name)
-        ocrJob=scope.launch {
-            try{
-                val result=engine.extract(f,ocrLanguage){done,total->
-                    busy="OCR page "+done+" of "+total+": "+VaultNames.title(f.name)
-                }
-                val fresh=repo.cards.firstOrNull{it.id==cardId} ?:return@launch
-                val update=f.copy(extractedText=result.text,ocrStatus=result.method)
-                val identified=result.document
-                val autoTitle=identified?.takeIf{it.confidence>=.7f && !it.fullName.isNullOrBlank()}
-                    ?.title
-                val isGenericTitle=fresh.title.isBlank()||fresh.title.startsWith("Scan ",true)||
-                    fresh.title.startsWith("Scanned document",true)||
-                    fresh.title.equals(f.name.substringBeforeLast('.'),true)
-                val autoKind=identified?.kind?.takeIf{fresh.kind=="Custom"||fresh.kind=="Recovered"}
-                    ?:fresh.kind
-                val refreshed=fresh.copy(
-                    files=fresh.files.map{if(it.id==f.id)update else it},
-                    kind=autoKind,
-                    title=if(isGenericTitle && autoTitle!=null)autoTitle else fresh.title,
-                    expiry=if(fresh.expiry.isBlank())identified?.expiry?:fresh.expiry else fresh.expiry)
-                withContext(Dispatchers.IO){repo.saveCard(refreshed)}
-                if(result.fields.isNotEmpty()) {reviewQueue.add(ReviewJob(cardId,update,result));route="review"}
-                else {activity.notify("Text extracted. Open the document Text tab to copy it.");route="detail"}
-            }catch(_:CancellationException){activity.notify("OCR cancelled")}
-            catch(e:Exception){error="OCR failed: "+(e.message?:"Unknown format")}
-            finally{busy="";ocrJob=null}
+        if(runningOcr!=null) {
+            activity.notify("OCR is already running. Cancel it before starting another file.")
+            return
+        }
+        val request=OneTimeWorkRequestBuilder<VaultOcrWorker>()
+            .setInputData(workDataOf(VaultOcrWorker.KEY_CARD to cardId,
+                VaultOcrWorker.KEY_FILE to f.id,VaultOcrWorker.KEY_SCRIPT to ocrLanguage))
+            .addTag("offline-ocr").build()
+        workManager.enqueueUniqueWork(VaultOcrWorker.UNIQUE,ExistingWorkPolicy.KEEP,request)
+        activity.notify("OCR queued — you can leave this screen")
+    }
+    LaunchedEffect(latestOcr?.id,latestOcr?.state) {
+        val info=latestOcr?:return@LaunchedEffect
+        if(!info.state.isFinished || info.id.toString()==notifiedOcrId)return@LaunchedEffect
+        notifiedOcrId=info.id.toString()
+        when(info.state) {
+            WorkInfo.State.SUCCEEDED->activity.notify("OCR finished. Review extracted fields in Full Details.")
+            WorkInfo.State.FAILED->error="OCR failed: "+info.outputData.getString(VaultOcrWorker.KEY_ERROR).orEmpty()
+            else->Unit
         }
     }
     fun importUris(uris:List<Uri>,targetId:String?=null,addPage:Boolean=false,originalUri:Uri?=null) {
@@ -352,6 +349,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 Text(when(route){
                                     "detail"->current?.let{VaultNames.title(it.title)} ?: "Document"
                                     "fulldetails"->"Full Details"
+                                    "attachments"->"Manage attachments"
+                                    "about"->"About"
                                     "selectfields"->"Select from document"
                                     "scan"->"Scan"
                                     "crop"->"Crop document"
@@ -412,13 +411,13 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 if(Build.VERSION.SDK_INT>=33)notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                                 activity.notify("Expiry reminders: "+days+" days")},
                             options.getBoolean("keepScanOriginal",true),
-                            {keep->options.edit().putBoolean("keepScanOriginal",keep).apply()})
+                            {keep->options.edit().putBoolean("keepScanOriginal",keep).apply()},{route="about"})
                         "detail"->current?.let{c->VaultNavDetail(c,repo,
                             {f->viewingId=f.id;route="viewer"},
                             {f->startOcr(c.id,f)},{f->activity.share(f)},{activity.shareAll(c.files)},
                             {addToCardId=c.id},
                             {route="fulldetails"},{route="tools"},
-                            {startEdit(c)},
+                            {startEdit(c)},{route="attachments"},
                             {scope.launch{try{withContext(Dispatchers.IO){repo.deleteCard(c)};route="cards"}
                                 catch(e:Exception){error=e.message?:"Delete failed"}}},
                             {imageFile->scope.launch {
@@ -435,6 +434,21 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 }catch(e:Exception){error="Cannot enhance image: "+(e.message?:"Error")}
                                 finally{busy=""}
                             }})}
+                        "attachments"->current?.let{c->AttachmentManagerScreen(c,
+                            {f->viewingId=f.id;route="viewer"},
+                            {f,name->scope.launch {
+                                try{withContext(Dispatchers.IO){repo.renameFile(c.id,f.id,name)}}
+                                catch(e:Exception){error="Rename failed: "+(e.message?:"Invalid filename")}
+                            }},
+                            {f->scope.launch {
+                                try{withContext(Dispatchers.IO){repo.removeFile(c.id,f.id)}}
+                                catch(e:Exception){error="Remove failed: "+(e.message?:"Storage error")}
+                            }},
+                            {ids->scope.launch {
+                                try{withContext(Dispatchers.IO){repo.reorderFiles(c.id,ids)}}
+                                catch(e:Exception){error="Reorder failed: "+(e.message?:"Storage error")}
+                            }})}
+                        "about"->VaultAboutScreen()
                         "fulldetails"->current?.let{c->FullDetailsPage(c,
                             {updated->scope.launch{try{withContext(Dispatchers.IO){repo.saveCard(updated)}}
                                 catch(e:Exception){error=e.message?:"Cannot save field"}}},
@@ -576,18 +590,33 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         }
                     }
                     }
+                    if(runningOcr!=null && busy.isBlank()) {
+                        val page=runningOcr.progress.getInt(VaultOcrWorker.KEY_PAGE,0)
+                        val total=runningOcr.progress.getInt(VaultOcrWorker.KEY_TOTAL,0)
+                        Surface(modifier=Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp),
+                            shape=RoundedCornerShape(20.dp),color=MaterialTheme.colorScheme.surface,
+                            shadowElevation=5.dp) {
+                            Row(Modifier.padding(12.dp),verticalAlignment=Alignment.CenterVertically) {
+                                CircularProgressIndicator(Modifier.size(24.dp),strokeWidth=2.dp)
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(if(total>0)"OCR page "+page+" / "+total else "OCR preparing…")
+                                    Text("Runs on device",color=MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style=MaterialTheme.typography.bodySmall)
+                                }
+                                TextButton(onClick={workManager.cancelUniqueWork(VaultOcrWorker.UNIQUE)}){
+                                    Text("Cancel")
+                                }
+                            }
+                        }
+                    }
                     if(busy.isNotBlank()) {
                         Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.scrim.copy(alpha=.62f)) {
                             Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){
                                 CircularProgressIndicator()
                                 Spacer(Modifier.height(16.dp))
                                 Text(busy,color=Color.White)
-                                if(ocrJob?.isActive==true){
-                                    Spacer(Modifier.height(16.dp))
-                                    OutlinedButton(onClick={ocrJob?.cancel()}){
-                                        Text("Cancel OCR")
-                                    }
-                                }
+
                             }
                         }
                     }

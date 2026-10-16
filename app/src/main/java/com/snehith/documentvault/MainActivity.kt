@@ -75,7 +75,7 @@ class MainActivity : FragmentActivity() {
         lifecycleScope.launch {
             try {
                 val pair=withContext(Dispatchers.IO) {
-                    val loadedRepo=VaultRepository(applicationContext)
+                    val loadedRepo=VaultStorage.get(applicationContext)
                     val loadedEngine=DocumentEngine(applicationContext,loadedRepo)
                     loadedRepo.cleanupPreviews()
                     loadedRepo.sweepOrphanBlobs()

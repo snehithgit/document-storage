@@ -53,4 +53,10 @@ class SmartDocumentsTest {
         assertEquals("Seafarer CDC",cdc?.kind)
         assertEquals("MUM123456",cdc?.fields?.first{it.name=="CDC Number"}?.value)
     }
+    @Test fun fallbackOcrUsesNamedDatesAndNoVerifyPlaceholders() {
+        val fields=FieldSuggestions.parse("Date of Birth: 05/02/1990\nExpiry Date: 21-07-2030")
+        assertEquals("1990-02-05",fields.first{it.name=="Date of Birth"}.value)
+        assertEquals("2030-07-21",fields.first{it.name=="Expiry Date"}.value)
+        assertFalse(fields.any{it.name=="Date"||it.name.contains("(verify)")})
+    }
 }
