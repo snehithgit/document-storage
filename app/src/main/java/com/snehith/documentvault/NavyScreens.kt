@@ -193,24 +193,76 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
         }
     }
 }
-@Composable fun VaultNavCards(cards:List<VaultCard>,repo:VaultRepository,onOpen:(VaultCard)->Unit,onNew:()->Unit,selectedCategory:String="All"){
+@Composable fun VaultNavCards(cards:List<VaultCard>,repo:VaultRepository,
+    onOpen:(VaultCard)->Unit,onNew:()->Unit,selectedCategory:String="All",onSearch:()->Unit={}){
     var filter by rememberSaveable{mutableStateOf("All")}
-    LaunchedEffect(selectedCategory){ if(selectedCategory!="All")filter=selectedCategory }
-    Column(Modifier.fillMaxSize().background(bgBrush)){
-        Row(Modifier.padding(16.dp),verticalAlignment=Alignment.CenterVertically){
-            Column(Modifier.weight(1f)){VaultHeader("Document cards",VaultCounts.format(cards.size,"card")+" saved")}
-            IconButton(onClick=onNew){Icon(Icons.Outlined.AddCircle,null,tint=VaultSky)}
-        }
-        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal=15.dp),
-            horizontalArrangement=Arrangement.spacedBy(7.dp)){
-            (listOf("All")+cards.map{it.kind}.distinct()+cards.map{it.category}.distinct()).distinct().forEach{t->
-                FilterChip(selected=t==filter,onClick={filter=t},label={Text(t)})
+    var sort by rememberSaveable{mutableStateOf("Recent")}
+    var listView by rememberSaveable{mutableStateOf(false)}
+    var showSort by remember{mutableStateOf(false)}
+    LaunchedEffect(selectedCategory){filter=selectedCategory}
+    val categories=remember(cards){listOf("All")+cards.map{it.category.ifBlank{"Other"}}.distinct().sorted()}
+    val visible=remember(cards,filter,sort){DocumentBrowseLogic.browse(cards,filter,sort)}
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)){
+        Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=14.dp),
+            verticalAlignment=Alignment.CenterVertically){
+            Column(Modifier.weight(1f)){
+                VaultHeader("Documents",VaultCounts.format(visible.size,"document"))
+            }
+            IconButton(onClick=onSearch,modifier=Modifier.size(48.dp)){
+                Icon(Icons.Outlined.Search,"Search documents")
+            }
+            IconButton(onClick={listView=!listView},modifier=Modifier.size(48.dp)){
+                Icon(if(listView)Icons.Outlined.GridView else Icons.Outlined.ViewList,
+                    if(listView)"Grid view" else "List view")
             }
         }
-        LazyVerticalGrid(columns=GridCells.Fixed(2),
-            contentPadding=PaddingValues(15.dp,10.dp,15.dp,95.dp),
-            verticalArrangement=Arrangement.spacedBy(11.dp),horizontalArrangement=Arrangement.spacedBy(11.dp)){
-            items(cards.filter{filter=="All"||it.kind==filter||it.category==filter},key={it.id}){c->VaultTile(c,repo){onOpen(c)}}
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal=16.dp),
+            horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            categories.forEach{category->
+                FilterChip(selected=category==filter,onClick={filter=category},
+                    label={Text(category)})
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=6.dp),
+            verticalAlignment=Alignment.CenterVertically){
+            Box{
+                TextButton(onClick={showSort=true}){
+                    Icon(Icons.Outlined.Sort,null,Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Sort: "+sort)
+                    Icon(Icons.Outlined.ArrowDropDown,null)
+                }
+                DropdownMenu(expanded=showSort,onDismissRequest={showSort=false}){
+                    listOf("Recent","Name","Category","Expiry").forEach{choice->
+                        DropdownMenuItem(text={Text(choice)},onClick={sort=choice;showSort=false})
+                    }
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick=onNew){
+                Icon(Icons.Outlined.Add,null,Modifier.size(18.dp))
+                Text(" Add")
+            }
+        }
+        if(visible.isEmpty()){
+            Box(Modifier.weight(1f).fillMaxWidth(),contentAlignment=Alignment.Center){
+                Text("No documents in this category.",color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }else if(listView){
+            LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(16.dp,8.dp,16.dp,24.dp),
+                verticalArrangement=Arrangement.spacedBy(12.dp)){
+                items(visible,key={it.id}){card->VaultRow(card,repo){onOpen(card)}}
+            }
+        }else{
+            BoxWithConstraints(Modifier.weight(1f)){
+                val columns=if(maxWidth>=600.dp)3 else 2
+                LazyVerticalGrid(columns=GridCells.Fixed(columns),
+                    contentPadding=PaddingValues(16.dp,8.dp,16.dp,24.dp),
+                    verticalArrangement=Arrangement.spacedBy(12.dp),
+                    horizontalArrangement=Arrangement.spacedBy(12.dp)){
+                    items(visible,key={it.id}){card->VaultTile(card,repo){onOpen(card)}}
+                }
+            }
         }
     }
 }
@@ -220,49 +272,78 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
     var query by rememberSaveable{mutableStateOf("")}
     var mode by rememberSaveable{mutableStateOf("All")}
     var hits by remember(cards){mutableStateOf(cards.map{VaultSearchHit(it,null)})}
+    var searching by remember{mutableStateOf(false)}
     LaunchedEffect(query,mode,cards){
+        searching=true
         delay(250)
         val snapshot=cards.toList()
         hits=withContext(Dispatchers.Default){
             snapshot.mapNotNull{card->
-                val text=card.title+" "+card.category+" "+card.kind+" "+
-                    card.fields.joinToString(" "){it.name+" "+it.value}+" "+
-                    card.files.joinToString(" "){it.name+" "+it.extractedText}
-                val matches=(query.isBlank()||text.contains(query,true))&&
-                    (mode=="All"||(mode=="Fields"&&card.fields.any{it.value.contains(query,true)})||
-                        (mode=="OCR"&&card.files.any{it.extractedText.contains(query,true)}))
-                if(!matches)null else{
-                    val snippet=if(query.isBlank())null else
-                        card.fields.firstOrNull{it.value.contains(query,true)}?.let{"${it.name}: ${it.value}"}
-                            ?:card.files.firstNotNullOfOrNull{f->
-                                val start=f.extractedText.indexOf(query,ignoreCase=true)
-                                if(start<0)null else f.extractedText.substring(
-                                    (start-25).coerceAtLeast(0),
-                                    (start+query.length+55).coerceAtMost(f.extractedText.length))
+                val document=card.title+" "+card.category+" "+card.kind+" "+
+                    card.files.joinToString(" "){it.name}
+                val information=card.fields.joinToString(" "){it.name+" "+it.value}
+                val scanned=card.files.joinToString(" "){it.extractedText}
+                val matches=when(mode){
+                    "Documents"->document.contains(query,true)
+                    "Information"->information.contains(query,true)
+                    "Scanned Text"->scanned.contains(query,true)
+                    else->document.contains(query,true)||information.contains(query,true)||
+                        scanned.contains(query,true)
+                }
+                if(!matches)null else {
+                    val excerpt=if(query.isBlank())null else
+                        card.fields.firstOrNull{it.name.contains(query,true)||it.value.contains(query,true)}
+                            ?.let{it.name+": "+it.value}
+                            ?:card.files.firstNotNullOfOrNull{file->
+                                val pos=file.extractedText.indexOf(query,ignoreCase=true)
+                                if(pos<0)null else file.extractedText.substring(
+                                    (pos-30).coerceAtLeast(0),
+                                    (pos+query.length+70).coerceAtMost(file.extractedText.length))
                             }
-                    VaultSearchHit(card,snippet)
+                    VaultSearchHit(card,excerpt)
                 }
             }
         }
+        searching=false
     }
-    Column(Modifier.fillMaxSize().background(bgBrush).padding(horizontal=15.dp)){
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+        .padding(horizontal=16.dp)){
+        Spacer(Modifier.height(18.dp))
+        VaultHeader("Search","Find documents and saved information")
         Spacer(Modifier.height(14.dp))
-        VaultHeader("Smart search","Search cards, scanned text, and copyable fields")
-        Spacer(Modifier.height(12.dp))
         OutlinedTextField(query,{query=it},modifier=Modifier.fillMaxWidth(),singleLine=true,
-            leadingIcon={Icon(Icons.Outlined.Search,null)},placeholder={Text("Search anything…")})
-        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-            listOf("All","Fields","OCR").forEach{m->
-                FilterChip(selected=mode==m,onClick={mode=m},label={Text(m)})
+            leadingIcon={Icon(Icons.Outlined.Search,null)},
+            placeholder={Text("Search documents or information")})
+        Row(Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            listOf("All","Documents","Information","Scanned Text").forEach{choice->
+                FilterChip(selected=mode==choice,onClick={mode=choice},label={Text(choice)})
             }
         }
-        Text(VaultCounts.format(hits.size,"matching record"),color=VaultMuted,modifier=Modifier.padding(vertical=12.dp))
-        LazyColumn(verticalArrangement=Arrangement.spacedBy(10.dp),contentPadding=PaddingValues(bottom=85.dp)){
+        if(searching)LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical=8.dp))
+        Text(VaultCounts.format(hits.size,"result"),color=VaultMuted,
+            modifier=Modifier.padding(vertical=12.dp))
+        LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp),
+            contentPadding=PaddingValues(bottom=24.dp)){
             items(hits,key={it.card.id}){hit->
-                VaultRow(hit.card,repo){onOpen(hit.card)}
-                hit.snippet?.let{value->
-                    Text(value,color=VaultSky,style=MaterialTheme.typography.bodySmall,
-                        modifier=Modifier.padding(horizontal=8.dp))
+                Card(onClick={onOpen(hit.card)},
+                    colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface),
+                    border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
+                    Row(Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment=Alignment.CenterVertically){
+                        VaultThumbnail(hit.card.files.firstOrNull(),repo,Modifier.size(64.dp,76.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)){
+                            Text(VaultNames.title(hit.card.title),style=MaterialTheme.typography.titleMedium)
+                            Text(hit.card.category,color=VaultMuted,style=MaterialTheme.typography.bodySmall)
+                            hit.snippet?.let{excerpt->
+                                Text(excerpt,color=MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style=MaterialTheme.typography.bodySmall,maxLines=3,
+                                    overflow=TextOverflow.Ellipsis)
+                            }
+                        }
+                        Icon(Icons.Outlined.ChevronRight,null,tint=VaultMuted)
+                    }
                 }
             }
         }
