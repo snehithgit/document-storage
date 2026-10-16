@@ -447,7 +447,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {startEdit(repo.newCard(profile=if(userProfile=="all")"self" else userProfile))},
                             {navigate("cards");activity.notify("Open any card and tap PDF to merge its attachments")},{navigate("expiry")},
                             {categoryFilter=it;navigate("cards")})
-                        "cards"->VaultNavCards(repo.cards.toList(),repo,{openCard(it)},{startEdit(repo.newCard())},categoryFilter)
+                        "cards"->VaultNavCards(repo.cards.toList(),repo,{openCard(it)},{navigate("scan")},categoryFilter,{navigateRoot("search")})
                         "search"->VaultNavSearch(repo.cards.toList(),repo){openCard(it)}
                         "scan"->NavyScanScreen(
                             onCamera={camera()},
