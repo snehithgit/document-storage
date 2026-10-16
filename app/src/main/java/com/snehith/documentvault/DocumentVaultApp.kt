@@ -24,6 +24,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.work.*
+import androidx.work.getWorkInfosForUniqueWorkFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -64,7 +66,12 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var categoryFilter by rememberSaveable{mutableStateOf("All")}
     var ocrLanguage by rememberSaveable{mutableStateOf("Latin")}
     var busy by remember{mutableStateOf("")}
-    var ocrJob by remember{mutableStateOf<Job?>(null)}
+    val workManager=remember(activity){WorkManager.getInstance(activity.applicationContext)}
+    val ocrFlow=remember(workManager){workManager.getWorkInfosForUniqueWorkFlow(VaultOcrWorker.UNIQUE)}
+    val ocrInfos by ocrFlow.collectAsState(initial=emptyList())
+    val runningOcr=ocrInfos.firstOrNull{it.state==WorkInfo.State.RUNNING||it.state==WorkInfo.State.ENQUEUED}
+    val latestOcr=ocrInfos.firstOrNull()
+    var notifiedOcrId by rememberSaveable{mutableStateOf("")}
     var error by remember{mutableStateOf("")}
     var pdfJob by remember{mutableStateOf<PdfJob?>(null)}
     var backupPassword by remember{mutableStateOf("")}
@@ -90,34 +97,25 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         }
     }
     fun startOcr(cardId:String,f:VaultFile) {
-        if(ocrJob?.isActive==true)return
-        busy="Preparing OCR: "+VaultNames.title(f.name)
-        ocrJob=scope.launch {
-            try{
-                val result=engine.extract(f,ocrLanguage){done,total->
-                    busy="OCR page "+done+" of "+total+": "+VaultNames.title(f.name)
-                }
-                val fresh=repo.cards.firstOrNull{it.id==cardId} ?:return@launch
-                val update=f.copy(extractedText=result.text,ocrStatus=result.method)
-                val identified=result.document
-                val autoTitle=identified?.takeIf{it.confidence>=.7f && !it.fullName.isNullOrBlank()}
-                    ?.title
-                val isGenericTitle=fresh.title.isBlank()||fresh.title.startsWith("Scan ",true)||
-                    fresh.title.startsWith("Scanned document",true)||
-                    fresh.title.equals(f.name.substringBeforeLast('.'),true)
-                val autoKind=identified?.kind?.takeIf{fresh.kind=="Custom"||fresh.kind=="Recovered"}
-                    ?:fresh.kind
-                val refreshed=fresh.copy(
-                    files=fresh.files.map{if(it.id==f.id)update else it},
-                    kind=autoKind,
-                    title=if(isGenericTitle && autoTitle!=null)autoTitle else fresh.title,
-                    expiry=if(fresh.expiry.isBlank())identified?.expiry?:fresh.expiry else fresh.expiry)
-                withContext(Dispatchers.IO){repo.saveCard(refreshed)}
-                if(result.fields.isNotEmpty()) {reviewQueue.add(ReviewJob(cardId,update,result));route="review"}
-                else {activity.notify("Text extracted. Open the document Text tab to copy it.");route="detail"}
-            }catch(_:CancellationException){activity.notify("OCR cancelled")}
-            catch(e:Exception){error="OCR failed: "+(e.message?:"Unknown format")}
-            finally{busy="";ocrJob=null}
+        if(runningOcr!=null) {
+            activity.notify("OCR is already running. Cancel it before starting another file.")
+            return
+        }
+        val request=OneTimeWorkRequestBuilder<VaultOcrWorker>()
+            .setInputData(workDataOf(VaultOcrWorker.KEY_CARD to cardId,
+                VaultOcrWorker.KEY_FILE to f.id,VaultOcrWorker.KEY_SCRIPT to ocrLanguage))
+            .addTag("offline-ocr").build()
+        workManager.enqueueUniqueWork(VaultOcrWorker.UNIQUE,ExistingWorkPolicy.KEEP,request)
+        activity.notify("OCR queued — you can leave this screen")
+    }
+    LaunchedEffect(latestOcr?.id,latestOcr?.state) {
+        val info=latestOcr?:return@LaunchedEffect
+        if(!info.state.isFinished || info.id.toString()==notifiedOcrId)return@LaunchedEffect
+        notifiedOcrId=info.id.toString()
+        when(info.state) {
+            WorkInfo.State.SUCCEEDED->activity.notify("OCR finished. Review extracted fields in Full Details.")
+            WorkInfo.State.FAILED->error="OCR failed: "+info.outputData.getString(VaultOcrWorker.KEY_ERROR).orEmpty()
+            else->Unit
         }
     }
     fun importUris(uris:List<Uri>,targetId:String?=null,addPage:Boolean=false,originalUri:Uri?=null) {
