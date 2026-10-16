@@ -22,15 +22,23 @@ import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
 @Composable fun HubCard(modifier:Modifier=Modifier,onClick:(()->Unit)?=null,content:@Composable ColumnScope.()->Unit){
-    Card(modifier=modifier,shape=RoundedCornerShape(24.dp),
-        colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface),
-        elevation=CardDefaults.cardElevation(defaultElevation=3.dp),
-        onClick=onClick?:{},enabled=onClick!=null){
-        Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp),content=content)
+    val colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface)
+    val outline=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)
+    if(onClick==null){
+        Card(modifier=modifier,shape=RoundedCornerShape(14.dp),colors=colors,
+            border=outline,elevation=CardDefaults.cardElevation(defaultElevation=0.dp)){
+            Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp),content=content)
+        }
+    }else{
+        Card(onClick=onClick,modifier=modifier,shape=RoundedCornerShape(14.dp),
+            colors=colors,border=outline,
+            elevation=CardDefaults.cardElevation(defaultElevation=0.dp)){
+            Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp),content=content)
+        }
     }
 }
 @Composable fun HubIcon(icon:ImageVector,tint:Color=MaterialTheme.colorScheme.secondary,modifier:Modifier=Modifier){
-    Surface(modifier=modifier.size(40.dp),shape=CircleShape,color=tint.copy(alpha=.12f)){
+    Surface(modifier=modifier.size(40.dp),shape=RoundedCornerShape(10.dp),color=tint.copy(alpha=.11f)){
         Box(contentAlignment=Alignment.Center){Icon(icon,null,tint=tint,modifier=Modifier.size(21.dp))}
     }
 }
@@ -42,7 +50,7 @@ import java.time.temporal.ChronoUnit
         "Valid"->VaultColors.valid
         else->MaterialTheme.colorScheme.onSurfaceVariant
     }
-    Surface(shape=CircleShape,color=actual.copy(alpha=.12f)){
+    Surface(shape=RoundedCornerShape(7.dp),color=actual.copy(alpha=.12f)){
         Text(status,color=actual,style=MaterialTheme.typography.labelSmall,
             modifier=Modifier.padding(horizontal=11.dp,vertical=6.dp))
     }
@@ -69,14 +77,17 @@ private fun categoryIcon(category:String):ImageVector=when {
         item{
             Row(verticalAlignment=Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)){
-                    Text("Good to see you",color=MaterialTheme.colorScheme.onSurfaceVariant,
-                        style=MaterialTheme.typography.bodyMedium)
-                    Text("My document vault",fontWeight=FontWeight.SemiBold,
-                        style=MaterialTheme.typography.headlineSmall)
+                    Text("DOCUMENT / WORKSPACE",color=VaultColors.syntax,
+                        style=MaterialTheme.typography.labelSmall)
+                    Spacer(Modifier.height(5.dp))
+                    Text("Your vault.",fontWeight=FontWeight.SemiBold,
+                        style=MaterialTheme.typography.headlineMedium)
                 }
-                Surface(shape=CircleShape,color=MaterialTheme.colorScheme.primary.copy(alpha=.17f)){
-                    Box(Modifier.size(48.dp),contentAlignment=Alignment.Center){
-                        Text("DV",fontWeight=FontWeight.Bold,color=MaterialTheme.colorScheme.onPrimary)
+                Surface(shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surface,
+                    border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
+                    Box(Modifier.size(46.dp),contentAlignment=Alignment.Center){
+                        Text("</>",color=VaultColors.syntax,fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace,
+                            fontWeight=FontWeight.Bold)
                     }
                 }
             }
@@ -85,9 +96,9 @@ private fun categoryIcon(category:String):ImageVector=when {
             HubCard(Modifier.fillMaxWidth()){
                 Row(verticalAlignment=Alignment.CenterVertically){
                     Column(Modifier.weight(1f)){
-                        Text("Vault summary",fontWeight=FontWeight.SemiBold,
+                        Text("vault.stats",fontWeight=FontWeight.SemiBold,
                             style=MaterialTheme.typography.titleLarge)
-                        Text("Private · Available offline",color=MaterialTheme.colorScheme.onSurfaceVariant,
+                        Text("// Private · available offline",color=MaterialTheme.colorScheme.onSurfaceVariant,
                             style=MaterialTheme.typography.bodySmall)
                     }
                     HubIcon(Icons.Outlined.Inventory2)
@@ -98,25 +109,25 @@ private fun categoryIcon(category:String):ImageVector=when {
                 }
                 HorizontalDivider(color=MaterialTheme.colorScheme.outline)
                 Row(verticalAlignment=Alignment.CenterVertically){
-                    Text("Needs attention",modifier=Modifier.weight(1f))
+                    Text("warnings",color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.weight(1f))
                     Text(expiring.toString(),color=VaultColors.expiring,fontWeight=FontWeight.SemiBold)
                 }
                 LinearProgressIndicator(progress={if(shown.isEmpty())0f else (expiring.toFloat()/shown.size).coerceIn(0f,1f)},
-                    modifier=Modifier.fillMaxWidth().height(5.dp),color=MaterialTheme.colorScheme.primary,
+                    modifier=Modifier.fillMaxWidth().height(3.dp),color=VaultColors.syntax,
                     trackColor=MaterialTheme.colorScheme.primary.copy(alpha=.10f))
-                Text("Local storage · "+readableBytes(totalBytes),color=MaterialTheme.colorScheme.onSurfaceVariant,
+                Text("disk.local  /  "+readableBytes(totalBytes),color=MaterialTheme.colorScheme.onSurfaceVariant,
                     style=MaterialTheme.typography.bodySmall)
             }
         }
         item{
             Row(verticalAlignment=Alignment.CenterVertically){
-                Text("Categories",style=MaterialTheme.typography.titleLarge,
+                Text("Directories",style=MaterialTheme.typography.titleLarge,
                     fontWeight=FontWeight.SemiBold,modifier=Modifier.weight(1f))
                 TextButton(onClick=onSearch){Text("Search all",color=MaterialTheme.colorScheme.secondary)}
             }
             Spacer(Modifier.height(8.dp))
             if(categories.isEmpty())HubCard(Modifier.fillMaxWidth()){
-                Text("Start by importing your first document.")
+                Text("// Empty vault. Open Scan to import or capture your first document.")
             }else{
                 Column(verticalArrangement=Arrangement.spacedBy(12.dp)){
                     categories.chunked(2).forEach{row->
@@ -125,7 +136,7 @@ private fun categoryIcon(category:String):ImageVector=when {
                                 HubCard(Modifier.weight(1f),onClick={onCategory(title)}){
                                     HubIcon(categoryIcon(title))
                                     Text(title,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
-                                    Text(VaultCounts.format(list.size,"item"),color=MaterialTheme.colorScheme.onSurfaceVariant,
+                                    Text(VaultCounts.format(list.size,"item")+"  /",color=MaterialTheme.colorScheme.onSurfaceVariant,
                                         style=MaterialTheme.typography.bodySmall)
                                     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End){
                                         HubIcon(Icons.Outlined.ArrowForward,
@@ -141,7 +152,7 @@ private fun categoryIcon(category:String):ImageVector=when {
         }
         item{
             Row(verticalAlignment=Alignment.CenterVertically){
-                Text(if(expiring>0)"Needs attention" else "Recent documents",
+                Text(if(expiring>0)"Needs attention" else "Recent files",
                     modifier=Modifier.weight(1f),fontWeight=FontWeight.SemiBold,
                     style=MaterialTheme.typography.titleLarge)
                 if(expiring>0)TextButton(onClick=onExpiries){
@@ -183,7 +194,8 @@ private fun readableBytes(bytes:Long):String=when{
     Box(Modifier.fillMaxWidth().padding(start=16.dp,end=16.dp,bottom=8.dp,top=8.dp).height(66.dp)){
         Surface(
             modifier=Modifier.fillMaxWidth().padding(end=31.dp).height(64.dp),
-            color=MaterialTheme.colorScheme.surface,shape=CircleShape,shadowElevation=7.dp){
+            color=MaterialTheme.colorScheme.surface,shape=RoundedCornerShape(16.dp),
+            border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline),shadowElevation=0.dp){
             Row(Modifier.fillMaxSize().padding(end=32.dp,start=6.dp),
                 horizontalArrangement=Arrangement.SpaceEvenly,verticalAlignment=Alignment.CenterVertically){
                 listOf(
@@ -193,8 +205,8 @@ private fun readableBytes(bytes:Long):String=when{
                     Triple("more",Icons.Outlined.Settings,"Settings")
                 ).forEach{(id,icon,label)->
                     val selected=active==id
-                    Surface(shape=CircleShape,
-                        color=if(selected)MaterialTheme.colorScheme.primary.copy(alpha=.14f)else Color.Transparent,
+                    Surface(shape=RoundedCornerShape(10.dp),
+                        color=if(selected)MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
                         modifier=Modifier.weight(1f).clickable{onNavigate(id)}){
                         Column(Modifier.padding(vertical=5.dp),horizontalAlignment=Alignment.CenterHorizontally){
                             Icon(icon,label,tint=if(selected)MaterialTheme.colorScheme.secondary
@@ -206,11 +218,11 @@ private fun readableBytes(bytes:Long):String=when{
                 }
             }
         }
-        Surface(shape=CircleShape,color=MaterialTheme.colorScheme.primary,shadowElevation=6.dp,
+        Surface(shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.primary,shadowElevation=2.dp,
             modifier=Modifier.align(Alignment.CenterEnd).size(62.dp).clickable(onClick=onScan)){
             Box(contentAlignment=Alignment.Center){
-                Icon(Icons.Outlined.DocumentScanner,"Scan",tint=MaterialTheme.colorScheme.onPrimary,
-                    modifier=Modifier.size(29.dp))
+                Icon(Icons.Outlined.Add,"Open Scan",tint=MaterialTheme.colorScheme.onPrimary,
+                    modifier=Modifier.size(30.dp))
             }
         }
     }

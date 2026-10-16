@@ -36,9 +36,9 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
-private val Blue=Color(0xFF4361EE)
-private val Mint=Color(0xFF0F9488)
-private val Gold=Color(0xFFB7791F)
+private val Blue=VaultColors.syntax
+private val Mint=VaultColors.valid
+private val Gold=VaultColors.expiring
 private val Corners=RoundedCornerShape(20.dp)
 
 fun copyToClipboard(context:Context,label:String,value:String) {

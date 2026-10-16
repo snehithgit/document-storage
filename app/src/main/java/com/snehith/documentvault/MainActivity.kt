@@ -54,8 +54,8 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState:Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor=android.graphics.Color.rgb(6,24,45)
-        window.navigationBarColor=android.graphics.Color.rgb(6,24,45)
+        window.statusBarColor=android.graphics.Color.rgb(8,10,13)
+        window.navigationBarColor=android.graphics.Color.rgb(8,10,13)
         androidx.core.view.WindowCompat.getInsetsController(window,window.decorView).apply {
             isAppearanceLightStatusBars=false
             isAppearanceLightNavigationBars=false
@@ -63,12 +63,14 @@ class MainActivity : FragmentActivity() {
         setPrivacyScreenEnabled(isPrivacyScreenEnabled())
         setContent {
             if(loaded.value) DocumentVaultApp(this)
-            else androidx.compose.material3.Surface {
-                androidx.compose.foundation.layout.Box(
-                    androidx.compose.ui.Modifier
-                        .fillMaxSize(),
-                    contentAlignment=androidx.compose.ui.Alignment.Center) {
-                    androidx.compose.material3.CircularProgressIndicator()
+            else VaultTheme(true) {
+                androidx.compose.material3.Surface(color=androidx.compose.material3.MaterialTheme.colorScheme.background) {
+                    androidx.compose.foundation.layout.Box(
+                        androidx.compose.ui.Modifier.fillMaxSize(),
+                        contentAlignment=androidx.compose.ui.Alignment.Center) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            color=androidx.compose.material3.MaterialTheme.colorScheme.onSurface)
+                    }
                 }
             }
         }
