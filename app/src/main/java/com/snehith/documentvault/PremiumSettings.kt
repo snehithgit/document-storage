@@ -48,7 +48,7 @@ import androidx.compose.ui.unit.dp
                     }
                 }
                 OutlinedButton(onClick={onImportLanguage();dialog=""}){
-                    Text("Import Tesseract .traineddata")
+                    Text("Add an offline recognition language")
                 }
             }
             "pin"->{
@@ -77,19 +77,19 @@ import androidx.compose.ui.unit.dp
         item{
             VaultHeader("Settings","Your offline document workspace")
             Spacer(Modifier.height(14.dp))
-            Text("ORGANIZE",color=VaultSky,fontWeight=FontWeight.Bold)
+            Text("DOCUMENTS & FAMILY",color=VaultSky,fontWeight=FontWeight.Bold)
         }
-        item {NavySettingRow(Icons.Outlined.People,"Family profiles","Manage your personal and family cards",onProfiles)}
-        item {NavySettingRow(Icons.Outlined.ViewAgenda,"Card templates","Your reusable document field layouts",onTemplates)}
+        item {NavySettingRow(Icons.Outlined.People,"Family profiles","Organize documents for your family",onProfiles)}
+        item {NavySettingRow(Icons.Outlined.ViewAgenda,"Information templates","Reuse common document details",onTemplates)}
         item{
             Spacer(Modifier.height(5.dp))
-            Text("DATA & BACKUP",color=VaultSky,fontWeight=FontWeight.Bold)
+            Text("BACKUP & RECOVERY",color=VaultSky,fontWeight=FontWeight.Bold)
         }
         item{NavySettingRow(Icons.Outlined.Backup,"Backup and restore","Export an ordinary ZIP of all files and details",onBackups)}
         item{NavySettingRow(Icons.Outlined.Restore,"Recover imports","Find any unlinked files from failed saves",onRecovery)}
         item{
             Spacer(Modifier.height(5.dp))
-            Text("OCR & SCANNING",color=VaultSky,fontWeight=FontWeight.Bold)
+            Text("DOCUMENT PROCESSING",color=VaultSky,fontWeight=FontWeight.Bold)
         }
         item{NavySettingRow(Icons.Outlined.Translate,"OCR language",currentScript,{dialog="ocr"})}
         item{
@@ -109,7 +109,7 @@ import androidx.compose.ui.unit.dp
         }
         item{
             Spacer(Modifier.height(5.dp))
-            Text("APPEARANCE / PRIVACY",color=VaultColors.syntax,
+            Text("APPEARANCE",color=VaultColors.syntax,
                 style=MaterialTheme.typography.labelMedium)
         }
         item{
@@ -119,7 +119,7 @@ import androidx.compose.ui.unit.dp
                     Spacer(Modifier.width(10.dp))
                     Column {
                         Text("Appearance",fontWeight=FontWeight.SemiBold)
-                        Text("Code-editor black · no bright surfaces",color=MaterialTheme.colorScheme.onSurfaceVariant,
+                        Text("Simple dark appearance for comfortable reading",color=MaterialTheme.colorScheme.onSurfaceVariant,
                             style=MaterialTheme.typography.bodySmall)
                     }
                 }
