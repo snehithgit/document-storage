@@ -53,4 +53,15 @@ class Phase0LogicTest {
         assertFalse(VaultExpiry.isIsoDate("2027-02-29"))
         assertFalse(VaultExpiry.isIsoDate("29/02/2028"))
     }
+    @Test fun attachmentReorderPreservesEveryFileId() {
+        val a=VaultFile("a","a.jpg","image/jpeg",1,"sha-a")
+        val b=VaultFile("b","b.pdf","application/pdf",2,"sha-b")
+        assertEquals(listOf("b","a"),VaultOrder.reorder(listOf(a,b),listOf("b","a")).map{it.id})
+        assertThrows(IllegalArgumentException::class.java){
+            VaultOrder.reorder(listOf(a,b),listOf("a","a"))
+        }
+        assertThrows(IllegalArgumentException::class.java){
+            VaultOrder.reorder(listOf(a,b),listOf("a"))
+        }
+    }
 }
