@@ -15,8 +15,8 @@ android {
         applicationId = "com.snehith.documentvault"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "2.1.2"
+        versionCode = 11
+        versionName = "2.2.0"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -48,7 +48,7 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     packaging {
-        resources.excludes += setOf("META-INF/DEPENDENCIES", "META-INF/NOTICE", "META-INF/LICENSE", "META-INF/*.kotlin_module")
+        resources.excludes += setOf("META-INF/DEPENDENCIES", "META-INF/*.kotlin_module")
     }
 }
 dependencies {

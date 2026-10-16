@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,28 +44,45 @@ private val rounded=RoundedCornerShape(14.dp)
         if(subtitle!=null)Text(subtitle,color=VaultMuted,style=MaterialTheme.typography.bodySmall)
     }
 }
-/** Size-bounded cache, owned by the process; bitmaps are not recycled while Compose may render them. */
-private val thumbnailCache=object:LruCache<String,Bitmap>(16*1024*1024){
-    override fun sizeOf(key:String,value:Bitmap):Int=value.byteCount
+/** Byte-bounded LRU sized to 1/8 of the device's Android memoryClass. */
+private object VaultThumbnailCache {
+    @Volatile private var shared:LruCache<String,Bitmap>?=null
+    fun get(context:android.content.Context):LruCache<String,Bitmap> =
+        shared?:synchronized(this){
+            shared?:run {
+                val manager=context.getSystemService(android.content.Context.ACTIVITY_SERVICE)
+                    as android.app.ActivityManager
+                val size=(manager.memoryClass.toLong()*1024*1024/8)
+                    .coerceIn(4L*1024*1024,128L*1024*1024).toInt()
+                object:LruCache<String,Bitmap>(size){
+                    override fun sizeOf(key:String,value:Bitmap):Int=value.byteCount
+                }.also{shared=it}
+            }
+        }
 }
 @Composable fun VaultThumbnail(file:VaultFile?,repo:VaultRepository,modifier:Modifier=Modifier,maxEdge:Int=360) {
-    var bitmap by remember(file?.id,maxEdge){mutableStateOf<Bitmap?>(null)}
-    var loading by remember(file?.id,maxEdge){mutableStateOf(file!=null)}
-    LaunchedEffect(file?.id,maxEdge) {
+    val context=LocalContext.current
+    val cache=remember(context){VaultThumbnailCache.get(context)}
+    var measuredPx by remember(file?.id){mutableIntStateOf(0)}
+    val targetEdge=if(measuredPx>0)minOf(maxEdge,
+        (measuredPx*1.25f).toInt().coerceAtLeast(160)) else maxEdge
+    var bitmap by remember(file?.id,targetEdge){mutableStateOf<Bitmap?>(null)}
+    var loading by remember(file?.id,targetEdge){mutableStateOf(file!=null)}
+    LaunchedEffect(file?.id,targetEdge) {
         bitmap=null
         loading=file!=null
         if(file==null)return@LaunchedEffect
         try {
             val image=withContext(Dispatchers.IO) {
                 val raw=repo.documentFile(file)
-                val cacheKey=file.id+"-"+maxEdge+"-"+raw.lastModified()
-                synchronized(thumbnailCache){thumbnailCache.get(cacheKey)} ?: run {
+                val cacheKey=file.id+"-"+targetEdge+"-"+raw.lastModified()
+                synchronized(cache){cache.get(cacheKey)} ?: run {
                     val thumbnail=if(file.mime=="application/pdf"||file.name.endsWith(".pdf",true)){
-                        PdfPageSession(raw).use{it.render(0,maxEdge)}
+                        PdfPageSession(raw).use{it.render(0,targetEdge)}
                     }else if(file.mime.startsWith("image/")){
-                        ImageDecode.decode(raw,maxEdge,highQuality=true)
+                        ImageDecode.decode(raw,targetEdge,highQuality=targetEdge>800)
                     }else null
-                    if(thumbnail!=null)synchronized(thumbnailCache){thumbnailCache.put(cacheKey,thumbnail)}
+                    if(thumbnail!=null)synchronized(cache){cache.put(cacheKey,thumbnail)}
                     thumbnail
                 }
             }
@@ -74,7 +92,9 @@ private val thumbnailCache=object:LruCache<String,Bitmap>(16*1024*1024){
             android.util.Log.w("VaultThumbnail","Cannot preview attachment",e)
         }finally{loading=false}
     }
-    Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant,rounded),contentAlignment=Alignment.Center){
+    Box(modifier.onSizeChanged{measuredPx=maxOf(it.width,it.height)}
+        .background(MaterialTheme.colorScheme.surfaceVariant,rounded),
+        contentAlignment=Alignment.Center){
         if(bitmap!=null)Image(bitmap!!.asImageBitmap(),"Document",Modifier.fillMaxSize(),contentScale=ContentScale.Fit)
         else if(loading)CircularProgressIndicator(Modifier.size(22.dp),strokeWidth=2.dp)
         else Icon(Icons.Outlined.Description,"Preview unavailable",tint=VaultSky,modifier=Modifier.size(37.dp))

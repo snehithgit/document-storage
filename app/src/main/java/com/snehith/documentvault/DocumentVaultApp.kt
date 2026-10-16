@@ -565,6 +565,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     "fulldetails"->"Document Information"
                                     "attachments"->"Manage attachments"
                                     "about"->"About"
+                                    "licenses"->"Open-source licenses"
                                     "selectfields"->"Select from document"
                                     "scan"->"Scan"
                                     "crop"->"Crop document"
@@ -746,7 +747,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 try{withContext(Dispatchers.IO){repo.reorderFiles(c.id,ids)}}
                                 catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error="Reorder failed: "+(e.message?:"Storage error")}
                             }})}
-                        "about"->VaultAboutScreen()
+                        "about"->VaultAboutScreen{navigate("licenses")}
+                        "licenses"->VaultLicensesScreen()
                         "fulldetails"->current?.let{c->FullDetailsPage(c,
                             {updated->scope.launch{try{withContext(Dispatchers.IO){
                                     repo.updateCard(c.id){latest->

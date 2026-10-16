@@ -76,7 +76,7 @@ import androidx.compose.ui.unit.dp
         if(card.files.isEmpty())item{HubCard(Modifier.fillMaxWidth()){Text("No attachments yet")}}
     }
 }
-@Composable fun VaultAboutScreen(){
+@Composable fun VaultAboutScreen(onLicenses:()->Unit={}){
     val context=androidx.compose.ui.platform.LocalContext.current
     val pkg=context.packageManager.getPackageInfo(context.packageName,0)
     LazyColumn(Modifier.fillMaxSize().background(vaultWarmBrush(MaterialTheme.colorScheme.background==VaultColors.darkBg)),
@@ -96,9 +96,22 @@ import androidx.compose.ui.unit.dp
                 Text("Offline document wallet with local-only OCR and PDF tools.")
                 Text("Documents and ZIP backups are not encrypted. Your optional PIN protects the interface only.",
                     color=MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Third-party software acknowledgements are available in the project documentation.",
+                Text("Open-source components and applicable licenses:",
+                    style=MaterialTheme.typography.titleMedium)
+                Text("OpenCV — Apache License 2.0; ONNX Runtime — MIT License; "+
+                    "DocQuad model from MakeACopy — Apache License 2.0 (pinned model cdf0e668); "+
+                    "PDFBox-Android — Apache License 2.0; "+
+                    "Tesseract4Android — Apache License 2.0; "+
+                    "Apache POI — Apache License 2.0; "+
+                    "ML Kit Text Recognition — Google ML Kit terms of service.",
                     color=MaterialTheme.colorScheme.onSurfaceVariant,
                     style=MaterialTheme.typography.bodySmall)
+                Text("Full license texts are bundled with this offline app.",
+                    color=MaterialTheme.colorScheme.onSurfaceVariant,
+                    style=MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick=onLicenses,modifier=Modifier.fillMaxWidth()){
+                    Text("Open-source licenses")
+                }
             }
         }
     }

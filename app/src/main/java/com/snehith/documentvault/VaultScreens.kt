@@ -43,9 +43,19 @@ private val Corners=RoundedCornerShape(20.dp)
 
 fun copyToClipboard(context:Context,label:String,value:String) {
     if(value.isBlank())return
+    val clip=ClipData.newPlainText(label,value)
+    if(android.os.Build.VERSION.SDK_INT>=33 &&
+        (ProfileLogic.isSensitive(label) ||
+        label.contains("details",true) || label.contains("information",true) ||
+        label.contains("selected",true))){
+        clip.description.extras=android.os.PersistableBundle().apply{
+            putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE,true)
+        }
+    }
     (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-        .setPrimaryClip(ClipData.newPlainText(label,value))
-    android.widget.Toast.makeText(context,"Copied",android.widget.Toast.LENGTH_SHORT).show()
+        .setPrimaryClip(clip)
+    if(android.os.Build.VERSION.SDK_INT<33)
+        android.widget.Toast.makeText(context,"Copied",android.widget.Toast.LENGTH_SHORT).show()
 }
 @Composable fun Heading(title:String,description:String?=null) {
     Column(verticalArrangement=Arrangement.spacedBy(3.dp)) {

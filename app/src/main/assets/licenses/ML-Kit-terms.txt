@@ -1,0 +1,10 @@
+ML Kit Text Recognition
+
+ML Kit Text Recognition is provided under Google's ML Kit terms.
+This is a proprietary SDK and is NOT licensed under Apache-2.0 or MIT.
+Review the license and privacy information bundled with the applicable
+Google ML Kit SDK version and available at:
+
+https://developers.google.com/ml-kit/terms
+
+The app does not perform any network calls to fetch terms; this text is for attribution.
