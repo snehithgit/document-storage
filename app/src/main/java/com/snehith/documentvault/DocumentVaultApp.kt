@@ -651,7 +651,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var pin by remember{mutableStateOf("")}
     var invalid by remember{mutableStateOf(false)}
     Column(Modifier.fillMaxSize().padding(28.dp),verticalArrangement=Arrangement.Center,horizontalAlignment=Alignment.CenterHorizontally) {
-        Icon(Icons.Outlined.Lock,null,tint=Color(0xFF4361EE),modifier=Modifier.size(65.dp))
+        Icon(Icons.Outlined.Lock,null,tint=VaultColors.syntax,modifier=Modifier.size(65.dp))
         Spacer(Modifier.height(24.dp))
         Text("Document Vault",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold)
         Text("Unlock your personal document library")
