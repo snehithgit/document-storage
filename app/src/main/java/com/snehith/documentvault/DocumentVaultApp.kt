@@ -143,7 +143,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         requests.drop(1).forEach{request->continuation=continuation.then(request)}
         continuation.enqueue()
         activity.notify("Fetching details from "+VaultCounts.format(eligible.size,"attachment")+
-            " offline. Open details.json to review and copy the results.")
+            " offline. Open Document Information to review and copy the results.")
     }
     LaunchedEffect(latestOcr?.id,latestOcr?.state) {
         val info=latestOcr?:return@LaunchedEffect
