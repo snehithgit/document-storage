@@ -381,7 +381,7 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
             }
         }
         item{
-            Card(onClick={selected?.let{file->{onFile(file)}}?:{}},
+            Card(onClick={selected?.let(onFile)},
                 enabled=selected!=null,
                 colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface),
                 shape=RoundedCornerShape(16.dp),
