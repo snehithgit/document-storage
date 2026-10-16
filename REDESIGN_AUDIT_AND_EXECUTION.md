@@ -71,3 +71,27 @@ Added JUnit tests cover category/sort stability and import destination validatio
 8. Test all font sizes, TalkBack labels, 48dp touch targets, keyboard insets, long names/values, no overlaps.
 9. Export ZIP and restore with confirmation in a disposable test vault; inspect that the backup is readable plaintext and that user-facing privacy labels are accurate.
 10. Enable PIN/reminder/biometric where available; confirm lock throttling, permission handling, and offline behavior with airplane mode enabled.
+
+
+## 16 October device-report fixes: scan geometry, thumbnails and navigation
+
+These changes follow a real device report with three scanned attachments showing rotated/cropped previews and unintended extra pages.
+
+- Re-edit a page from its retained raw original (when available) using normalized corners and original rotation saved in plaintext JSON. A re-edit **replaces the selected page** at its existing list position; it does not append a new attachment. The raw file is referenced but not displayed as another page. Older cards may already contain extra visible originals; those are not automatically deleted.
+- Manual crop shows enlarged grab targets, a live zoomed corner lens and preserves corners through in-editor rotation. Detect is an explicit action, not automatically repeated when re-editing a processed image.
+- Main preview uses high-quality FIT decoding; smaller cards also FIT instead of center-cropping. Generated numeric scanner IDs are hidden from filenames shown to ordinary users.
+- Attachment and card deletions publish Compose state atomically. Related source blobs are removed only when no document, including preserved-original references, still uses them.
+- Viewer and crop no longer recycle bitmaps that might be drawn or filtered by native code when system Back is pressed. PDF renderer close is performed on an IO coroutine and synchronizes with native render.
+- Recovery excludes intentionally preserved originals. ZIP backup and restore include their hidden blobs for newly cropped scans.
+- Pure tests cover crop rotations and persistence, shared-original reference checks, sorted browsing and import target guards.
+
+### Focused retest
+
+1. Capture a document; drag all four crop corners using the magnifier; save; reopen crop and confirm the same region, including orientation.
+2. Choose an existing page, Enhance/Crop, adjust settings, save, and verify the number of attachments does **not** increase. Verify the old rendered image is replaced and other pages are unchanged.
+3. Rotate the crop four times: geometry returns to its original normalized coordinates. Verify Detect only runs when pressed.
+4. Verify front/back page thumbnails show the whole image, not clipped by center-crop, and opening the full viewer looks comparably sharp.
+5. Delete the currently selected attachment from Manage Attachments, delete the last attachment, and navigate Back repeatedly. Re-test deleting a document.
+6. From crop and PDF viewer, press system Back during processing, while rapidly switching pages, and after loading large images. Observe crash logs if any remain.
+7. Backup and restore a newly saved scan with Keep Original enabled; confirm its raw source can still be reopened and edited. Then disable Keep Original and verify no extra visible raw file appears.
+8. Enable rotation/process recreation and repeat crop, viewer and delete tests. Real device logs are required to rule out other hardware-specific native crashes.
