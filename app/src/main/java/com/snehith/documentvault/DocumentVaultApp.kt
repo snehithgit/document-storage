@@ -155,7 +155,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             else->Unit
         }
     }
-    fun importUris(uris:List<Uri>,targetId:String?=null,addPage:Boolean=false,originalUri:Uri?=null) {
+    fun importUris(uris:List<Uri>,targetId:String?=null,addPage:Boolean=false,originalUri:Uri?=null,onSaved:(()->Unit)?=null) {
         if(uris.isEmpty())return
         busy="Importing "+VaultCounts.format(uris.size,"document")
         scope.launch {
@@ -552,12 +552,11 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                                 }finally{corrected.recycle()}
                                             }finally{oriented.recycle()}
                                         }
-                                        navigate(if(scanTarget==null)"scan" else "detail")
                                         val keep=activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE)
                                             .getBoolean("keepScanOriginal",true)
                                         importUris(listOf(uri),scanTarget,addAnother,
-                                            if(keep&&!cropFromAttachment)cameraUri else null)
-                                        cropBitmap=null;cropResult=null
+                                            if(keep&&!cropFromAttachment)cameraUri else null,
+                                            onSaved={goBack();cropBitmap=null;cropResult=null})
                                     }catch(e:java.io.IOException){
                                         error="Could not save the cropped page. Check free storage and retry. Your original image is still available."
                                     }catch(e:Exception){error="Crop failed: "+(e.message?:"Error")}
