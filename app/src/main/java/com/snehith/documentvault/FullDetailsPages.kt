@@ -22,7 +22,8 @@ private val dNavy:Color @Composable get()=MaterialTheme.colorScheme.background
 private val dPanel:Color @Composable get()=MaterialTheme.colorScheme.surface
 private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVariant
 
-@Composable fun FullDetailsPage(card:VaultCard,onSave:(VaultCard)->Unit,onSelect:()->Unit){
+@Composable fun FullDetailsPage(card:VaultCard,onSave:(VaultCard)->Unit,onSelect:()->Unit,
+    onFetchDetails:()->Unit,fetchingDetails:Boolean){
     val context=LocalContext.current
     var tab by rememberSaveable(card.id){mutableStateOf("All")}
     var editId by rememberSaveable(card.id){mutableStateOf("")}
@@ -86,6 +87,20 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                 listOf("All","Picked","OCR","Custom").forEach{t->
                     FilterChip(selected=tab==t,onClick={tab=t},
                         label={Text(t)},shape=RoundedCornerShape(8.dp))
+                }
+            }
+            if(card.files.isNotEmpty()){
+                OutlinedButton(
+                    onClick=onFetchDetails,
+                    enabled=!fetchingDetails && card.files.any{DetailFetchPlan.supported(it)},
+                    modifier=Modifier.fillMaxWidth(),
+                    shape=RoundedCornerShape(10.dp)
+                ){
+                    Icon(Icons.Outlined.AutoAwesome,null,modifier=Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if(fetchingDetails)"Fetching document details…" else "Fetch Details from All Pages",
+                        modifier=Modifier.weight(1f))
+                    Icon(Icons.Outlined.ChevronRight,null,modifier=Modifier.size(17.dp))
                 }
             }
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
