@@ -42,8 +42,10 @@ private val Gold=VaultColors.expiring
 private val Corners=RoundedCornerShape(20.dp)
 
 fun copyToClipboard(context:Context,label:String,value:String) {
+    if(value.isBlank())return
     (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
         .setPrimaryClip(ClipData.newPlainText(label,value))
+    android.widget.Toast.makeText(context,"Copied",android.widget.Toast.LENGTH_SHORT).show()
 }
 @Composable fun Heading(title:String,description:String?=null) {
     Column(verticalArrangement=Arrangement.spacedBy(3.dp)) {
