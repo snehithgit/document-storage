@@ -276,9 +276,7 @@ class VaultRepository(private val context: Context) {
         saveCard(current.copy(files=current.files.filterNot{it.id==fileId}))
         cleanupReplacedBlobs(target)
     }
-    private fun referencedIds():Set<String> = cards.flatMap { card->
-        card.files.flatMap{file->listOf(file.id,file.originalId).filter{it.isNotBlank()}}
-    }.toSet()
+    private fun referencedIds():Set<String> = AttachmentReferences.referencedIds(cards.toList())
     private fun cleanupReplacedBlobs(file:VaultFile){
         val kept=referencedIds()
         listOf(file.id,file.originalId).filter{it.isNotBlank() && it !in kept}.forEach{id->
