@@ -99,7 +99,7 @@ import androidx.compose.ui.unit.dp
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)){
                         Text("Keep untouched scan original",fontWeight=FontWeight.SemiBold)
-                        Text("Adds the raw camera photo beside the enhanced page",
+                        Text("Keeps the original for later editing without adding another visible page",
                             color=MaterialTheme.colorScheme.onSurfaceVariant,
                             style=MaterialTheme.typography.bodySmall)
                     }
