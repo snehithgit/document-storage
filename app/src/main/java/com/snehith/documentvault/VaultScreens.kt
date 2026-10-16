@@ -267,7 +267,7 @@ fun copyToClipboard(context:Context,label:String,value:String) {
         }
     }
 }
-@Composable fun CardEditorScreen(card:VaultCard,profiles:List<VaultProfile>,onSave:(VaultCard)->Unit,onCancel:()->Unit,onSaveTemplate:(CardTemplate)->Unit) {
+@Composable fun CardEditorScreen(card:VaultCard,profiles:List<VaultProfile>,onSave:(VaultCard)->Unit,onCancel:()->Unit,onSaveTemplate:(CardTemplate)->Unit,onDirtyChange:(Boolean)->Unit) {
     var title by rememberSaveable(card.id){mutableStateOf(card.title)}
     var category by rememberSaveable(card.id){mutableStateOf(card.category)}
     var kind by rememberSaveable(card.id){mutableStateOf(card.kind)}
@@ -290,6 +290,10 @@ fun copyToClipboard(context:Context,label:String,value:String) {
     var kindExpanded by rememberSaveable{mutableStateOf(false)}
     var profileExpanded by rememberSaveable{mutableStateOf(false)}
     var error by rememberSaveable{mutableStateOf("")}
+    val changed=title!=card.title||category!=card.category||kind!=card.kind||
+        tags!=card.tags||notes!=card.notes||expiry!=card.expiry||profile!=card.profile||
+        fields.toList()!=card.fields
+    LaunchedEffect(changed){onDirtyChange(changed)}
     LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp,8.dp,16.dp,105.dp),verticalArrangement=Arrangement.spacedBy(13.dp)){
         item{Heading(if(card.title=="New Card")"Create Document" else "Edit Document","Save information and attach files when needed")}
         item{OutlinedTextField(title,{title=it},label={Text("Document title")},modifier=Modifier.fillMaxWidth(),singleLine=true)}
