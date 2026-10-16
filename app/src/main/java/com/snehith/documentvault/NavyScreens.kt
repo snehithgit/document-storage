@@ -419,112 +419,64 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
     }
 }
 
-/** No accidental launch into camera: all three import sources remain visible. */
+/** A deliberate source choice: the centered Scan action never opens the camera automatically. */
 @Composable fun NavyScanScreen(
     onCamera:()->Unit,
     onGallery:()->Unit,
     onFiles:()->Unit,
     onNew:()->Unit
 ){
-    LazyColumn(
-        Modifier.fillMaxSize().background(bgBrush),
-        contentPadding=PaddingValues(horizontal=20.dp,vertical=18.dp),
-        verticalArrangement=Arrangement.spacedBy(14.dp)
-    ){
+    val choices=listOf(
+        Triple("Scan with Camera","Take a photo and crop automatically",Icons.Outlined.CameraAlt),
+        Triple("Import Photos","Choose one or more gallery photos",Icons.Outlined.PhotoLibrary),
+        Triple("Import Files or PDF","Choose documents from phone storage",Icons.Outlined.FolderOpen),
+        Triple("Create Information Card","Save information without a file",Icons.Outlined.NoteAdd)
+    )
+    val actions=listOf(onCamera,onGallery,onFiles,onNew)
+    LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+        contentPadding=PaddingValues(horizontal=16.dp,vertical=20.dp),
+        verticalArrangement=Arrangement.spacedBy(12.dp)){
         item{
-            Row(verticalAlignment=Alignment.CenterVertically){
-                Text("WORKSPACE  /  CAPTURE",color=VaultColors.syntax,
-                    style=MaterialTheme.typography.labelSmall,modifier=Modifier.weight(1f))
-                Text("● OFFLINE",color=VaultColors.valid,
-                    style=MaterialTheme.typography.labelSmall)
-            }
-            Spacer(Modifier.height(12.dp))
-            Text("Add documents.",color=MaterialTheme.colorScheme.onSurface,
-                fontWeight=FontWeight.SemiBold,style=MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.height(5.dp))
-            Text("Capture, import, organize. Your files stay on this device.",
+            Text("Add Document",style=MaterialTheme.typography.headlineSmall)
+            Spacer(Modifier.height(6.dp))
+            Text("Choose how you want to add your document.",
                 color=MaterialTheme.colorScheme.onSurfaceVariant,
-                style=MaterialTheme.typography.bodySmall)
+                style=MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(12.dp))
         }
-        item{
-            Surface(
-                color=MaterialTheme.colorScheme.surface,
-                border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline),
-                shape=RoundedCornerShape(18.dp)
-            ){
-                Column(Modifier.fillMaxWidth().padding(16.dp),
-                    verticalArrangement=Arrangement.spacedBy(14.dp)){
-                    Row(verticalAlignment=Alignment.CenterVertically){
-                        Text("scan_session.kt",color=VaultColors.syntax,
-                            style=MaterialTheme.typography.labelSmall,
-                            modifier=Modifier.weight(1f))
-                        Text("01 / CAMERA",color=VaultColors.lineNumber,
-                            style=MaterialTheme.typography.labelSmall)
-                    }
-                    Box(
-                        Modifier.fillMaxWidth().height(164.dp)
-                            .background(MaterialTheme.colorScheme.background,RoundedCornerShape(12.dp)),
-                        contentAlignment=Alignment.Center
-                    ){
-                        Column(horizontalAlignment=Alignment.CenterHorizontally,
-                            verticalArrangement=Arrangement.spacedBy(8.dp)){
-                            Icon(Icons.Outlined.CropFree,null,tint=MaterialTheme.colorScheme.onSurface,
-                                modifier=Modifier.size(65.dp))
-                            Text("[  AUTO-EDGE DETECTION  ]",color=VaultColors.syntax,
-                                style=MaterialTheme.typography.labelSmall)
-                            Text("Detect → Crop → Enhance → Save",
-                                color=MaterialTheme.colorScheme.onSurfaceVariant,
-                                style=MaterialTheme.typography.labelSmall)
+        items(choices.size){i->
+            val (title,description,icon)=choices[i]
+            Card(onClick=actions[i],
+                modifier=Modifier.fillMaxWidth().heightIn(min=100.dp),
+                shape=RoundedCornerShape(16.dp),
+                colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface),
+                border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
+                Row(Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment=Alignment.CenterVertically,
+                    horizontalArrangement=Arrangement.spacedBy(14.dp)){
+                    Surface(color=MaterialTheme.colorScheme.surfaceVariant,
+                        shape=RoundedCornerShape(12.dp),modifier=Modifier.size(52.dp)){
+                        Box(contentAlignment=Alignment.Center){
+                            Icon(icon,null,modifier=Modifier.size(26.dp),
+                                tint=MaterialTheme.colorScheme.onSurface)
                         }
                     }
-                    Button(onClick=onCamera,modifier=Modifier.fillMaxWidth().height(52.dp),
-                        shape=RoundedCornerShape(11.dp)){
-                        Icon(Icons.Outlined.CameraAlt,null,Modifier.size(21.dp))
-                        Spacer(Modifier.width(9.dp))
-                        Text("Open camera",fontWeight=FontWeight.SemiBold)
-                        Spacer(Modifier.weight(1f))
-                        Icon(Icons.Outlined.ArrowForward,null,Modifier.size(20.dp))
+                    Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(5.dp)){
+                        Text(title,style=MaterialTheme.typography.titleMedium,
+                            fontWeight=FontWeight.SemiBold)
+                        Text(description,style=MaterialTheme.typography.bodySmall,
+                            color=MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    Icon(Icons.Outlined.ChevronRight,null,
+                        tint=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
         item{
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment=Alignment.CenterVertically){
-                Text("IMPORT SOURCES",color=MaterialTheme.colorScheme.onSurface,
-                    fontWeight=FontWeight.SemiBold,
-                    style=MaterialTheme.typography.labelMedium,
-                    modifier=Modifier.weight(1f))
-                Text("02 OPTIONS",color=VaultColors.lineNumber,
-                    style=MaterialTheme.typography.labelSmall)
-            }
-        }
-        item{
-            EditorImportRow("02","Import from gallery","JPG · PNG · HEIC · multiple photos",
-                Icons.Outlined.PhotoLibrary,onGallery)
-        }
-        item{
-            EditorImportRow("03","Import files / PDF","PDF · DOCX · images · text · ZIP",
-                Icons.Outlined.FolderOpen,onFiles)
-        }
-        item{
-            EditorImportRow("04","New information card","Save custom fields without an attachment",
-                Icons.Outlined.DataObject,onNew)
-        }
-        item{
-            Surface(color=MaterialTheme.colorScheme.surfaceVariant,
-                shape=RoundedCornerShape(12.dp)){
-                Row(Modifier.fillMaxWidth().padding(14.dp),
-                    verticalAlignment=Alignment.Top){
-                    Icon(Icons.Outlined.Info,null,
-                        tint=VaultColors.syntax,modifier=Modifier.size(18.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text("// To add pages to an existing document, open its card and choose Add.\n"+
-                        "// PDF Studio can combine attached pages into one file.",
-                        style=MaterialTheme.typography.bodySmall,
-                        color=MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
+            Spacer(Modifier.height(10.dp))
+            Text("Documents stay on this device unless you choose to share or export them.",
+                color=MaterialTheme.colorScheme.onSurfaceVariant,
+                style=MaterialTheme.typography.bodySmall)
         }
     }
 }
