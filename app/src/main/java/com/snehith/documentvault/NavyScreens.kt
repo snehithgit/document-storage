@@ -47,20 +47,20 @@ private val rounded=RoundedCornerShape(14.dp)
 private val thumbnailCache=object:LruCache<String,Bitmap>(16*1024*1024){
     override fun sizeOf(key:String,value:Bitmap):Int=value.byteCount
 }
-@Composable fun VaultThumbnail(file:VaultFile?,repo:VaultRepository,modifier:Modifier=Modifier) {
-    var bitmap by remember(file?.id){mutableStateOf<Bitmap?>(null)}
-    LaunchedEffect(file?.id) {
+@Composable fun VaultThumbnail(file:VaultFile?,repo:VaultRepository,modifier:Modifier=Modifier,maxEdge:Int=640) {
+    var bitmap by remember(file?.id,maxEdge){mutableStateOf<Bitmap?>(null)}
+    LaunchedEffect(file?.id,maxEdge) {
         bitmap=null
         if(file==null)return@LaunchedEffect
         try {
             val image=withContext(Dispatchers.IO) {
                 val raw=repo.documentFile(file)
-                val cacheKey=file.id+"-"+raw.lastModified()
+                val cacheKey=file.id+"-"+maxEdge+"-"+raw.lastModified()
                 synchronized(thumbnailCache){thumbnailCache.get(cacheKey)} ?: run {
                     val thumbnail=if(file.mime=="application/pdf"||file.name.endsWith(".pdf",true)){
-                        PdfPageSession(raw).use{it.render(0,340)}
+                        PdfPageSession(raw).use{it.render(0,maxEdge)}
                     }else if(file.mime.startsWith("image/")){
-                        ImageDecode.decode(raw,440)
+                        ImageDecode.decode(raw,maxEdge,highQuality=true)
                     }else null
                     if(thumbnail!=null)synchronized(thumbnailCache){thumbnailCache.put(cacheKey,thumbnail)}
                     thumbnail
@@ -70,7 +70,7 @@ private val thumbnailCache=object:LruCache<String,Bitmap>(16*1024*1024){
         }catch(_:Exception){ /* Invalid attachment falls back to the document icon. */ }
     }
     Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant,rounded),contentAlignment=Alignment.Center){
-        if(bitmap!=null)Image(bitmap!!.asImageBitmap(),"Document",Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
+        if(bitmap!=null)Image(bitmap!!.asImageBitmap(),"Document",Modifier.fillMaxSize(),contentScale=ContentScale.Fit)
         else Icon(Icons.Outlined.Description,null,tint=VaultSky,modifier=Modifier.size(37.dp))
     }
 }
@@ -387,7 +387,7 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
                 shape=RoundedCornerShape(16.dp),
                 border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
                 Column(Modifier.fillMaxWidth()){
-                    VaultThumbnail(selected,repo,Modifier.fillMaxWidth().height(270.dp))
+                    VaultThumbnail(selected,repo,Modifier.fillMaxWidth().height(300.dp),maxEdge=1550)
                     Row(Modifier.fillMaxWidth().padding(horizontal=14.dp,vertical=10.dp),
                         verticalAlignment=Alignment.CenterVertically){
                         Text(if(selected==null)"No attachment added" else
