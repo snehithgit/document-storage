@@ -271,7 +271,7 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
 @Composable fun VaultNavDetail(card:VaultCard,repo:VaultRepository,onFile:(VaultFile)->Unit,onOcr:(VaultFile)->Unit,
     onShare:(VaultFile)->Unit,onShareAll:()->Unit,onAdd:()->Unit,
     onFull:()->Unit,onTools:()->Unit,onEdit:()->Unit,onManage:()->Unit,onDelete:()->Unit,
-    onEnhance:(VaultFile)->Unit){
+    onFetchDetails:()->Unit,fetchingDetails:Boolean,onEnhance:(VaultFile)->Unit){
     var selected by rememberSaveable(card.id){mutableIntStateOf(0)}
     val context=LocalContext.current
     val(status,color)=vaultValidity(card)
@@ -312,7 +312,7 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 VaultQuick("View",Icons.Outlined.Visibility,Modifier.weight(1f),
                     {card.files.getOrNull(selected)?.let(onFile)})
-                VaultQuick("OCR",Icons.Outlined.DocumentScanner,Modifier.weight(1f),
+                VaultQuick("OCR page",Icons.Outlined.DocumentScanner,Modifier.weight(1f),
                     {card.files.getOrNull(selected)?.let(onOcr)})
                 VaultQuick("Share",Icons.Outlined.Share,Modifier.weight(1f),
                     {card.files.getOrNull(selected)?.let(onShare)})
@@ -320,10 +320,26 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
             }
         }
         item {
-            Button(onClick=onFull,modifier=Modifier.fillMaxWidth()){
-                Icon(Icons.Outlined.ContentCopy,null);Text(" Open details.json  /  Copy fields")
-                Spacer(Modifier.weight(1f));Icon(Icons.Outlined.ChevronRight,null)
+            Button(onClick=onFetchDetails,modifier=Modifier.fillMaxWidth().height(54.dp),
+                enabled=!fetchingDetails && card.files.any{DetailFetchPlan.supported(it)},
+                shape=RoundedCornerShape(12.dp)){
+                Icon(Icons.Outlined.AutoAwesome,null,modifier=Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(if(fetchingDetails)"Fetching details…" else "Fetch Details · All Pages",
+                    fontWeight=FontWeight.SemiBold,modifier=Modifier.weight(1f))
+                Icon(Icons.Outlined.ArrowForward,null,modifier=Modifier.size(18.dp))
             }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick=onFull,modifier=Modifier.fillMaxWidth().height(48.dp),
+                shape=RoundedCornerShape(12.dp)){
+                Icon(Icons.Outlined.DataObject,null,modifier=Modifier.size(19.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Open details.json  /  Copy fields",modifier=Modifier.weight(1f))
+                Icon(Icons.Outlined.ChevronRight,null,modifier=Modifier.size(18.dp))
+            }
+            Text("// Runs OCR locally on every compatible attachment; fields are editable.",
+                color=MaterialTheme.colorScheme.onSurfaceVariant,
+                style=MaterialTheme.typography.labelSmall)
         }
         item {
             Column(Modifier.fillMaxWidth().background(VaultPanel,rounded).border(1.dp,MaterialTheme.colorScheme.outlineVariant,rounded).padding(12.dp)){

@@ -68,7 +68,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     val workManager=remember(activity){WorkManager.getInstance(activity.applicationContext)}
     val ocrFlow=remember(workManager){workManager.getWorkInfosForUniqueWorkFlow(VaultOcrWorker.UNIQUE)}
     val ocrInfos by ocrFlow.collectAsState(initial=emptyList())
-    val runningOcr=ocrInfos.firstOrNull{it.state==WorkInfo.State.RUNNING||it.state==WorkInfo.State.ENQUEUED}
+    val runningOcr=ocrInfos.firstOrNull{it.state==WorkInfo.State.RUNNING}
+        ?:ocrInfos.firstOrNull{it.state==WorkInfo.State.ENQUEUED}
     val latestOcr=ocrInfos.firstOrNull()
     var notifiedOcrId by rememberSaveable{mutableStateOf("")}
     var error by remember{mutableStateOf("")}
@@ -106,6 +107,33 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             .addTag("offline-ocr").build()
         workManager.enqueueUniqueWork(VaultOcrWorker.UNIQUE,ExistingWorkPolicy.KEEP,request)
         activity.notify("OCR queued — you can leave this screen")
+    }
+    fun fetchDetailsForCard(card:VaultCard) {
+        if(runningOcr!=null){
+            activity.notify("OCR is already running. Wait for it or use Cancel.")
+            return
+        }
+        val eligible=DetailFetchPlan.filesToProcess(card.files)
+        if(eligible.isEmpty()){
+            activity.notify("No supported image, PDF or text attachments to extract")
+            return
+        }
+        val requests=eligible.map { file->
+            OneTimeWorkRequestBuilder<VaultOcrWorker>()
+                .setInputData(workDataOf(
+                    VaultOcrWorker.KEY_CARD to card.id,
+                    VaultOcrWorker.KEY_FILE to file.id,
+                    VaultOcrWorker.KEY_SCRIPT to ocrLanguage
+                ))
+                .addTag("offline-fetch-details")
+                .build()
+        }
+        var continuation=workManager.beginUniqueWork(
+            VaultOcrWorker.UNIQUE,ExistingWorkPolicy.KEEP,requests.first())
+        requests.drop(1).forEach{request->continuation=continuation.then(request)}
+        continuation.enqueue()
+        activity.notify("Fetching details from "+VaultCounts.format(eligible.size,"attachment")+
+            " offline. Open details.json to review and copy the results.")
     }
     LaunchedEffect(latestOcr?.id,latestOcr?.state) {
         val info=latestOcr?:return@LaunchedEffect
@@ -441,6 +469,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {startEdit(c)},{route="attachments"},
                             {scope.launch{try{withContext(Dispatchers.IO){repo.deleteCard(c)};route="cards"}
                                 catch(e:Exception){error=e.message?:"Delete failed"}}},
+                            {fetchDetailsForCard(c)},runningOcr!=null,
                             {imageFile->scope.launch {
                                 busy="Preparing photo for non-destructive enhancement"
                                 try {
@@ -473,7 +502,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         "fulldetails"->current?.let{c->FullDetailsPage(c,
                             {updated->scope.launch{try{withContext(Dispatchers.IO){repo.saveCard(updated)}}
                                 catch(e:Exception){error=e.message?:"Cannot save field"}}},
-                            {route="selectfields"})}
+                            {route="selectfields"},
+                            {fetchDetailsForCard(c)},runningOcr!=null)}
                         "selectfields"->current?.let{c->SelectDocumentTextPage(c,
                             {f->scope.launch{
                                 try{withContext(Dispatchers.IO){
