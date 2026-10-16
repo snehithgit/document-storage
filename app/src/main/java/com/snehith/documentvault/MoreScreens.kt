@@ -32,7 +32,6 @@ import java.util.UUID
     engine:DocumentEngine,onShare:()->Unit,onOcr:()->Unit) {
     val pdf=file.mime=="application/pdf"||file.name.endsWith(".pdf",true)
     val isImage=file.mime.startsWith("image/")
-    val scope=rememberCoroutineScope()
     var page by rememberSaveable(file.id){mutableIntStateOf(0)}
     var pageCount by remember(file.id){mutableIntStateOf(1)}
     var bitmap by remember(file.id){mutableStateOf<Bitmap?>(null)}
@@ -47,7 +46,7 @@ import java.util.UUID
 
     DisposableEffect(session,file.id) {
         val active=session
-        onDispose { if(active!=null)scope.launch(Dispatchers.IO){active.close()} }
+        onDispose { if(active!=null)runCatching { active.close() } }
     }
     DisposableEffect(bitmap,file.id) {
         val shown=bitmap
