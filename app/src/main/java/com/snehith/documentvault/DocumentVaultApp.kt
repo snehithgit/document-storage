@@ -201,10 +201,17 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 if(lastCard!=null) {
                     val card=repo.cards.first{it.id==lastCard!!.id}
                     if(originalUri!=null) {
-                        withContext(Dispatchers.IO) {
-                            val retained=repo.importFile(originalUri)
-                            try { repo.keepScanSource(card.id,card.files.last().id,retained,savedCorners,savedRotation) }
-                            catch(e:Exception){repo.removeOrphan(retained);throw e}
+                        try{
+                            withContext(Dispatchers.IO) {
+                                val retained=repo.importFile(originalUri)
+                                try { repo.keepScanSource(card.id,card.files.last().id,retained,savedCorners,savedRotation) }
+                                catch(e:Exception){repo.removeOrphan(retained);throw e}
+                            }
+                        }catch(e:Exception) {
+                            // The processed page was already committed successfully.
+                            // If Android removed the raw camera cache mid-session, do not
+                            // strand the user on Crop with an unrepeatable duplicate import.
+                            activity.notify("Page saved. Original photo could not be retained.")
                         }
                     }
                     onSaved?.invoke()
