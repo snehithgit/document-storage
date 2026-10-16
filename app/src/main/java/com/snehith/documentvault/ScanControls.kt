@@ -17,7 +17,7 @@ import kotlin.math.roundToInt
             ScanEnhance.presets.forEach{preset->
                 FilterChip(selected=settings.preset==preset,
                     onClick={onChange(settings.copy(preset=preset))},
-                    label={Text(preset)},shape=CircleShape)
+                    label={Text(if(preset=="B&W")"Black & White" else preset)},shape=CircleShape)
             }
         }
         var showAdjust by remember{mutableStateOf(false)}
