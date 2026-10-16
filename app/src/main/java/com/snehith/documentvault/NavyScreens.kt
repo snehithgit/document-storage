@@ -35,11 +35,11 @@ val VaultBlue=VaultColors.primaryText
 val VaultSky:Color @Composable get()=MaterialTheme.colorScheme.primary
 val VaultMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVariant
 val bgBrush:Brush @Composable get()=vaultWarmBrush(MaterialTheme.colorScheme.background==VaultColors.darkBg)
-private val rounded=RoundedCornerShape(24.dp)
+private val rounded=RoundedCornerShape(14.dp)
 
 @Composable fun VaultHeader(title:String,subtitle:String?=null) {
     Column {
-        Text(title,color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.headlineSmall)
+        Text(title,color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.SemiBold,style=MaterialTheme.typography.headlineSmall)
         if(subtitle!=null)Text(subtitle,color=VaultMuted,style=MaterialTheme.typography.bodySmall)
     }
 }
@@ -92,7 +92,8 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
 }
 @Composable fun VaultTile(card:VaultCard,repo:VaultRepository,onClick:()->Unit){
     Card(onClick=onClick,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=rounded,
-        elevation=CardDefaults.cardElevation(defaultElevation=3.dp)){
+        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline),
+        elevation=CardDefaults.cardElevation(defaultElevation=0.dp)){
         Column(Modifier.fillMaxWidth().padding(9.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
             Box {
                 VaultThumbnail(card.files.firstOrNull(),repo,Modifier.fillMaxWidth().height(140.dp))
@@ -111,14 +112,15 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
 @Composable fun VaultRow(card:VaultCard,repo:VaultRepository,onClick:()->Unit){
     val(v,c)=vaultValidity(card)
     Card(onClick=onClick,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=rounded,
-        elevation=CardDefaults.cardElevation(defaultElevation=3.dp)){
+        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline),
+        elevation=CardDefaults.cardElevation(defaultElevation=0.dp)){
         Row(Modifier.padding(9.dp).fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
             VaultThumbnail(card.files.firstOrNull(),repo,Modifier.size(65.dp,72.dp))
             Spacer(Modifier.width(11.dp))
             Column(Modifier.weight(1f)){
-                Text(card.title,color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
+                Text(VaultNames.title(card.title),color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
                 Text(card.kind+" · "+card.category,color=VaultMuted,style=MaterialTheme.typography.labelSmall)
-                Text(VaultCounts.format(card.files.size,"attachment"),color=VaultSky,style=MaterialTheme.typography.labelSmall)
+                Text(VaultCounts.format(card.files.size,"attachment"),color=VaultColors.syntax,style=MaterialTheme.typography.labelSmall)
             }
             VaultPill(v,c)
         }
@@ -319,29 +321,34 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
         }
         item {
             Button(onClick=onFull,modifier=Modifier.fillMaxWidth()){
-                Icon(Icons.Outlined.ContentCopy,null);Text(" Full Details / Copy Fields")
+                Icon(Icons.Outlined.ContentCopy,null);Text(" Open details.json  /  Copy fields")
                 Spacer(Modifier.weight(1f));Icon(Icons.Outlined.ChevronRight,null)
             }
         }
         item {
             Column(Modifier.fillMaxWidth().background(VaultPanel,rounded).border(1.dp,MaterialTheme.colorScheme.outlineVariant,rounded).padding(12.dp)){
                 Row(verticalAlignment=Alignment.CenterVertically) {
-                    Text("Quick Copy",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f))
-                    TextButton(onClick=onFull){Text("All fields →")}
+                    Text("fields.preview",color=VaultColors.syntax,fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace,
+                        fontWeight=FontWeight.Medium,modifier=Modifier.weight(1f))
+                    TextButton(onClick=onFull){Text("Open editor →",color=VaultColors.syntax)}
                 }
                 card.fields.take(4).forEach{f->
                     HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
                     Row(Modifier.padding(vertical=7.dp),verticalAlignment=Alignment.CenterVertically){
                         Column(Modifier.weight(1f)){
-                            Text(f.name,color=VaultMuted,style=MaterialTheme.typography.labelSmall)
-                            Text(f.value.ifBlank{"—"},color=MaterialTheme.colorScheme.onSurface)
+                            Text("\""+f.name+"\":",color=VaultColors.syntax,
+                                fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace,
+                                style=MaterialTheme.typography.labelSmall)
+                            Text("\""+f.value.ifBlank{"—"}+"\"",color=MaterialTheme.colorScheme.onSurface,
+                                fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace)
                         }
                         IconButton(onClick={copyToClipboard(context,f.name,f.value)}){
                             Icon(Icons.Outlined.ContentCopy,null,tint=VaultSky)
                         }
                     }
                 }
-                if(card.fields.isEmpty())Text("Choose details from OCR or create fields.",color=VaultMuted)
+                if(card.fields.isEmpty())Text("// No saved fields. Select OCR text or add a field.",color=VaultMuted,
+                        style=MaterialTheme.typography.bodySmall)
             }
         }
         item {
