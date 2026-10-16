@@ -29,7 +29,7 @@ import java.io.File
 import java.util.UUID
 
 @Composable fun DocumentViewerScreen(file:VaultFile,repo:VaultRepository,
-    engine:DocumentEngine,onShare:()->Unit,onOcr:()->Unit) {
+    engine:DocumentEngine,onShare:()->Unit,onOcr:()->Unit,sourceOverride:File?=null) {
     val pdf=file.mime=="application/pdf"||file.name.endsWith(".pdf",true)
     val isImage=file.mime.startsWith("image/")
     var page by rememberSaveable(file.id){mutableIntStateOf(0)}
@@ -59,7 +59,9 @@ import java.util.UUID
     LaunchedEffect(file.id){
         if(pdf)try{
             loading=true
-            val opened=withContext(Dispatchers.IO){PdfPageSession(repo.documentFile(file))}
+            val opened=withContext(Dispatchers.IO){
+                PdfPageSession(sourceOverride?:repo.documentFile(file))
+            }
             if(!kotlinx.coroutines.currentCoroutineContext().isActive){
                 withContext(Dispatchers.IO){opened.close()}
                 return@LaunchedEffect
@@ -74,7 +76,8 @@ import java.util.UUID
         if(showText) {
             if(text.isBlank())try {
                 loading=true
-                text=withContext(Dispatchers.IO){engine.extract(file).text}
+                text=if(sourceOverride!=null)"Save this PDF to the vault to read text."
+                    else withContext(Dispatchers.IO){engine.extract(file).text}
             }catch(e:Exception){error=e.message?:"Unable to read the document"}
             finally{loading=false}
             return@LaunchedEffect
@@ -84,7 +87,7 @@ import java.util.UUID
             loading=true
             val rendered=withContext(Dispatchers.IO){
                 if(pdf)session!!.render(page)
-                else engine.scaledBitmap(repo.documentFile(file),1550)
+                else engine.scaledBitmap(sourceOverride?:repo.documentFile(file),1550)
             }
             bitmap=rendered
             error=""

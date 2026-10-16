@@ -222,8 +222,8 @@ class VaultRepository(private val context: Context) {
         .put("fields",JSONArray().apply { c.fields.forEach{ put(JSONObject().put("name",it.name).put("value",it.value).put("page",it.page).put("source",it.source).put("id",it.id).put("confidence",it.confidence.toDouble())) } })
         .put("files",JSONArray().apply { c.files.forEach{ put(JSONObject().put("id",it.id).put("name",it.name).put("mime",it.mime).put("bytes",it.bytes).put("sha256",it.sha256).put("extractedText",it.extractedText).put("ocrStatus",it.ocrStatus)
             .put("originalId",it.originalId).put("cropCorners",it.cropCorners).put("cropRotation",it.cropRotation)) } })
-    private fun snapshot():String=JSONObject()
-        .put("cards",JSONArray().apply { cards.forEach{put(writeCard(it))} })
+    private fun snapshot(sourceCards:List<VaultCard> = cards.toList()):String=JSONObject()
+        .put("cards",JSONArray().apply { sourceCards.forEach{put(writeCard(it))} })
         .put("profiles",JSONArray().apply { profiles.forEach{put(JSONObject().put("id",it.id).put("name",it.name))} })
         .put("templates",JSONArray().apply { customTemplates.forEach{put(JSONObject().put("id",it.id).put("name",it.name).put("fields",JSONArray(it.fieldNames)))} })
         .toString()
@@ -444,25 +444,31 @@ class VaultRepository(private val context: Context) {
     }
 
     // This ZIP is deliberately not encrypted. Store it only where you trust the recipient.
-    fun exportBackup(uri:Uri,password:String) {
+    /** A missing raw original is optional; missing visible pages are reported explicitly. */
+    fun exportBackup(uri:Uri,password:String):List<String> {
+        val plan=BackupIntegrity.plan(cards.toList()){id->blob(id).isFile}
         context.contentResolver.openOutputStream(uri,"w")!!.use{output->
             ZipOutputStream(output).use{zip->
                 zip.putNextEntry(ZipEntry("index.json"))
-                zip.write(snapshot().toByteArray(Charsets.UTF_8));zip.closeEntry()
-                // A readable attachment list accompanies UUID-addressed storage blobs.
-                val readable=cards.flatMap{it.files}.distinctBy{it.id}.joinToString("\n"){file->
+                zip.write(snapshot(plan.cards).toByteArray(Charsets.UTF_8));zip.closeEntry()
+                val readable=plan.cards.flatMap{it.files}.distinctBy{it.id}.joinToString("\n"){file->
                     file.id+" : "+VaultNames.label(file.name).replace(10.toChar(),' ').replace(13.toChar(),' ')
                 }
                 zip.putNextEntry(ZipEntry("filenames.txt"))
                 zip.write(readable.toByteArray(Charsets.UTF_8));zip.closeEntry()
-                val fileIds=referencedIds()
-                fileIds.forEach{id->
+                plan.availableIds.forEach{id->
                     zip.putNextEntry(ZipEntry("blobs/"+id))
                     blob(id).inputStream().use{it.copyTo(zip,65536)}
                     zip.closeEntry()
                 }
+                if(plan.warnings.isNotEmpty()){
+                    zip.putNextEntry(ZipEntry("missing-files.txt"))
+                    zip.write(plan.warnings.joinToString("\n").toByteArray(Charsets.UTF_8))
+                    zip.closeEntry()
+                }
             }
         }
+        return plan.warnings
     }
     fun restoreBackup(uri:Uri,password:String) {
         val staged=File(context.cacheDir,"restore-"+uid()).apply{mkdirs()}
@@ -484,7 +490,7 @@ class VaultRepository(private val context: Context) {
                                 buffer.write(bytes,0,count)
                             }
                             root=buffer.toString("UTF-8")
-                        }else if(entry.name=="filenames.txt"){
+                        }else if(entry.name=="filenames.txt"||entry.name=="missing-files.txt"){
                             // The human-readable list is optional and not trusted for restore.
                             val chunk=ByteArray(8192)
                             var total=0L
@@ -506,10 +512,11 @@ class VaultRepository(private val context: Context) {
             }
             val json=JSONObject(root?:throw IOException("Backup index missing"))
             val array=json.getJSONArray("cards")
-            val nextCards=(0 until array.length()).map{readCard(array.getJSONObject(it))}
-            val ids=nextCards.flatMap{it.files}.flatMap{listOf(it.id,it.originalId)}
-                .filter{it.isNotBlank()}.toSet()
-            require(ids.all{imported[it]?.isFile==true}){"Backup has missing files"}
+            val readCards=(0 until array.length()).map{readCard(array.getJSONObject(it))}
+            val nextCards=BackupIntegrity.clearMissingOriginals(readCards){id->imported[id]?.isFile==true}
+            val required=nextCards.flatMap{it.files}.map{it.id}.toSet()
+            require(required.all{imported[it]?.isFile==true}){"Backup has missing primary attachments"}
+            val ids=AttachmentReferences.referencedIds(nextCards)
             val nextProfiles=mutableListOf<VaultProfile>()
             val p=json.optJSONArray("profiles")?:JSONArray()
             for(i in 0 until p.length()){val e=p.getJSONObject(i);nextProfiles.add(VaultProfile(e.getString("id"),e.getString("name")))}
