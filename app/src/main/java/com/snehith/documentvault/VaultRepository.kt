@@ -365,6 +365,8 @@ class VaultRepository(private val context: Context) {
         val id=uid()
         val digest=MessageDigest.getInstance("SHA-256")
         var size=0L
+        val sample=ByteArray(32)
+        var sampleLength=0
         try {
             context.contentResolver.openInputStream(uri)?.use { input ->
                 FileOutputStream(blob(id)).use{output->
@@ -373,12 +375,18 @@ class VaultRepository(private val context: Context) {
                         val n=input.read(buffer)
                         if(n<0)break
                         if(n==0)continue
+                        if(sampleLength<sample.size) {
+                            val copy=minOf(n,sample.size-sampleLength)
+                            System.arraycopy(buffer,0,sample,sampleLength,copy)
+                            sampleLength+=copy
+                        }
                         output.write(buffer,0,n);digest.update(buffer,0,n);size+=n
                     }
                     output.fd.sync()
                 }
             } ?: throw IOException("Cannot read selected file")
-            val file=VaultFile(id,name,mime,size,digest.digest().joinToString(""){"%02x".format(it)})
+            val media=VaultFileTypes.resolve(name,mime,sample.copyOf(sampleLength))
+            val file=VaultFile(id,media.name,media.mime,size,digest.digest().joinToString(""){"%02x".format(it)})
             try{writeMeta(file)}catch(_:Exception) { /* preserve imported bytes */ }
             return file
         }catch(e:Exception){blob(id).delete();meta(id).delete();throw e}
@@ -396,7 +404,7 @@ class VaultRepository(private val context: Context) {
         listOf("preview","shared","camera").forEach {folder->
             File(context.cacheDir,folder).listFiles()?.filter{
                 System.currentTimeMillis()-it.lastModified()>3600000
-            }?.forEach{it.delete()}
+            }?.forEach{it.deleteRecursively()}
         }
         context.cacheDir.listFiles()?.filter{
             it.isDirectory && it.name.startsWith("restore-") &&

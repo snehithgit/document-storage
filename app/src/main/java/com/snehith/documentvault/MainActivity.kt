@@ -212,8 +212,8 @@ class MainActivity : FragmentActivity() {
             .setNegativeButtonText("Use PIN").build()
         prompt.authenticate(info)
     }
-    // Direct FileProvider URIs: no copy, no decryption, no delayed chooser.
-    // Coalesce rapid repeated taps so old share sheets do not pop over View.
+    // Shared exports get real filenames and MIME types, unlike internal UUID.dat blobs.
+    // File preparation is streamed on IO; no image/PDF decoding or copying on the UI thread.
     private var lastShareAt=0L
     fun share(file:VaultFile)=shareAll(listOf(file))
     fun shareAll(files:List<VaultFile>) {
@@ -221,25 +221,29 @@ class MainActivity : FragmentActivity() {
         val now=android.os.SystemClock.elapsedRealtime()
         if(now-lastShareAt<1300L)return
         lastShareAt=now
-        try {
-            val links=ArrayList<Uri>(files.size)
-            for(file in files) {
-                val source=repo.documentFile(file)
-                links.add(FileProvider.getUriForFile(this,packageName+".provider",source,VaultNames.label(file.name)))
-            }
-            val send=Intent(if(links.size==1)Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE).apply {
-                type=if(files.size==1)files.first().mime.ifBlank{"application/octet-stream"}else "*/*"
-                if(links.size==1)putExtra(Intent.EXTRA_STREAM,links.first())
-                else putParcelableArrayListExtra(Intent.EXTRA_STREAM,links)
-                clipData=ClipData.newUri(contentResolver,"Document",links.first()).also{clip->
-                    links.drop(1).forEach{clip.addItem(ClipData.Item(it))}
+        val selected=files.toList()
+        lifecycleScope.launch {
+            try {
+                val prepared=withContext(Dispatchers.IO){
+                    VaultShareFiles.prepare(applicationContext,repo,selected)
                 }
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                if(prepared.isEmpty())return@launch
+                val links=ArrayList(prepared.map{it.uri})
+                val send=Intent(if(links.size==1)Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE).apply {
+                    type=VaultFileTypes.chooserMime(prepared.map{it.type})
+                    if(links.size==1)putExtra(Intent.EXTRA_STREAM,links.first())
+                    else putParcelableArrayListExtra(Intent.EXTRA_STREAM,links)
+                    clipData=ClipData.newUri(contentResolver,"Document",links.first()).also{clip->
+                        links.drop(1).forEach{clip.addItem(ClipData.Item(it))}
+                    }
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(Intent.createChooser(send,"Share document"))
+            }catch(cancelled:CancellationException){throw cancelled}
+            catch(e:Exception) {
+                lastShareAt=0L
+                notify(e.message?:"Unable to share document")
             }
-            startActivity(Intent.createChooser(send,"Share document"))
-        }catch(e:Exception) {
-            lastShareAt=0L
-            notify(e.message?:"Unable to share document")
         }
     }
     fun notify(message:String)=Toast.makeText(this,message,Toast.LENGTH_LONG).show()
