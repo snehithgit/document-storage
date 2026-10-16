@@ -13,11 +13,12 @@ import androidx.work.*
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 
 class ExpiryWorker(context:Context,params:WorkerParameters):Worker(context,params) {
     override fun doWork():Result {
         return try {
-            val store=VaultRepository(applicationContext)
+            val store=VaultStorage.get(applicationContext)
             val today=LocalDate.now()
             val days=applicationContext.getSharedPreferences("vault_options",Context.MODE_PRIVATE).getInt("remindDays",30)
             val renewedIds=store.cards.map{it.previousId}.filter{it.isNotBlank()}.toSet()
@@ -53,7 +54,8 @@ class ExpiryWorker(context:Context,params:WorkerParameters):Worker(context,param
                 }
             }
             Result.success()
-        } catch(_:Exception){if(runAttemptCount>=2)Result.failure()else Result.retry()}
+        } catch(cancelled:CancellationException){throw cancelled}
+        catch(_:Exception){if(runAttemptCount>=2)Result.failure()else Result.retry()}
     }
     companion object {
         fun schedule(context:Context) {
