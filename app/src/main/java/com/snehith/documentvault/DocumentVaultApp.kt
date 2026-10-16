@@ -417,7 +417,12 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             UnlockScreen(onPin={pin->
                 if(repo.checkPin(pin)){activity.unlocked.value=true;true}else false
             },waitSeconds={repo.pinWaitSeconds()},
-                onBiometric={activity.authenticate({activity.unlocked.value=true},{activity.notify(it)})})
+                onBiometric={activity.authenticate({activity.unlocked.value=true},{activity.notify(it)})},
+                biometricAvailable=remember(activity){
+                    androidx.biometric.BiometricManager.from(activity).canAuthenticate(
+                        androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
+                    )==androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
+                })
         } else {
             androidx.activity.compose.BackHandler(enabled=!regular||route!="home"){goBack()}
             Scaffold(
@@ -719,7 +724,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     }
 }
 
-@Composable fun UnlockScreen(onPin:(String)->Boolean,waitSeconds:()->Long,onBiometric:()->Unit) {
+@Composable fun UnlockScreen(onPin:(String)->Boolean,waitSeconds:()->Long,onBiometric:()->Unit,biometricAvailable:Boolean) {
     var pin by remember{mutableStateOf("")}
     var invalid by remember{mutableStateOf(false)}
     Column(Modifier.fillMaxSize().padding(28.dp),verticalArrangement=Arrangement.Center,horizontalAlignment=Alignment.CenterHorizontally) {
@@ -727,6 +732,10 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         Spacer(Modifier.height(24.dp))
         Text("Document Vault",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold)
         Text("Unlock your personal document library")
+        Spacer(Modifier.height(8.dp))
+        Text("The PIN locks the app. It does not encrypt your saved documents.",
+            color=MaterialTheme.colorScheme.onSurfaceVariant,
+            style=MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(30.dp))
         OutlinedTextField(pin,{pin=it;invalid=false},label={Text("Vault PIN")},visualTransformation=PasswordVisualTransformation(),
             singleLine=true,modifier=Modifier.fillMaxWidth())
@@ -734,7 +743,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             else "Incorrect PIN",color=MaterialTheme.colorScheme.error)
         Spacer(Modifier.height(12.dp))
         Button(onClick={if(!onPin(pin))invalid=true},modifier=Modifier.fillMaxWidth(),enabled=pin.isNotBlank()){Text("Unlock")}
-        OutlinedButton(onClick=onBiometric,modifier=Modifier.fillMaxWidth()) {
+        if(biometricAvailable)OutlinedButton(onClick=onBiometric,
+            modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) {
             Icon(Icons.Outlined.Fingerprint,null);Text(" Use biometrics")
         }
     }
