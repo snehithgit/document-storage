@@ -49,6 +49,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var privacyScreen by rememberSaveable{mutableStateOf(activity.isPrivacyScreenEnabled())}
     var backStack by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var selectedCardId by rememberSaveable{mutableStateOf("")}
+    var editorDirty by rememberSaveable{mutableStateOf(false)}
+    var discardEditorDialog by rememberSaveable{mutableStateOf(false)}
     var editing by remember{mutableStateOf<VaultCard?>(null)}
     var editingJson by rememberSaveable{mutableStateOf("")}
     var viewingId by rememberSaveable{mutableStateOf("")}
@@ -101,10 +103,14 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         editingJson=repo.encodeCard(card)
         navigate("edit")
     }
-    fun goBack(){
+    fun popBack(){
         val previous=backStack.lastOrNull()
         backStack=if(backStack.isEmpty())emptyList()else backStack.dropLast(1)
         route=previous?:"home"
+    }
+    fun goBack(){
+        if(route=="edit"&&editorDirty)discardEditorDialog=true
+        else popBack()
     }
     fun startOcr(cardId:String,f:VaultFile) {
         if(runningOcr!=null) {
@@ -380,6 +386,19 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             }){Text("Replace and restore")}},
             dismissButton={TextButton(onClick={confirmRestore=false}){Text("Cancel")}})
     }
+    if(discardEditorDialog) {
+        AlertDialog(onDismissRequest={discardEditorDialog=false},
+            title={Text("Discard changes?")},
+            text={Text("Your edits have not been saved.")},
+            confirmButton={TextButton(onClick={
+                discardEditorDialog=false
+                editorDirty=false
+                editing=null
+                editingJson=""
+                popBack()
+            }){Text("Discard",color=MaterialTheme.colorScheme.error)}},
+            dismissButton={TextButton(onClick={discardEditorDialog=false}){Text("Keep editing")}})
+    }
     if(error.isNotBlank()) {
         AlertDialog(onDismissRequest={error=""},title={Text("Document Vault")},text={Text(error)},
             confirmButton={TextButton(onClick={error=""}){Text("OK")}})
@@ -586,7 +605,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 busy="Saving card"
                                 try {
                                     withContext(Dispatchers.IO){repo.saveCard(saved)}
-                                    selectedCardId=saved.id;editing=null;editingJson=""
+                                    selectedCardId=saved.id;editing=null;editingJson="";editorDirty=false
                                      if(backStack.lastOrNull()=="detail")goBack()
                                      else route="detail"
                                 }catch(e:Exception){error="Cannot save card: "+(e.message?:"Storage error")}
@@ -594,7 +613,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             }},
                             {goBack()},
                             {t->scope.launch {try{withContext(Dispatchers.IO){repo.saveTemplate(t)};activity.notify("Saved template "+t.name)}
-                                catch(e:Exception){error=e.message?:"Unable to save template"}}})}
+                                catch(e:Exception){error=e.message?:"Unable to save template"}}},
+                             {editorDirty=it})}
                         "viewer"->current?.files?.firstOrNull{it.id==viewingId}?.let{f->
                             DocumentViewerScreen(f,repo,engine,{activity.share(f)},
                                 {startOcr(selectedCardId,f)})
