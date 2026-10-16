@@ -24,7 +24,10 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
 
 /** Read-first information sheet; values, not storage syntax, are the focus. */
 @Composable fun FullDetailsPage(card:VaultCard,onSave:(VaultCard)->Unit,onSelect:()->Unit,
-    onFetchDetails:()->Unit,fetchingDetails:Boolean){
+    onFetchDetails:()->Unit,fetchingDetails:Boolean,
+    profiles:List<VaultProfile> = emptyList(),
+    onAddToProfile:(String,List<DataField>)->Unit={_,_->},
+    onCreatePerson:(String,List<DataField>)->Unit={_,_->}){
     val context=LocalContext.current
     var tab by rememberSaveable(card.id){mutableStateOf("All")}
     var editId by rememberSaveable(card.id){mutableStateOf("")}
@@ -33,6 +36,7 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
     var arranging by rememberSaveable(card.id){mutableStateOf(false)}
     var selectMode by rememberSaveable(card.id){mutableStateOf(false)}
     var selected by rememberSaveable(card.id){mutableStateOf(emptySet<String>())}
+    var choosingPerson by rememberSaveable(card.id){mutableStateOf(false)}
     val fields=card.fields
     val rows=fields.filter { f ->
         when(tab) {
@@ -52,6 +56,13 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
     fun updateField(id:String,transform:(List<DataField>)->List<DataField>){
         onSave(card.copy(fields=transform(fields)))
         selected=selected-id
+    }
+    if(choosingPerson){
+        val chosen=fields.filter{it.id in selected&&it.value.isNotBlank()}
+        AddToProfileDialog(profiles,chosen.size,
+            {personId->choosingPerson=false;selected=emptySet();onAddToProfile(personId,chosen)},
+            {name->choosingPerson=false;selected=emptySet();onCreatePerson(name,chosen)},
+            {choosingPerson=false})
     }
     if(editId.isNotBlank()) AlertDialog(
         onDismissRequest={editId=""},
@@ -201,13 +212,23 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                 Spacer(Modifier.width(6.dp))
                 Text("Selected (${selected.size})")
             }
-            Button(onClick={copyToClipboard(context,"Document information",
-                copyText(fields.map{it.id}.toSet()))},
-                enabled=fields.any{it.value.isNotBlank()},
-                modifier=Modifier.weight(1f).heightIn(min=48.dp)){
-                Icon(Icons.Outlined.ContentCopy,"Copy all fields",Modifier.size(19.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Copy All")
+            if(fields.any{it.id in selected&&it.value.isNotBlank()}) {
+                Button(onClick={choosingPerson=true},
+                    modifier=Modifier.weight(1f).heightIn(min=48.dp)){
+                    Icon(Icons.Outlined.PersonAdd,"Add selected details to person",
+                        Modifier.size(19.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Add to Person")
+                }
+            }else{
+                Button(onClick={copyToClipboard(context,"Document information",
+                    copyText(fields.map{it.id}.toSet()))},
+                    enabled=fields.any{it.value.isNotBlank()},
+                    modifier=Modifier.weight(1f).heightIn(min=48.dp)){
+                    Icon(Icons.Outlined.ContentCopy,"Copy all fields",Modifier.size(19.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Copy All")
+                }
             }
         }
     }

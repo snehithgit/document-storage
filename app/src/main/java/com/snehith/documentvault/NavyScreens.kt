@@ -91,21 +91,21 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
     }
 }
 @Composable fun VaultTile(card:VaultCard,repo:VaultRepository,onClick:()->Unit){
-    Card(onClick=onClick,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=rounded,
-        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline),
-        elevation=CardDefaults.cardElevation(defaultElevation=0.dp)){
-        Column(Modifier.fillMaxWidth().padding(9.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
-            Box {
-                VaultThumbnail(card.files.firstOrNull(),repo,Modifier.fillMaxWidth().height(140.dp))
-                Box(Modifier.align(Alignment.TopEnd).padding(5.dp)){VaultPill(card.category.ifBlank{"Other"}.take(17))}
-            }
-            Text(VaultNames.title(card.title),color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold,
-                style=MaterialTheme.typography.bodyMedium,maxLines=2,minLines=2,overflow=TextOverflow.Ellipsis)
-            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){
-                val(v,c)=vaultValidity(card)
-                VaultPill(v,c)
-                Text(VaultCounts.format(card.files.size,"file"),color=VaultMuted,style=MaterialTheme.typography.labelSmall)
-            }
+    Card(onClick=onClick,
+        colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface),
+        shape=RoundedCornerShape(18.dp),
+        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
+        Column(Modifier.fillMaxWidth().padding(9.dp),
+            verticalArrangement=Arrangement.spacedBy(7.dp)){
+            CardFace(card)
+            Text(VaultNames.title(card.title),style=MaterialTheme.typography.titleMedium,
+                color=MaterialTheme.colorScheme.onSurface,
+                maxLines=2,minLines=2,overflow=TextOverflow.Ellipsis)
+            Text(card.category.ifBlank{"Other"}+" · "+
+                VaultCounts.format(card.files.size,"file"),
+                style=MaterialTheme.typography.bodySmall,color=VaultMuted,
+                maxLines=1,overflow=TextOverflow.Ellipsis)
+            ExpiryTag(card)
         }
     }
 }

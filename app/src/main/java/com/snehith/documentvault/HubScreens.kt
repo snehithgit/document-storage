@@ -62,94 +62,115 @@ private fun categoryIcon(category:String):ImageVector=when {
     category.contains("travel",true)||category.contains("passport",true)->Icons.Outlined.Public
     else->Icons.Outlined.FolderOpen
 }
-@Composable fun HubHome(cards:List<VaultCard>,repo:VaultRepository,profiles:List<VaultProfile>,profile:String,
-    onProfile:(String)->Unit,onOpen:(VaultCard)->Unit,onSearch:()->Unit,onScan:()->Unit,
+@Composable fun HubHome(cards:List<VaultCard>,repo:VaultRepository,
+    profiles:List<VaultProfile>,profile:String,onProfile:(String)->Unit,
+    onOpen:(VaultCard)->Unit,onSearch:()->Unit,onScan:()->Unit,
     onImport:()->Unit,onNew:()->Unit,onPdf:()->Unit,onExpiries:()->Unit,
     onCategory:(String)->Unit){
-    val shown=remember(cards,profile){cards.filter{profile=="all"||it.profile==profile}}
-    val attention=shown.filter{vaultValidity(it).first in listOf("Expired","Expiring","Check expiry")}
-    val recent=shown.sortedByDescending{it.created}.take(7)
-    val categories=shown.groupBy{it.category.ifBlank{"Other"}}.entries.sortedByDescending{it.value.size}
+    val displayed=remember(cards,profile){cards.filter{profile=="all"||it.profile==profile}}
+    val latest=displayed.sortedByDescending{it.created}
+    val attention=displayed.filter{vaultValidity(it).first in
+        setOf("Expired","Expiring","Check expiry")}
+    val categories=displayed.groupBy{it.category.ifBlank{"Other"}}
+        .entries.sortedByDescending{it.value.size}
     LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
-        contentPadding=PaddingValues(start=16.dp,end=16.dp,top=18.dp,bottom=24.dp),
-        verticalArrangement=Arrangement.spacedBy(20.dp)){
+        contentPadding=PaddingValues(16.dp,22.dp,16.dp,32.dp),
+        verticalArrangement=Arrangement.spacedBy(16.dp)){
         item{
-            Text("My Documents",style=MaterialTheme.typography.headlineSmall,
-                fontWeight=FontWeight.SemiBold)
-            Spacer(Modifier.height(5.dp))
-            Text("Everything important, in one place.",color=MaterialTheme.colorScheme.onSurfaceVariant,
-                style=MaterialTheme.typography.bodyMedium)
+            Row(verticalAlignment=Alignment.CenterVertically){
+                Column(Modifier.weight(1f)){
+                    Eyebrow("YOUR PERSONAL VAULT")
+                    Spacer(Modifier.height(5.dp))
+                    Text("My Documents",style=MaterialTheme.typography.headlineMedium)
+                    Text("Everything important, in one place.",
+                        style=MaterialTheme.typography.bodyMedium,
+                        color=MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                IconButton(onClick=onSearch,modifier=Modifier.size(48.dp)){
+                    Icon(Icons.Outlined.Search,"Search documents",tint=MaterialTheme.colorScheme.primary)
+                }
+            }
         }
         item{
             HubCard(Modifier.fillMaxWidth()){
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)){
-                    HubMetric(shown.size.toString(),"Documents",Modifier.weight(1f))
-                    HubMetric(shown.sumOf{it.files.size}.toString(),"Files",Modifier.weight(1f))
-                    HubMetric(attention.size.toString(),"Needs attention",Modifier.weight(1f))
+                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+                    Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(11.dp)){
+                        Eyebrow("VAULT OVERVIEW")
+                        Text(VaultCounts.format(displayed.size,"document"),
+                            style=MaterialTheme.typography.titleLarge)
+                        Text(VaultCounts.format(displayed.sumOf{it.files.size},"file")+" saved",
+                            style=MaterialTheme.typography.bodySmall,
+                            color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        if(attention.isNotEmpty())TextButton(onClick=onExpiries){
+                            Text(VaultCounts.format(attention.size,"item")+" to review")
+                        }
+                    }
+                    HealthRing(DesignLogic.healthyShare(displayed))
                 }
-            }
-            Spacer(Modifier.height(12.dp))
-            Button(onClick=onScan,modifier=Modifier.fillMaxWidth().heightIn(min=54.dp),
-                shape=RoundedCornerShape(14.dp)){
-                Icon(Icons.Outlined.Add,null,modifier=Modifier.size(23.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Add Document",fontWeight=FontWeight.SemiBold)
             }
         }
         item{
-            Row(verticalAlignment=Alignment.CenterVertically){
-                Text("Categories",style=MaterialTheme.typography.titleLarge,
-                    modifier=Modifier.weight(1f))
-                TextButton(onClick=onSearch){Text("Search")}
+            Button(onClick=onScan,modifier=Modifier.fillMaxWidth().heightIn(min=54.dp),
+                shape=RoundedCornerShape(16.dp)){
+                Icon(Icons.Outlined.Add,"Add Document",Modifier.size(24.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Add Document")
             }
-            Spacer(Modifier.height(10.dp))
-            if(categories.isEmpty())HubCard(Modifier.fillMaxWidth()){
-                Text("Your documents will appear here once you add them.",
-                    color=MaterialTheme.colorScheme.onSurfaceVariant)
-            } else {
-                Column(verticalArrangement=Arrangement.spacedBy(12.dp)){
-                    categories.chunked(2).forEach{pair->
-                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)){
-                            pair.forEach{entry->
+        }
+        if(profiles.size>1)item{
+            SectionTitle("People")
+            Row(Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                FilterChip(selected=profile=="all",onClick={onProfile("all")},
+                    label={Text("Everyone")})
+                profiles.forEach{person->
+                    FilterChip(selected=profile==person.id,onClick={onProfile(person.id)},
+                        label={Text(person.name)})
+                }
+            }
+        }
+        if(latest.isNotEmpty()){
+            item{SectionTitle("Your cards","View all"){onCategory("All")}}
+            item{CardFace(latest.first(),onClick={onOpen(latest.first())})}
+        }
+        item{
+            SectionTitle("Categories","Search",onSearch)
+            Spacer(Modifier.height(9.dp))
+            if(categories.isEmpty()){
+                HubCard(Modifier.fillMaxWidth()){
+                    Text("Start by adding a document.",
+                        color=MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }else{
+                Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
+                    categories.chunked(2).forEach{group->
+                        Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                            group.forEach{entry->
                                 HubCard(Modifier.weight(1f),onClick={onCategory(entry.key)}){
                                     HubIcon(categoryIcon(entry.key))
-                                    Text(entry.key,fontWeight=FontWeight.SemiBold,
+                                    Text(entry.key,style=MaterialTheme.typography.titleMedium,
                                         maxLines=2,overflow=TextOverflow.Ellipsis)
                                     Text(VaultCounts.format(entry.value.size,"document"),
-                                        color=MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style=MaterialTheme.typography.bodySmall)
+                                        style=MaterialTheme.typography.bodySmall,
+                                        color=MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
-                            if(pair.size==1)Spacer(Modifier.weight(1f))
+                            if(group.size==1)Spacer(Modifier.weight(1f))
                         }
                     }
                 }
             }
         }
         if(attention.isNotEmpty()){
-            item{
-                Row(verticalAlignment=Alignment.CenterVertically){
-                    Text("Needs Attention",style=MaterialTheme.typography.titleLarge,
-                        modifier=Modifier.weight(1f))
-                    TextButton(onClick=onExpiries){Text("View all")}
-                }
-            }
-            items(attention.take(4),key={it.id}){card->
-                VaultRow(card,repo){onOpen(card)}
-            }
+            item{SectionTitle("Needs attention","View all",onExpiries)}
+            items(attention.take(3),key={it.id}){card->VaultRow(card,repo){onOpen(card)}}
         }
-        item{
-            Row(verticalAlignment=Alignment.CenterVertically){
-                Text("Recent Documents",style=MaterialTheme.typography.titleLarge,
-                    modifier=Modifier.weight(1f))
-                TextButton(onClick={onCategory("All")}){Text("See all")}
-            }
-        }
-        if(recent.isEmpty())item{
-            Text("No documents yet. Use Add Document to scan or import one.",
+        item{SectionTitle("Recent Documents","View all"){onCategory("All")}}
+        if(latest.isEmpty())item{
+            Text("Your recently saved documents will appear here.",
                 color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        items(recent,key={it.id}){card->VaultRow(card,repo){onOpen(card)}}
+        items(latest.take(6),key={it.id}){card->VaultRow(card,repo){onOpen(card)}}
     }
 }
 private fun readableBytes(bytes:Long):String=when{

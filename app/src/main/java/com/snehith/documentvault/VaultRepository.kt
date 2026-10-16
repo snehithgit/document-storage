@@ -88,6 +88,7 @@ class VaultRepository(private val context: Context) {
     val cards = mutableStateListOf<VaultCard>()
     val profiles = mutableStateListOf<VaultProfile>()
     val customTemplates = mutableStateListOf<CardTemplate>()
+    val entries = mutableStateListOf<ProfileEntry>()
     private val data = File(context.filesDir,"vault.json")
     private val backup = File(context.filesDir,"vault.json.bak")
     private val blobDir = File(context.filesDir,"blobs").apply { mkdirs() }
@@ -152,7 +153,7 @@ class VaultRepository(private val context: Context) {
     fun removeOrphan(file:VaultFile){ blob(file.id).delete();meta(file.id).delete() }
 
     @Synchronized fun load() {
-        cards.clear();profiles.clear();customTemplates.clear();recoveryError=null
+        cards.clear();profiles.clear();customTemplates.clear();entries.clear();recoveryError=null
         val tmp=File(context.filesDir,"vault.json.tmp")
         val candidates=listOf(data,tmp).filter { it.exists() }.sortedByDescending { it.lastModified() } +
             listOf(backup).filter { it.exists() }
@@ -164,6 +165,7 @@ class VaultRepository(private val context: Context) {
                 val loadedCards=mutableListOf<VaultCard>()
                 val loadedProfiles=mutableListOf<VaultProfile>()
                 val loadedTemplates=mutableListOf<CardTemplate>()
+                val loadedEntries=readEntries(root.optJSONArray("entries"))
                 val c=root.optJSONArray("cards")?:JSONArray()
                 var legacy=false
                 for(i in 0 until c.length()) {
@@ -183,7 +185,7 @@ class VaultRepository(private val context: Context) {
                     val e=t.getJSONObject(i)
                     loadedTemplates.add(CardTemplate(e.getString("id"),e.getString("name"),strings(e.optJSONArray("fields"))))
                 }
-                cards.addAll(loadedCards);profiles.addAll(loadedProfiles);customTemplates.addAll(loadedTemplates)
+                cards.addAll(loadedCards);profiles.addAll(loadedProfiles);customTemplates.addAll(loadedTemplates);entries.addAll(loadedEntries)
                 accepted=candidate;break
             }catch(_:Exception) { /* preserve all candidates for recovery */ }
         }
@@ -222,10 +224,24 @@ class VaultRepository(private val context: Context) {
         .put("fields",JSONArray().apply { c.fields.forEach{ put(JSONObject().put("name",it.name).put("value",it.value).put("page",it.page).put("source",it.source).put("id",it.id).put("confidence",it.confidence.toDouble())) } })
         .put("files",JSONArray().apply { c.files.forEach{ put(JSONObject().put("id",it.id).put("name",it.name).put("mime",it.mime).put("bytes",it.bytes).put("sha256",it.sha256).put("extractedText",it.extractedText).put("ocrStatus",it.ocrStatus)
             .put("originalId",it.originalId).put("cropCorners",it.cropCorners).put("cropRotation",it.cropRotation)) } })
+    private fun readEntries(array:JSONArray?):List<ProfileEntry> = (0 until (array?.length()?:0)).mapNotNull{i->
+        val obj=array!!.optJSONObject(i)?:return@mapNotNull null
+        val person=obj.optString("personId");val label=obj.optString("label")
+        if(person.isBlank()||label.isBlank())null else ProfileEntry(
+            id=obj.optString("id").ifBlank{uid()},personId=person,
+            section=obj.optString("section","Other"),label=label,
+            cardId=obj.optString("cardId"),fieldId=obj.optString("fieldId"),
+            value=obj.optString("value"),sensitive=obj.optBoolean("sensitive",false))
+    }
+    private fun writeEntry(e:ProfileEntry):JSONObject=JSONObject()
+        .put("id",e.id).put("personId",e.personId).put("section",e.section)
+        .put("label",e.label).put("cardId",e.cardId).put("fieldId",e.fieldId)
+        .put("value",e.value).put("sensitive",e.sensitive)
     private fun snapshot(sourceCards:List<VaultCard> = cards.toList()):String=JSONObject()
         .put("cards",JSONArray().apply { sourceCards.forEach{put(writeCard(it))} })
         .put("profiles",JSONArray().apply { profiles.forEach{put(JSONObject().put("id",it.id).put("name",it.name))} })
         .put("templates",JSONArray().apply { customTemplates.forEach{put(JSONObject().put("id",it.id).put("name",it.name).put("fields",JSONArray(it.fieldNames)))} })
+        .put("entries",JSONArray().apply { entries.forEach{put(writeEntry(it))} })
         .toString()
 
     @Synchronized fun persist() {
@@ -344,6 +360,26 @@ class VaultRepository(private val context: Context) {
         val i=profiles.indexOfFirst{it.id==p.id}
         if(i<0)profiles.add(p)else profiles[i]=p
         try{persist()}catch(e:Exception){profiles.clear();profiles.addAll(previous);throw e}
+    }
+    @Synchronized fun changeEntries(add:List<ProfileEntry> = emptyList(),removeIds:Set<String> = emptySet()){
+        val before=entries.toList()
+        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            entries.removeAll{it.id in removeIds||add.any{update->update.id==it.id}}
+            entries.addAll(add)
+            try{persist()}catch(e:Exception){entries.clear();entries.addAll(before);throw e}
+        }
+    }
+    @Synchronized fun removePerson(personId:String){
+        require(personId!="self"){"The default profile cannot be removed"}
+        val beforeProfiles=profiles.toList();val beforeEntries=entries.toList()
+        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            profiles.removeAll{it.id==personId};entries.removeAll{it.personId==personId}
+            try{persist()}catch(e:Exception){
+                profiles.clear();profiles.addAll(beforeProfiles)
+                entries.clear();entries.addAll(beforeEntries)
+                throw e
+            }
+        }
     }
     @Synchronized fun saveTemplate(t:CardTemplate){
         val previous=customTemplates.toList()
@@ -528,6 +564,7 @@ class VaultRepository(private val context: Context) {
             val nextProfiles=mutableListOf<VaultProfile>()
             val p=json.optJSONArray("profiles")?:JSONArray()
             for(i in 0 until p.length()){val e=p.getJSONObject(i);nextProfiles.add(VaultProfile(e.getString("id"),e.getString("name")))}
+            val nextEntries=readEntries(json.optJSONArray("entries"))
             val nextTemplates=mutableListOf<CardTemplate>()
             val t=json.optJSONArray("templates")?:JSONArray()
             for(i in 0 until t.length()){
@@ -548,15 +585,18 @@ class VaultRepository(private val context: Context) {
             val oldCards=cards.toList()
             val oldProfiles=profiles.toList()
             val oldTemplates=customTemplates.toList()
+            val oldEntries=entries.toList()
             cards.clear();cards.addAll(nextCards)
             profiles.clear();profiles.addAll(nextProfiles)
             if(profiles.none{it.id=="self"})profiles.add(VaultProfile("self","Me"))
             customTemplates.clear();customTemplates.addAll(nextTemplates)
+            entries.clear();entries.addAll(nextEntries)
             recoveryError=null
             try{persist()}catch(e:Exception){
                 cards.clear();cards.addAll(oldCards)
                 profiles.clear();profiles.addAll(oldProfiles)
                 customTemplates.clear();customTemplates.addAll(oldTemplates)
+                entries.clear();entries.addAll(oldEntries)
                 imported.keys.forEach{id->
                     val previous=File(staged,"previous/"+id)
                     if(previous.isFile)previous.copyTo(blob(id),overwrite=true) else blob(id).delete()

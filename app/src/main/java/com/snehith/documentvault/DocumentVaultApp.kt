@@ -52,6 +52,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var privacyScreen by rememberSaveable{mutableStateOf(activity.isPrivacyScreenEnabled())}
     var backStack by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var selectedCardId by rememberSaveable{mutableStateOf("")}
+    var selectedPersonId by rememberSaveable{mutableStateOf("")}
     var editorDirty by rememberSaveable{mutableStateOf(false)}
     var discardEditorDialog by rememberSaveable{mutableStateOf(false)}
     var editing by remember{mutableStateOf<VaultCard?>(null)}
@@ -93,7 +94,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var themeMode by rememberSaveable { mutableStateOf(options.getString("displayTheme","dark") ?: "dark") }
     val dark=when(themeMode){"dark"->true;"light"->false;else->isSystemInDarkTheme()}
     val current=repo.cards.firstOrNull{it.id==selectedCardId}
-    val regular=route in setOf("home","cards","search","more")
+    val regular=route in setOf("home","cards","people","more")
     // A saved, ordered history replaces route-specific guesses in Back handling.
     // Root tab changes clear the history; nested screens push their actual caller.
     fun navigate(destination:String) {
@@ -109,6 +110,17 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     fun openCard(card:VaultCard){
         selectedCardId=card.id
         navigate("detail")
+    }
+    fun addFieldsToPerson(personId:String,card:VaultCard,fields:List<DataField>){
+        val created=ProfileLogic.buildEntries(personId,card,fields,repo.entries.toList())
+        if(created.isEmpty()){activity.notify("Those details are already on the profile");return}
+        scope.launch {
+            try{
+                withContext(Dispatchers.IO){repo.changeEntries(add=created)}
+                activity.notify(VaultCounts.format(created.size,"detail")+" added")
+            }catch(cancelled:CancellationException){throw cancelled}
+            catch(e:Exception){error="Could not update person: "+(e.message?:"Storage error")}
+        }
     }
     fun startEdit(card:VaultCard){
         editing=card
@@ -144,7 +156,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             }
             result.cardId?.let(::completeToCard)
             when(result.destination){
-                "home","cards","search","more"->{
+                "home","cards","search","people","more"->{
                     backStack=emptyList();route=result.destination ?: "home"
                 }
                 "externalviewer"->{
@@ -537,6 +549,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     "tools"->"PDF Tools"
                                     "expiry"->"Expiry and renewal"
                                     "profiles"->"Family profiles"
+                                    "person"->repo.profiles.firstOrNull{it.id==selectedPersonId}?.name ?: "Person"
                                     "templates"->"Card templates"
                                     "backup"->"Backup and restore"
                                     "recovery"->"Recovery"
@@ -572,6 +585,50 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {startEdit(repo.newCard(profile=if(userProfile=="all")"self" else userProfile))},
                             {navigate("cards");activity.notify("Open any card and tap PDF to merge its attachments")},{navigate("expiry")},
                             {categoryFilter=it;navigate("cards")})
+                        "people"->PeopleScreen(repo.profiles.toList(),repo.entries.toList(),
+                            repo.cards.toList(),
+                            {person->selectedPersonId=person.id;navigate("person")},
+                            {name->scope.launch{
+                                try{withContext(Dispatchers.IO){
+                                    repo.saveProfile(VaultProfile(UUID.randomUUID().toString(),name))
+                                }}
+                                catch(cancelled:CancellationException){throw cancelled}
+                                catch(e:Exception){error=e.message?:"Cannot add person"}
+                            }})
+                        "person"->repo.profiles.firstOrNull{it.id==selectedPersonId}?.let{person->
+                            PersonScreen(person,repo.entries.toList(),repo.cards.toList(),repo.hasPin(),
+                                {pin->repo.checkPin(pin)},
+                                {entry->scope.launch{
+                                    try{withContext(Dispatchers.IO){
+                                        repo.changeEntries(removeIds=setOf(entry.id))
+                                    }}
+                                    catch(cancelled:CancellationException){throw cancelled}
+                                    catch(e:Exception){error=e.message?:"Cannot remove detail"}
+                                }},
+                                {entry,alternative->scope.launch{
+                                    try{withContext(Dispatchers.IO){
+                                        repo.changeEntries(add=listOf(entry.copy(
+                                            cardId=alternative.cardId,fieldId=alternative.fieldId,
+                                            value=alternative.value)))
+                                    }}
+                                    catch(cancelled:CancellationException){throw cancelled}
+                                    catch(e:Exception){error=e.message?:"Cannot update source"}
+                                }},
+                                {entry->scope.launch{
+                                    try{withContext(Dispatchers.IO){repo.changeEntries(add=listOf(entry))}}
+                                    catch(cancelled:CancellationException){throw cancelled}
+                                    catch(e:Exception){error=e.message?:"Cannot add detail"}
+                                }},
+                                {cardId->repo.cards.firstOrNull{it.id==cardId}?.let(::openCard)},
+                                {scope.launch{
+                                    try{
+                                        withContext(Dispatchers.IO){repo.removePerson(person.id)}
+                                        replaceRoute("people")
+                                    }catch(cancelled:CancellationException){throw cancelled}
+                                    catch(e:Exception){error=e.message?:"Cannot remove person"}
+                                }}
+                            )
+                        }
                         "cards"->VaultNavCards(repo.cards.toList(),repo,{openCard(it)},{navigate("scan")},categoryFilter,{navigateRoot("search")})
                         "search"->VaultNavSearch(repo.cards.toList(),repo){openCard(it)}
                         "scan"->NavyScanScreen(
@@ -652,7 +709,23 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {updated->scope.launch{try{withContext(Dispatchers.IO){repo.saveCard(updated)}}
                                 catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error=e.message?:"Cannot save field"}}},
                             {navigate("selectfields")},
-                            {fetchDetailsForCard(c)},runningOcr!=null)}
+                            {fetchDetailsForCard(c)},runningOcr!=null,
+                            repo.profiles.toList(),
+                            {personId,chosen->addFieldsToPerson(personId,c,chosen)},
+                            {name,chosen->
+                                scope.launch{
+                                    try {
+                                        val person=VaultProfile(UUID.randomUUID().toString(),name)
+                                        withContext(Dispatchers.IO){
+                                            repo.saveProfile(person)
+                                            val added=ProfileLogic.buildEntries(person.id,c,chosen,repo.entries.toList())
+                                            repo.changeEntries(add=added)
+                                        }
+                                        activity.notify("Person created")
+                                    }catch(cancelled:CancellationException){throw cancelled}
+                                    catch(e:Exception){error="Cannot create person: "+(e.message?:"Error")}
+                                }
+                            })}
                         "selectfields"->current?.let{c->SelectDocumentTextPage(c,
                             {f->scope.launch{
                                 try{withContext(Dispatchers.IO){
