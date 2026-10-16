@@ -10,7 +10,7 @@ class CropGeometryTest {
         assertEquals(4,rotated.size)
         assertEquals(.1f,rotated[0].first,.0001f)
         assertEquals(.1f,rotated[0].second,.0001f)
-        assertEquals(.8f,rotated[1].second,.0001f)
+        assertEquals(.8f,rotated[2].second,.0001f)
         var four=points
         repeat(4){four=CropGeometry.rotateClockwise(four)}
         four.zip(points).forEach{(a,b)->
