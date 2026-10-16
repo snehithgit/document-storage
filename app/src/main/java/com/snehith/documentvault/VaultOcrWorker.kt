@@ -34,6 +34,7 @@ class VaultOcrWorker(appContext:Context,params:WorkerParameters):CoroutineWorker
         val fileId=inputData.getString(KEY_FILE)?:return Result.failure(workDataOf(KEY_ERROR to "Attachment ID missing"))
         val script=inputData.getString(KEY_SCRIPT)?:"Latin"
         return try {
+            com.tom_roush.pdfbox.android.PDFBoxResourceLoader.init(applicationContext)
             val repo=VaultStorage.get(applicationContext)
             val source=repo.cards.firstOrNull{it.id==cardId}
                 ?:return Result.failure(workDataOf(KEY_ERROR to "Card not found"))
