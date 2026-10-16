@@ -565,9 +565,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     finally{busy=""}
                                 }},
                                 {
-                                    if(cropFromAttachment)navigate("detail")
+                                    if(cropFromAttachment)goBack()
                                     else cameraUri?.let{uri->
-                                        route=if(scanTarget==null)"scan" else "detail"
+                                        goBack()
                                         importUris(listOf(uri),scanTarget)
                                     }
                                     cropBitmap=null;cropResult=null
@@ -581,7 +581,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 busy="Saving card"
                                 try {
                                     withContext(Dispatchers.IO){repo.saveCard(saved)}
-                                    selectedCardId=saved.id;editing=null;editingJson="";navigate("detail")
+                                    selectedCardId=saved.id;editing=null;editingJson=""
+                                     if(backStack.lastOrNull()=="detail")goBack()
+                                     else route="detail"
                                 }catch(e:Exception){error="Cannot save card: "+(e.message?:"Storage error")}
                                 finally{busy=""}
                             }},
@@ -619,7 +621,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     navigate(if(reviewQueue.isEmpty())"detail" else "review")
                                 },{
                                     selectedCardId=job.cardId;reviewQueue.removeAt(0)
-                                    route=if(reviewQueue.isEmpty())"detail" else "review"
+                                    navigate(if(reviewQueue.isEmpty())"detail" else "review")
                                 })
                             else navigate("detail")
                         }
