@@ -37,6 +37,7 @@ import java.util.UUID
     var bitmap by remember(file.id){mutableStateOf<Bitmap?>(null)}
     var session by remember(file.id){mutableStateOf<PdfPageSession?>(null)}
     var text by remember(file.id){mutableStateOf(file.extractedText)}
+    LaunchedEffect(file.id,file.extractedText){text=file.extractedText}
     var showText by rememberSaveable(file.id){mutableStateOf(!pdf&&!isImage)}
     var error by remember(file.id){mutableStateOf("")}
     var zoom by remember(file.id){mutableFloatStateOf(1f)}
@@ -73,13 +74,11 @@ import java.util.UUID
         finally{loading=false}
     }
     LaunchedEffect(file.id,page,showText,session) {
-        if(showText) {
-            if(text.isBlank())try {
-                loading=true
-                text=if(sourceOverride!=null)"Save this PDF to the vault to read text."
-                    else withContext(Dispatchers.IO){engine.extract(file).text}
-            }catch(e:Exception){error=e.message?:"Unable to read the document"}
-            finally{loading=false}
+        if(showText){
+            // Viewer reads only the persisted OCR result. Request extraction through
+            // the regular worker so language choice, errors and storage stay consistent.
+            if(sourceOverride!=null && text.isBlank())
+                text="Save this PDF to the vault to read text."
             return@LaunchedEffect
         }
         if(pdf&&session==null)return@LaunchedEffect
@@ -99,7 +98,10 @@ import java.util.UUID
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
             Text(VaultNames.label(file.name),style=MaterialTheme.typography.titleMedium,
                 maxLines=1,modifier=Modifier.weight(1f))
-            IconButton(onClick={showText=!showText},modifier=Modifier.size(48.dp)){
+            IconButton(onClick={
+                showText=!showText
+                if(showText&&text.isBlank()&&sourceOverride==null)onOcr()
+            },modifier=Modifier.size(48.dp)){
                 Icon(if(showText)Icons.Outlined.Image else Icons.Outlined.TextSnippet,
                     if(showText)"Show document" else "Read text")
             }
@@ -116,7 +118,7 @@ import java.util.UUID
             contentAlignment=Alignment.Center){
             if(showText){
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)){
-                    if(text.isBlank()&&!loading)Text("No recognized text found. Use Read page to extract it.",
+                    if(text.isBlank()&&!loading)Text("Text extraction queued or unavailable. Use Read page to retry.",
                         color=MaterialTheme.colorScheme.onSurfaceVariant)
                     else SelectionContainer{Text(text,style=MaterialTheme.typography.bodyLarge)}
                 }

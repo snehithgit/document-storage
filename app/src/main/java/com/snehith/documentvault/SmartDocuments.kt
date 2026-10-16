@@ -66,20 +66,26 @@ object SmartDocuments {
         return c==0
     }
 
+    /** Shared strict OCR date parser: flexible day/month width, case-insensitive month. */
     fun normalizeDate(raw:String):String? {
         val clean=raw.trim().replace(',', ' ').replace(Regex("\\s+")," ")
-        for(format in listOf(
-            DateTimeFormatter.ISO_LOCAL_DATE,
-            DateTimeFormatter.ofPattern("dd/MM/uuuu",Locale.ENGLISH),
-            DateTimeFormatter.ofPattern("dd-MM-uuuu",Locale.ENGLISH),
-            DateTimeFormatter.ofPattern("dd.MM.uuuu",Locale.ENGLISH),
-            DateTimeFormatter.ofPattern("dd MMM uuuu",Locale.ENGLISH),
-            DateTimeFormatter.ofPattern("MMM dd uuuu",Locale.ENGLISH)
-        )){
-            try{return LocalDate.parse(clean,format.withResolverStyle(ResolverStyle.STRICT)).toString()}catch(_:DateTimeParseException){}
+        val patterns=listOf("uuuu-M-d","d/M/uuuu","d-M-uuuu","d.M.uuuu",
+            "d MMM uuuu","d-MMM-uuuu","MMM d uuuu")
+        for(pattern in patterns){
+            val parser=java.time.format.DateTimeFormatterBuilder()
+                .parseCaseInsensitive().appendPattern(pattern)
+                .toFormatter(Locale.ENGLISH).withResolverStyle(ResolverStyle.STRICT)
+            try{return LocalDate.parse(clean,parser).toString()}
+            catch(_:DateTimeParseException){}
         }
         return null
     }
+    private fun normalizedMrzLine(raw:String):String =
+        raw.uppercase(Locale.ROOT).replace(" ","").replace('«','<')
+            .replace(Regex("K{2,}")){ match->"<".repeat(match.value.length) }
+            .padEnd(44,'<').take(44)
+    private fun digitMrz(value:String):String =
+        value.map{when(it){'O'->'0';'I'->'1';'S'->'5';'B'->'8';else->it}}.joinToString("")
     private fun mrzDate(raw:String,birth:Boolean):String? {
         if(raw.length!=6||raw.any{!it.isDigit()})return null
         val yy=raw.substring(0,2).toInt()
@@ -106,7 +112,7 @@ object SmartDocuments {
         ?.replace(Regex("[^\\p{L}\\s.'-]"),"")?.trim()?.takeIf{it.length in 3..55}
 
     private fun dateValue(text:String,vararg labels:String):String?{
-        val dates=Regex("\\d{1,2}[/\\-.]\\d{1,2}[/\\-.]\\d{4}|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}\\s+[A-Za-z]{3}\\s+\\d{4}")
+        val dates=Regex("\\d{1,2}[/\\-.]\\d{1,2}[/\\-.]\\d{4}|\\d{4}-\\d{1,2}-\\d{1,2}|\\d{1,2}[ -][A-Za-z]{3}[ -]\\d{4}")
         val value=labelValue(text,*labels)?:return null
         return dates.find(value)?.value?.let{normalizeDate(it)}
     }
@@ -116,21 +122,28 @@ object SmartDocuments {
     fun parse(text:String):SmartDocument? {
         val compact=text.uppercase(Locale.ROOT)
         val lines=compact.lines().map{it.trim().replace(" ","")}.filter{it.isNotBlank()}
-        val passportIndex=lines.indexOfFirst{it.startsWith("P<")&&it.length>=44}
+        val passportIndex=lines.indexOfFirst{it.startsWith("P<")&&it.length in 42..46}
         if(passportIndex>=0 && passportIndex+1<lines.size){
-            val one=lines[passportIndex].take(44)
-            val two=lines[passportIndex+1].take(44)
+            val one=normalizedMrzLine(lines[passportIndex])
+            val two=normalizedMrzLine(lines[passportIndex+1])
             if(one.length==44&&two.length==44){
                 val number=two.substring(0,9).trimEnd('<')
-                val numberOK=mrzCheck(two.substring(0,9),two[9])
-                val dobOK=mrzCheck(two.substring(13,19),two[19])
-                val expiryOK=mrzCheck(two.substring(21,27),two[27])
-                val compositeOK=mrzCheck(two.substring(0,10)+two.substring(13,20)+two.substring(21,43),two[43])
+                val numberOK=mrzCheck(two.substring(0,9),digitMrz(two[9].toString())[0])
+                val birthDigits=digitMrz(two.substring(13,19))
+                val expiryDigits=digitMrz(two.substring(21,27))
+                val dobOK=mrzCheck(birthDigits,digitMrz(two[19].toString())[0])
+                val expiryOK=mrzCheck(expiryDigits,digitMrz(two[27].toString())[0])
+                val compositeOK=mrzCheck(
+                    two.substring(0,9)+digitMrz(two[9].toString())+
+                        birthDigits+digitMrz(two[19].toString())+
+                        expiryDigits+digitMrz(two[27].toString())+
+                        two.substring(28,43),
+                    digitMrz(two[43].toString())[0])
                 val fullName=one.substring(5).split("<<").take(2).joinToString(" "){
                     it.replace("<"," ").trim()
                 }.replace(Regex("\\s+")," ").trim().takeIf{it.isNotBlank()}
-                val dob=mrzDate(two.substring(13,19),true)
-                val expiry=mrzDate(two.substring(21,27),false)
+                val dob=mrzDate(birthDigits,true)
+                val expiry=mrzDate(expiryDigits,false)
                 val confidence=if(numberOK&&dobOK&&expiryOK&&compositeOK).99f
                     else if(numberOK&&dobOK&&expiryOK).89f else .65f
                 val fields=listOfNotNull(
@@ -143,7 +156,20 @@ object SmartDocuments {
                 return SmartDocument("Passport",fullName,if(expiryOK)expiry else null,fields,confidence)
             }
         }
-        val name=nameValue(text)
+        val detectedName=nameValue(text)
+        val inferredName=if(detectedName==null) {
+            val originals=text.lines().map{it.trim()}
+            val near=originals.indexOfFirst{
+                Regex("(?i)(?:DOB|date of birth|birth|male|female)").containsMatchIn(it)
+            }
+            if(near>0)originals.subList((near-3).coerceAtLeast(0),near)
+                .asReversed().firstOrNull{candidate->
+                    candidate.length in 4..55 && !candidate.any(Char::isDigit) &&
+                        candidate.split(Regex("\\s+")).size in 2..5 &&
+                        !Regex("(?i)(?:government|india|uidai|aadhaar|address|father|enrolment)").containsMatchIn(candidate)
+                } else null
+        }else null
+        val name=detectedName?:inferredName
         val birth=dateValue(text,"date\\s*of\\s*birth","dob","birth\\s*date")
         val expiry=dateValue(text,"expiry\\s*date","date\\s*of\\s*expiry","valid\\s*until","valid\\s*upto")
         if(compact.contains("AADHAAR")||compact.contains("UIDAI")||compact.contains("UNIQUE IDENTIFICATION")){

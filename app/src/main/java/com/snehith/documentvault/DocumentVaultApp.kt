@@ -77,20 +77,21 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var importTarget by rememberSaveable{mutableStateOf<String?>(null)}
     var userProfile by rememberSaveable{mutableStateOf("all")}
     var categoryFilter by rememberSaveable{mutableStateOf("All")}
-    var ocrLanguage by rememberSaveable{mutableStateOf("Latin")}
+    val options=remember { activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE) }
+    var ocrLanguage by rememberSaveable {
+        mutableStateOf(options.getString("ocrLanguage","Latin") ?: "Latin")
+    }
     var busy by remember{mutableStateOf("")}
     val workManager=remember(activity){WorkManager.getInstance(activity.applicationContext)}
     val ocrFlow=remember(workManager){workManager.getWorkInfosForUniqueWorkFlow(VaultOcrWorker.UNIQUE)}
     val ocrInfos by ocrFlow.collectAsState(initial=emptyList())
     val runningOcr=ocrInfos.firstOrNull{it.state==WorkInfo.State.RUNNING}
         ?:ocrInfos.firstOrNull{it.state==WorkInfo.State.ENQUEUED}
-    val latestOcr=ocrInfos.firstOrNull()
-    var notifiedOcrId by rememberSaveable{mutableStateOf("")}
+    var trackedOcr by rememberSaveable { mutableStateOf(emptyMap<String,String>()) }
     var error by remember{mutableStateOf("")}
     var pdfJob by remember{mutableStateOf<PdfJob?>(null)}
     var backupPassword by remember{mutableStateOf("")}
     val reviewQueue= remember{mutableStateListOf<ReviewJob>()}
-    val options=remember { activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE) }
     var themeMode by rememberSaveable { mutableStateOf(options.getString("displayTheme","dark") ?: "dark") }
     val dark=when(themeMode){"dark"->true;"light"->false;else->isSystemInDarkTheme()}
     val current=repo.cards.firstOrNull{it.id==selectedCardId}
@@ -195,6 +196,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             .setInputData(workDataOf(VaultOcrWorker.KEY_CARD to cardId,
                 VaultOcrWorker.KEY_FILE to f.id,VaultOcrWorker.KEY_SCRIPT to ocrLanguage))
             .addTag("offline-ocr").build()
+        trackedOcr=mapOf(request.id.toString() to f.name)
         workManager.enqueueUniqueWork(VaultOcrWorker.UNIQUE,ExistingWorkPolicy.KEEP,request)
         activity.notify("OCR queued — you can leave this screen")
     }
@@ -218,6 +220,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 .addTag("offline-fetch-details")
                 .build()
         }
+        trackedOcr=requests.mapIndexed{i,req->req.id.toString() to eligible[i].name}.toMap()
         var continuation=workManager.beginUniqueWork(
             VaultOcrWorker.UNIQUE,ExistingWorkPolicy.KEEP,requests.first())
         requests.drop(1).forEach{request->continuation=continuation.then(request)}
@@ -225,14 +228,21 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         activity.notify("Fetching details from "+VaultCounts.format(eligible.size,"attachment")+
             " offline. Open Document Information to review and copy the results.")
     }
-    LaunchedEffect(latestOcr?.id,latestOcr?.state) {
-        val info=latestOcr?:return@LaunchedEffect
-        if(!info.state.isFinished || info.id.toString()==notifiedOcrId)return@LaunchedEffect
-        notifiedOcrId=info.id.toString()
-        when(info.state) {
-            WorkInfo.State.SUCCEEDED->activity.notify("Reading complete. Review results in Document Information.")
-            WorkInfo.State.FAILED->error="OCR failed: "+info.outputData.getString(VaultOcrWorker.KEY_ERROR).orEmpty()
-            else->Unit
+    LaunchedEffect(ocrInfos,trackedOcr) {
+        if(trackedOcr.isEmpty())return@LaunchedEffect
+        val byId=ocrInfos.associateBy{it.id.toString()}
+        val entries=trackedOcr.mapNotNull{(id,name)->
+            byId[id]?.takeIf{it.state.isFinished}?.let{info->
+                OcrBatchOutcome(name,
+                    info.state==WorkInfo.State.SUCCEEDED &&
+                        info.outputData.getString(VaultOcrWorker.KEY_ERROR).isNullOrBlank(),
+                    info.outputData.getString(VaultOcrWorker.KEY_ERROR).orEmpty())
+            }
+        }
+        if(entries.size==trackedOcr.size){
+            trackedOcr=emptyMap()
+            val summary=OcrBatchSummary.message(entries)
+            activity.notify(summary)
         }
     }
     fun importUris(uris:List<Uri>,targetId:String?=null,addPage:Boolean=false,
@@ -393,6 +403,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             try {
                 val lang=withContext(Dispatchers.IO){engine.installLanguage(uri)}
                 ocrLanguage="Tesseract: "+lang
+                options.edit().putString("ocrLanguage",ocrLanguage).apply()
                 activity.notify("Installed "+lang+" offline OCR")
             }catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error=e.message?:"Could not install language"}
             finally{busy=""}
@@ -649,7 +660,10 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {pin,old->try{repo.setPin(pin,old);activity.notify("PIN saved")}catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error=e.message?:"PIN failed"}},
                             {pin->if(repo.checkPin(pin)){repo.clearPin(pin);activity.notify("PIN removed")} else activity.notify("Wrong PIN")},
                             {navigate("profiles")},{navigate("templates")},{navigate("backup")},{navigate("recovery")},
-                            {modelPicker.launch(arrayOf("*/*"))},{ocrLanguage=it},
+                            {modelPicker.launch(arrayOf("*/*"))},{
+                        ocrLanguage=it
+                        options.edit().putString("ocrLanguage",it).apply()
+                    },
                             {days->activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE).edit().putInt("remindDays",days).apply()
                                 if(Build.VERSION.SDK_INT>=33)notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                                 activity.notify("Expiry reminders: "+days+" days")},
@@ -708,7 +722,12 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             }})}
                         "about"->VaultAboutScreen()
                         "fulldetails"->current?.let{c->FullDetailsPage(c,
-                            {updated->scope.launch{try{withContext(Dispatchers.IO){repo.saveCard(updated)}}
+                            {updated->scope.launch{try{withContext(Dispatchers.IO){
+                                    repo.updateCard(c.id){latest->
+                                        latest.copy(fields=VaultFieldUpdates.merge(
+                                            c.fields,updated.fields,latest.fields))
+                                    }
+                                }}
                                 catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error=e.message?:"Cannot save field"}}},
                             {navigate("selectfields")},
                             {fetchDetailsForCard(c)},runningOcr!=null,
@@ -732,7 +751,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {f->scope.launch{
                                 try{withContext(Dispatchers.IO){
                                     val latest=repo.cards.firstOrNull{it.id==c.id}?:return@withContext
-                                    repo.saveCard(latest.copy(fields=latest.fields+f))
+                                    repo.updateCard(c.id){it.copy(fields=it.fields+f)}
                                 };popBack()}
                                 catch(cancelled:CancellationException){throw cancelled}
                                 catch(e:Exception){error="Cannot save selected field: "+(e.message?:"Error")}
@@ -792,7 +811,15 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {saved->scope.launch {
                                 busy="Saving card"
                                 try {
-                                    withContext(Dispatchers.IO){repo.saveCard(saved)}
+                                    withContext(Dispatchers.IO){
+                                        repo.updateCard(saved.id){latest->
+                                            saved.copy(
+                                                files=latest.files,
+                                                fields=VaultFieldUpdates.merge(
+                                                    c.fields,saved.fields,latest.fields)
+                                            )
+                                        }
+                                    }
                                     selectedCardId=saved.id;editing=null;editingJson="";editorDirty=false
                                     if(backStack.lastOrNull()=="detail")popBack()
                                     else completeToCard(saved.id)
@@ -829,11 +856,16 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                         }
                                         val expiryField=merged.firstOrNull{it.name.contains("expiry",true)}
                                         val expiry=if(original.expiry.isNotBlank())original.expiry else expiryField?.value?.let{date->
-                                            try{LocalDate.parse(date,DateTimeFormatter.ofPattern("d/M/yyyy")).toString()}
-                                            catch(_:Exception){try{LocalDate.parse(date).toString()}catch(_:Exception){""}}
+                                            SmartDocuments.normalizeDate(date).orEmpty()
                                         } ?: ""
                                         scope.launch {
-                                            try{withContext(Dispatchers.IO){repo.saveCard(original.copy(fields=merged,expiry=expiry))}}
+                                            try{withContext(Dispatchers.IO){
+                                                repo.updateCard(original.id){latest->
+                                                    latest.copy(fields=VaultFieldUpdates.merge(
+                                                        original.fields,merged,latest.fields),
+                                                        expiry=latest.expiry.ifBlank{expiry})
+                                                }
+                                            }}
                                             catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error="Cannot save OCR fields: "+(e.message?:"Storage error")}
                                         }
                                         selectedCardId=job.cardId

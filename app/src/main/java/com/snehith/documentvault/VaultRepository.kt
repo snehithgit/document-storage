@@ -47,6 +47,9 @@ object FieldSuggestions {
         CardTemplate("medical", "Medical", listOf("Certificate Number","Exam Date","Expiry Date","Doctor / Clinic")),
         CardTemplate("bank", "Bank Information", listOf("Account Holder","Bank Name","Account Number","IFSC / SWIFT","Branch")),
         CardTemplate("id", "Identity Card", listOf("Full Name","Identification Number","Date of Birth","Address")),
+        CardTemplate("aadhaar", "Aadhaar", listOf("Full Name","Aadhaar Number","Date of Birth","Address")),
+        CardTemplate("pan", "PAN", listOf("Full Name","PAN Number","Date of Birth","Father's Name")),
+        CardTemplate("driving", "Driving Licence", listOf("Full Name","Licence Number","Date of Birth","Expiry Date","Address")),
         CardTemplate("custom", "Custom", emptyList())
     )
     fun parse(text: String): List<DataField> {
@@ -265,6 +268,15 @@ class VaultRepository(private val context: Context) {
             }
         }
         if(!tmp.renameTo(data))throw IOException("Unable to commit the vault index")
+    }
+    /** Update only the current version while holding the same lock as all vault writes. */
+    @Synchronized fun updateCard(id:String,transform:(VaultCard)->VaultCard):VaultCard {
+        val latest=cards.firstOrNull{it.id==id}
+            ?:throw IOException("Document no longer exists")
+        val revised=transform(latest)
+        require(revised.id==id){"Document identity may not change"}
+        saveCard(revised)
+        return revised
     }
     @Synchronized fun saveCard(card:VaultCard) {
         val i=cards.indexOfFirst{it.id==card.id}

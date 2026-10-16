@@ -59,4 +59,29 @@ class SmartDocumentsTest {
         assertEquals("2030-07-21",fields.first{it.name=="Expiry Date"}.value)
         assertFalse(fields.any{it.name=="Date"||it.name.contains("(verify)")})
     }
+
+    @Test fun flexibleDatesHandleCaseAndSingleDigitDays(){
+        assertEquals("2030-04-12",SmartDocuments.normalizeDate("12 APR 2030"))
+        assertEquals("1990-02-05",SmartDocuments.normalizeDate("5/2/1990"))
+        assertEquals("2030-04-12",SmartDocuments.normalizeDate("12-APR-2030"))
+    }
+    @Test fun noisyMrzCharacterSubstitutionsAreRestrictedToDates(){
+        val noisy=sample2.substring(0,13)+"74O8I2"+sample2.substring(19)
+        val extracted=SmartDocuments.parse(sample1+"\n"+noisy)
+        assertEquals("1974-08-12",
+            extracted?.fields?.firstOrNull{it.name=="Date of Birth"}?.value)
+    }
+    @Test fun truncatedMrzLinesCanStillExtractVerifiedCoreFields(){
+        val extracted=SmartDocuments.parse(sample1.dropLast(2)+"\n"+sample2.dropLast(2))
+        assertEquals("Passport",extracted?.kind)
+        assertEquals("L898902C3",extracted?.fields?.firstOrNull{
+            it.name=="Passport Number"}?.value)
+    }
+    @Test fun aadhaarNameCanBeImmediatelyAboveDobGender(){
+        val prefix="23452345234"
+        val number=(0..9).map{prefix+it}.single(SmartDocuments::validAadhaar)
+        val detected=SmartDocuments.parse(
+            "GOVERNMENT OF INDIA\nAADHAAR\nKavita Sharma\nDOB: 5/2/1990 Female\n"+number)
+        assertEquals("Kavita Sharma",detected?.fullName)
+    }
 }

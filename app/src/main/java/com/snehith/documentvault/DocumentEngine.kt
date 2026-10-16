@@ -114,7 +114,16 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
             }
         }
         fun recognize(bitmap:Bitmap):String {
-            tess?.let{it.setImage(bitmap);return it.getUTF8Text()?:""}
+            tess?.let { recognizer->
+                // TessBaseAPI requires 32-bit bitmap input; JPEG preview decoding
+                // often returns RGB_565 to conserve memory.
+                val argb=if(bitmap.config==Bitmap.Config.ARGB_8888)bitmap
+                    else bitmap.copy(Bitmap.Config.ARGB_8888,false)
+                try{
+                    recognizer.setImage(argb)
+                    return recognizer.getUTF8Text()?:""
+                }finally{if(argb!==bitmap)argb.recycle()}
+            }
             return Tasks.await(client!!.process(InputImage.fromBitmap(bitmap,0)),90,TimeUnit.SECONDS).text
         }
         override fun close(){try{client?.close()}finally{tess?.recycle()}}
