@@ -1,3 +1,36 @@
+# Document Vault v2.1 — Editor Black
+
+Monochrome code-editor-inspired workspace; appearance and import navigation only.
+The existing offline vault, OCR, scan, PDF tools, local JSON index, ZIP backups,
+and interface PIN remain unchanged. Files and ZIP backups are not encrypted.
+
+## Changes
+- Graphite/OLED black backgrounds, white text, subtle cyan metadata accents,
+  bordered panels, monospaced field labels and a compact dark dock.
+- System/Graphite/OLED choices stay dark; OLED black is the default.
+- The dock Scan (+) opens the Scan hub, instead of immediately launching camera.
+- Scan hub has four visible commands: Camera, Gallery photos (multiple),
+  Files/PDF picker, and Create manual information card.
+- Card → Add supports Camera / Gallery / Files for additional pages.
+- Full Details is styled as a details.json editor with line numbers, readable
+  key/value syntax, per-field Copy and Edit, field selection and ordering,
+  and a fixed Copy Selected / Copy All bar.
+- Quick Copy in Document Detail shares the same syntax-style presentation.
+
+## Manual acceptance checks
+1. Open Scan from the floating + dock button; verify Gallery and Files/PDF.
+2. Import two photos via Gallery and one PDF via Files; originals are kept.
+3. Open card → Add; import a second page from Gallery without replacing first.
+4. In Full Details, add fields, copy single value, Copy Selected, Copy All,
+   rearrange and verify selection still references correct fields.
+5. Switch between Graphite and OLED; ensure no cream, orange or purple UI.
+6. Retest scanning/crop, PDFs, OCR, share, backup and PIN.
+7. CI: testDebugUnitTest, assembleDebug, lintDebug and offline manifest check.
+
+No new dependencies and no INTERNET permission.
+
+---
+
 # Document Vault v2.0 — Phases 1–4 integration
 
 **Status:** Built using GitHub Actions. On-device camera/scan accuracy still requires user testing.
