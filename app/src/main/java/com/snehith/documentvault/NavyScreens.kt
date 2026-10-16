@@ -354,7 +354,8 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
     onFull:()->Unit,onTools:()->Unit,onEdit:()->Unit,onManage:()->Unit,onDelete:()->Unit,
     onFetchDetails:()->Unit,fetchingDetails:Boolean,onEnhance:(VaultFile)->Unit){
     var selectedId by rememberSaveable(card.id){mutableStateOf("")}
-    val selected=card.files.firstOrNull{it.id==selectedId}?:card.files.firstOrNull()
+    var selectedIndex by rememberSaveable(card.id){mutableIntStateOf(0)}
+    val selected=AttachmentSelection.select(card.files,selectedId,selectedIndex)
     val context=LocalContext.current
     val (status,color)=vaultValidity(card)
     var showMore by remember{mutableStateOf(false)}
@@ -406,9 +407,12 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
                 Spacer(Modifier.height(10.dp))
                 Row(Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement=Arrangement.spacedBy(10.dp)){
-                    card.files.forEach{file->
+                    card.files.forEachIndexed{index,file->
                         Surface(
-                            modifier=Modifier.size(64.dp,74.dp).clickable{selectedId=file.id},
+                            modifier=Modifier.size(64.dp,74.dp).clickable{
+                                selectedId=file.id
+                                selectedIndex=index
+                            },
                             shape=RoundedCornerShape(10.dp),
                             border=BorderStroke(if(selected?.id==file.id)2.dp else 1.dp,
                                 if(selected?.id==file.id)VaultColors.syntax else MaterialTheme.colorScheme.outline),
