@@ -268,7 +268,7 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
 }
 @Composable fun VaultNavDetail(card:VaultCard,repo:VaultRepository,onFile:(VaultFile)->Unit,onOcr:(VaultFile)->Unit,
     onShare:(VaultFile)->Unit,onShareAll:()->Unit,onAdd:()->Unit,
-    onFull:()->Unit,onTools:()->Unit,onEdit:()->Unit,onDelete:()->Unit,
+    onFull:()->Unit,onTools:()->Unit,onEdit:()->Unit,onManage:()->Unit,onDelete:()->Unit,
     onEnhance:(VaultFile)->Unit){
     var selected by rememberSaveable(card.id){mutableIntStateOf(0)}
     val context=LocalContext.current
@@ -351,13 +351,17 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
                     Text(" Enhance / Crop image (keep original)")
                 }
             }
+            OutlinedButton(onClick=onManage,modifier=Modifier.fillMaxWidth()) {
+                Icon(Icons.Outlined.FolderOpen,null)
+                Text(" Manage individual attachments")
+            }
             OutlinedButton(onClick=onAdd,modifier=Modifier.fillMaxWidth()){
                 Icon(Icons.Outlined.Add,null);Text(" Add pages / documents")
             }
             OutlinedButton(onClick=onShareAll,enabled=card.files.isNotEmpty(),modifier=Modifier.fillMaxWidth()){
                 Icon(Icons.Outlined.Share,null);Text(" Share all attachments")
             }
-            TextButton(onClick={confirm=true}){Text("Delete card",color=Color(0xFFFF8E95))}
+            TextButton(onClick={confirm=true}){Text("Delete card",color=MaterialTheme.colorScheme.error)}
         }
     }
 }
