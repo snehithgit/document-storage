@@ -291,8 +291,8 @@ fun copyToClipboard(context:Context,label:String,value:String) {
     var profileExpanded by rememberSaveable{mutableStateOf(false)}
     var error by rememberSaveable{mutableStateOf("")}
     LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp,8.dp,16.dp,105.dp),verticalArrangement=Arrangement.spacedBy(13.dp)){
-        item{Heading(if(card.title=="New Card")"Create card" else "Edit card","Customize details and attach documents later")}
-        item{OutlinedTextField(title,{title=it},label={Text("Card title")},modifier=Modifier.fillMaxWidth(),singleLine=true)}
+        item{Heading(if(card.title=="New Card")"Create Document" else "Edit Document","Save information and attach files when needed")}
+        item{OutlinedTextField(title,{title=it},label={Text("Document title")},modifier=Modifier.fillMaxWidth(),singleLine=true)}
         item{
             Box {
                 OutlinedButton(onClick={kindExpanded=true},modifier=Modifier.fillMaxWidth()){Text("Type: "+kind);Icon(Icons.Outlined.ArrowDropDown,null)}
@@ -304,7 +304,7 @@ fun copyToClipboard(context:Context,label:String,value:String) {
                 }
             }
         }
-        item{OutlinedTextField(category,{category=it},label={Text("Category / Folder")},modifier=Modifier.fillMaxWidth())}
+        item{OutlinedTextField(category,{category=it},label={Text("Category")},modifier=Modifier.fillMaxWidth())}
         item{
             Box {
                 OutlinedButton(onClick={profileExpanded=true},modifier=Modifier.fillMaxWidth()){
@@ -404,30 +404,65 @@ fun copyToClipboard(context:Context,label:String,value:String) {
 @Composable fun ExpiriesScreen(cards:List<VaultCard>,onOpen:(VaultCard)->Unit) {
     val renewed=cards.map{it.previousId}.filter{it.isNotBlank()}.toSet()
     val active=cards.filter{it.id !in renewed}
-    val invalid=active.filter{it.expiry.isNotBlank() && !VaultExpiry.isIsoDate(it.expiry)}
-    val ordered=active.mapNotNull{c->try{c to ChronoUnit.DAYS.between(LocalDate.now(),LocalDate.parse(c.expiry))}catch(_:Exception){null}}.sortedBy{it.second}
-    LazyColumn(contentPadding=PaddingValues(16.dp,10.dp,16.dp,95.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-        item{Heading("Expiry & Renewal","Keep track of important document validity")}
-        if(ordered.isEmpty() && invalid.isEmpty())item{Text("No expiry dates set. Edit a card to add one.")}
-        items(invalid,key={it.id}){card->
-            OutlinedCard(onClick={onOpen(card)}) {
-                Column(Modifier.padding(14.dp)){
-                    Text(VaultNames.title(card.title),fontWeight=FontWeight.SemiBold)
-                    Text("Invalid expiry date: "+card.expiry+". Use YYYY-MM-DD.",
-                        color=MaterialTheme.colorScheme.error)
+    val dated=active.mapNotNull{card->
+        val days=runCatching{
+            ChronoUnit.DAYS.between(LocalDate.now(),LocalDate.parse(card.expiry))
+        }.getOrNull()
+        if(days==null)null else card to days
+    }
+    val invalid=active.filter{it.expiry.isNotBlank()&&!VaultExpiry.isIsoDate(it.expiry)}
+    val expired=dated.filter{it.second<0}.sortedBy{it.second}
+    val soon=dated.filter{it.second in 0..30}.sortedBy{it.second}
+    val valid=dated.filter{it.second>30}.sortedBy{it.second}
+    LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+        contentPadding=PaddingValues(16.dp,16.dp,16.dp,24.dp),
+        verticalArrangement=Arrangement.spacedBy(12.dp)){
+        item{Heading("Expiry & Renewal","View dates and upcoming renewals")}
+        if(expired.isEmpty()&&soon.isEmpty()&&valid.isEmpty()&&invalid.isEmpty())
+            item{Text("No expiry dates added yet. Edit a document to add one.",
+                color=MaterialTheme.colorScheme.onSurfaceVariant)}
+        fun androidx.compose.foundation.lazy.LazyListScope.group(
+            title:String,items:List<Pair<VaultCard,Long>>,color:Color){
+            if(items.isNotEmpty()){
+                item{Text(title,style=MaterialTheme.typography.titleLarge,
+                    modifier=Modifier.padding(top=8.dp))}
+                items(items,key={it.first.id}){(card,days)->
+                    Card(onClick={onOpen(card)},
+                        colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface),
+                        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
+                        Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically){
+                            Icon(Icons.Outlined.Event,null,tint=color)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)){
+                                Text(VaultNames.title(card.title),style=MaterialTheme.typography.titleMedium)
+                                Text(card.expiry,color=MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style=MaterialTheme.typography.bodySmall)
+                            }
+                            Text(when{
+                                days<0 -> "${-days} days overdue"
+                                days==0L -> "Expires today"
+                                else -> "${days} days left"
+                            },color=color,style=MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
             }
         }
-        items(ordered){(card,days)->
-            Card(onClick={onOpen(card)}) {
-                Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically){
-                    Icon(Icons.Outlined.Event,null,tint=if(days<=30)Gold else Mint)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)){
-                        Text(VaultNames.title(card.title),fontWeight=FontWeight.SemiBold)
-                        Text(card.expiry,style=MaterialTheme.typography.labelSmall)
+        group("Expired",expired,VaultColors.expired)
+        group("Expiring Soon",soon,VaultColors.expiring)
+        group("Valid",valid,VaultColors.valid)
+        if(invalid.isNotEmpty()) {
+            item{Text("Dates to check",style=MaterialTheme.typography.titleLarge,
+                modifier=Modifier.padding(top=8.dp))}
+            items(invalid,key={it.id}){card->
+                Card(onClick={onOpen(card)},
+                    colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface),
+                    border=BorderStroke(1.dp,VaultColors.expiring)){
+                    Column(Modifier.fillMaxWidth().padding(14.dp)){
+                        Text(VaultNames.title(card.title),style=MaterialTheme.typography.titleMedium)
+                        Text("Check expiry date: "+card.expiry,
+                            color=VaultColors.expiring,style=MaterialTheme.typography.bodySmall)
                     }
-                    AccentChip(if(days<0)"Expired "+(-days)+"d" else days.toString()+"d remaining",if(days<=30)Gold else Mint)
                 }
             }
         }
