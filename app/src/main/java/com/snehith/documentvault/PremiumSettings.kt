@@ -109,7 +109,8 @@ import androidx.compose.ui.unit.dp
         }
         item{
             Spacer(Modifier.height(5.dp))
-            Text("APPEARANCE & PRIVACY",color=VaultSky,fontWeight=FontWeight.Bold)
+            Text("APPEARANCE / PRIVACY",color=VaultColors.syntax,
+                style=MaterialTheme.typography.labelMedium)
         }
         item{
             HubCard(Modifier.fillMaxWidth()){
@@ -118,12 +119,12 @@ import androidx.compose.ui.unit.dp
                     Spacer(Modifier.width(10.dp))
                     Column {
                         Text("Appearance",fontWeight=FontWeight.SemiBold)
-                        Text("Follow system by default",color=MaterialTheme.colorScheme.onSurfaceVariant,
+                        Text("Code-editor black · no bright surfaces",color=MaterialTheme.colorScheme.onSurfaceVariant,
                             style=MaterialTheme.typography.bodySmall)
                     }
                 }
                 Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                    listOf("system" to "System","light" to "Light","dark" to "Dark").forEach{(mode,label)->
+                    listOf("system" to "System","light" to "Graphite","dark" to "OLED black").forEach{(mode,label)->
                         FilterChip(selected=themeMode==mode,onClick={onThemeModeChanged(mode)},
                             label={Text(label)})
                     }
@@ -131,7 +132,7 @@ import androidx.compose.ui.unit.dp
             }
         }
         item{
-            Surface(color=VaultPanel,shape=RoundedCornerShape(24.dp)){
+            Surface(color=VaultPanel,shape=RoundedCornerShape(14.dp)){
                 Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically){
                     Icon(Icons.Outlined.VisibilityOff,null,tint=VaultSky)
                     Spacer(Modifier.width(13.dp))
@@ -155,15 +156,15 @@ import androidx.compose.ui.unit.dp
 }
 @Composable private fun NavySettingRow(
     icon:androidx.compose.ui.graphics.vector.ImageVector,title:String,subtitle:String,onClick:()->Unit){
-    Card(onClick=onClick,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=RoundedCornerShape(10.dp),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
+    Card(onClick=onClick,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=RoundedCornerShape(13.dp),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
         Row(Modifier.fillMaxWidth().padding(13.dp),verticalAlignment=Alignment.CenterVertically){
-            Icon(icon,null,tint=VaultSky)
+            Icon(icon,null,tint=VaultColors.syntax)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)){
                 Text(title,color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.SemiBold)
                 Text(subtitle,color=VaultMuted,style=MaterialTheme.typography.bodySmall)
             }
-            Icon(Icons.Outlined.ChevronRight,null,tint=VaultSky)
+            Icon(Icons.Outlined.ChevronRight,null,tint=MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
