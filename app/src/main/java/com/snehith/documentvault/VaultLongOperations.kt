@@ -77,7 +77,7 @@ object VaultLongOperations {
         corners:List<PointF>,settings:ScanSettings
     ):Uri {
         val original=ImageDecode.decode(File(sourcePath),Int.MAX_VALUE,
-            fullResolution=true)
+            fullResolution=true,highQuality=true)
         val oriented=if(rotation%360==0)original else {
             try {
                 android.graphics.Bitmap.createBitmap(original,0,0,original.width,original.height,

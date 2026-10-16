@@ -31,6 +31,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.opencv.android.OpenCVLoader
 import org.opencv.android.Utils
 import org.opencv.core.*
@@ -51,15 +58,19 @@ object DocumentCropEngine {
                     DocQuadModel.detect(ctx.applicationContext,bitmap)?.map{
                         p->PointF(p.x*bitmap.width,p.y*bitmap.height)
                     }
-                }catch(_:Throwable){null}
+                }catch(cancelled:CancellationException){throw cancelled}
+                 catch(_:Throwable){null}
             } ?: com.docuscan.app.scan.Cleanup.detectCorners(bitmap)
             if(detected==null||detected.size!=4)DetectedScan(defaults,false)
             else DetectedScan(detected.map{p->PointF((p.x/bitmap.width).coerceIn(0f,1f),
                 (p.y/bitmap.height).coerceIn(0f,1f))},true)
-        } catch(_:Throwable){DetectedScan(defaults,false)}
+        } catch(cancelled:CancellationException){throw cancelled}
+          catch(_:Throwable){DetectedScan(defaults,false)}
     }
     fun crop(bitmap:Bitmap,corners:List<PointF>):Bitmap {
-        require(corners.size==4)
+        require(ScanQuadGeometry.valid(corners.map{it.x to it.y})){
+            "Corners must form a four-sided document with enough visible area"
+        }
         if(!ready())throw IllegalStateException("OpenCV could not initialize")
         val p=corners.map{Point(it.x*bitmap.width.toDouble(),it.y*bitmap.height.toDouble())}
         fun distance(a:Point,b:Point)=hypot(a.x-b.x,a.y-b.y)
@@ -97,31 +108,84 @@ object DocumentCropEngine {
 
 @Composable fun CropReviewScreen(original:Bitmap,initial:DetectedScan,
     onSave:(Int,List<PointF>,ScanSettings,Boolean)->Unit,onKeepOriginal:()->Unit,
-    onCancel:()->Unit,onRetake:()->Unit,canRetake:Boolean=true){
+    onCancel:()->Unit,onRetake:()->Unit,canRetake:Boolean=true,sessionKey:String="crop"){
     val scanContext=LocalContext.current
     val scope=rememberCoroutineScope()
-    var settings by remember{mutableStateOf(ScanSettings())}
-    var preview by remember{mutableStateOf<Bitmap?>(null)}
-    var detecting by remember{mutableStateOf(false)}
-    var rotating by remember{mutableStateOf(false)}
-    var image by remember(original){mutableStateOf(original)}
-    val points=remember(original){mutableStateListOf<PointF>().apply{
-        addAll(initial.corners.map{PointF(it.x,it.y)})
+    var preset by rememberSaveable(sessionKey){mutableStateOf("Original")}
+    var brightness by rememberSaveable(sessionKey){mutableIntStateOf(0)}
+    var contrast by rememberSaveable(sessionKey){mutableFloatStateOf(1f)}
+    var sharpness by rememberSaveable(sessionKey){mutableFloatStateOf(0f)}
+    var shadows by rememberSaveable(sessionKey){mutableStateOf(false)}
+    val settings=ScanSettings(preset,brightness,contrast,sharpness,shadows)
+    fun updateSettings(next:ScanSettings){
+        preset=next.preset;brightness=next.brightness
+        contrast=next.contrast;sharpness=next.sharpness;shadows=next.removeShadows
+    }
+    var savedCorners by rememberSaveable(sessionKey) {
+        mutableStateOf(CropGeometry.encode(initial.corners.map{it.x to it.y}))
+    }
+    val points=remember(sessionKey){mutableStateListOf<PointF>().apply{
+        addAll((CropGeometry.decode(savedCorners)?:initial.corners.map{it.x to it.y})
+            .map{PointF(it.first,it.second)})
     }}
-    var auto by remember(original){mutableStateOf(initial.automatic)}
-    var quarterTurns by rememberSaveable(original){mutableIntStateOf(0)}
+    LaunchedEffect(points,sessionKey){
+        snapshotFlow{points.map{it.x to it.y}}.distinctUntilChanged().collect{
+            if(it.size==4)savedCorners=CropGeometry.encode(it)
+        }
+    }
+    var quarterTurns by rememberSaveable(sessionKey){mutableIntStateOf(0)}
+    var image by remember(original){mutableStateOf(original)}
+    var imageTurns by remember(original){mutableIntStateOf(0)}
+    var rotating by remember{mutableStateOf(false)}
+    var detecting by remember{mutableStateOf(false)}
+    var preview by remember(original){mutableStateOf<Bitmap?>(null)}
+    var showResult by rememberSaveable(sessionKey){mutableStateOf(false)}
+    var validationMessage by remember{mutableStateOf("")}
+    var auto by remember(sessionKey){mutableStateOf(initial.automatic)}
     var dragging by remember{mutableIntStateOf(-1)}
+    val mutex=remember(original){Mutex()}
     val busy=detecting||rotating
-    // Never recycle a bitmap in composition disposal. A running OpenCV filter,
-    // async rotation or Canvas draw can still be using the pixels when Back is pressed.
-    // Once this screen and its jobs release references Android can safely reclaim them.
-    LaunchedEffect(image,settings){
-        val filtered=withContext(Dispatchers.Default){ScanEnhance.apply(image,settings)}
+    // Rebuild rotated preview from the same raw source after process/rotation recreation.
+    LaunchedEffect(original,quarterTurns){
+        if(quarterTurns==imageTurns)return@LaunchedEffect
+        rotating=true
+        try{
+            val turns=quarterTurns
+            val rotated=withContext(Dispatchers.Default){
+                val m=android.graphics.Matrix().apply{postRotate(turns*90f)}
+                Bitmap.createBitmap(original,0,0,original.width,original.height,m,true)
+            }
+            image=rotated;imageTurns=turns
+        }finally{rotating=false}
+    }
+    val geometry=points.map{it.x to it.y}
+    // Debounce fast slider and corner changes; serialize native jobs even when cancelled.
+    LaunchedEffect(image,settings,geometry,rotating){
+        if(rotating||!ScanQuadGeometry.valid(geometry)) {
+            preview=null
+            return@LaunchedEffect
+        }
+        delay(150)
+        val source=image
+        val quad=geometry.map{PointF(it.first,it.second)}
+        val filtered=withContext(Dispatchers.Default){
+            mutex.withLock {
+                val largest=maxOf(source.width,source.height)
+                val small=if(largest>1000){
+                    val scale=1000f/largest
+                    Bitmap.createScaledBitmap(source,(source.width*scale).toInt().coerceAtLeast(1),
+                        (source.height*scale).toInt().coerceAtLeast(1),true)
+                }else source
+                try {
+                    val cropped=DocumentCropEngine.crop(small,quad)
+                    try{ScanEnhance.apply(cropped,settings)}
+                    finally{cropped.recycle()}
+                }finally{if(small!==source)small.recycle()}
+            }
+        }
         preview=filtered
     }
-    // Pending filter results can arrive around navigation; Compose's LaunchedEffect
-    // cancels updates when the screen leaves without destroying live bitmap pixels.
-    fun redetect() {
+    fun redetect(){
         if(busy)return
         val snapshot=image
         scope.launch{
@@ -131,11 +195,23 @@ object DocumentCropEngine {
                     DocumentCropEngine.detect(snapshot,scanContext)
                 }
                 if(image===snapshot){
-                    points.clear()
-                    points.addAll(fresh.corners.map{PointF(it.x,it.y)})
+                    points.clear();points.addAll(fresh.corners.map{PointF(it.x,it.y)})
+                    validationMessage=""
                     auto=fresh.automatic
                 }
-            }finally{detecting=false}
+            }catch(cancelled:CancellationException){throw cancelled}
+            catch(e:Exception){validationMessage="Could not detect edges. Adjust corners manually."}
+            finally{detecting=false}
+        }
+    }
+    fun save(addAnother:Boolean){
+        val corners=points.toList()
+        if(!ScanQuadGeometry.valid(corners.map{it.x to it.y})){
+            validationMessage="Adjust the four corners to form a valid document."
+            showResult=false
+        }else{
+            validationMessage=""
+            onSave(quarterTurns*90,corners,settings,addAnother)
         }
     }
     val scheme=MaterialTheme.colorScheme
@@ -149,13 +225,20 @@ object DocumentCropEngine {
             color=scheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(),
             contentAlignment=Alignment.Center){
+            if(showResult){
+                val result=preview
+                if(result!=null&&!result.isRecycled)
+                    Image(result.asImageBitmap(),"Processed document preview",
+                        Modifier.fillMaxSize(),contentScale=ContentScale.Fit)
+                else CircularProgressIndicator()
+            }else {
             val ratio=image.width.toFloat()/image.height.coerceAtLeast(1)
             val gutter=22.dp
             val contentW=(maxWidth-gutter*2).coerceAtLeast(24.dp)
             val contentH=(maxHeight-gutter*2).coerceAtLeast(24.dp)
             val displayW=minOf(contentW,contentH*ratio)
             val displayH=displayW/ratio
-            val shown=preview?.takeUnless{it.isRecycled}?:image
+            val shown=image
             Box(Modifier.width(displayW+gutter*2).height(displayH+gutter*2),
                 contentAlignment=Alignment.Center){
                 Image(shown.asImageBitmap(),"Image to adjust",
@@ -255,35 +338,34 @@ object DocumentCropEngine {
                     }
                 }
             }
+            }
         }
-        ScanEnhanceControls(settings,{settings=it})
+        if(showResult && preview!=null){
+            Text("Processed preview",style=MaterialTheme.typography.labelMedium)
+        }
+        if(validationMessage.isNotBlank())
+            Text(validationMessage,color=MaterialTheme.colorScheme.error,
+                style=MaterialTheme.typography.bodySmall)
+        ScanEnhanceControls(settings,{updateSettings(it)})
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
+            OutlinedButton(onClick={showResult=!showResult},enabled=!busy,
+                modifier=Modifier.weight(1f).heightIn(min=48.dp)){
+                Text(if(showResult)"Adjust corners" else "Preview")
+            }
             OutlinedButton(onClick={redetect()},enabled=!busy,
                 modifier=Modifier.weight(1f).heightIn(min=48.dp)){
                 Icon(Icons.Outlined.AutoFixHigh,null,Modifier.size(18.dp))
                 Text(" Detect")
             }
             OutlinedButton(onClick={
-                if(!busy) {
-                    val previous=image
-                    rotating=true
-                    scope.launch {
-                        try{
-                            val next=withContext(Dispatchers.Default){
-                                val matrix=android.graphics.Matrix().apply{postRotate(90f)}
-                                Bitmap.createBitmap(previous,0,0,previous.width,previous.height,matrix,true)
-                            }
-                            if(image===previous){
-                                val transformed=CropGeometry.rotateClockwise(
-                                    points.map{it.x to it.y})
-                                points.clear()
-                                points.addAll(transformed.map{PointF(it.first,it.second)})
-                                quarterTurns=(quarterTurns+1)%4
-                                image=next
-                                auto=false
-                            } else if(next!==previous)next.recycle()
-                        }finally{rotating=false}
-                    }
+                if(!busy){
+                    val transformed=CropGeometry.rotateClockwise(points.map{it.x to it.y})
+                    points.clear()
+                    points.addAll(transformed.map{PointF(it.first,it.second)})
+                    quarterTurns=(quarterTurns+1)%4
+                    preview=null
+                    showResult=false
+                    auto=false
                 }
             },enabled=!busy,modifier=Modifier.weight(1f).heightIn(min=48.dp)){
                 Icon(Icons.Outlined.RotateRight,null,Modifier.size(18.dp))
@@ -293,13 +375,13 @@ object DocumentCropEngine {
                 modifier=Modifier.weight(1f).heightIn(min=48.dp)){Text("Retake")}
         }
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-            OutlinedButton(onClick={onSave(quarterTurns*90,points.toList(),settings,true)},
+            if(canRetake)OutlinedButton(onClick={save(true)},
                 enabled=!busy,modifier=Modifier.weight(1f).heightIn(min=50.dp)){
                 Text("Add Page")
             }
-            Button(onClick={onSave(quarterTurns*90,points.toList(),settings,false)},
+            Button(onClick={save(false)},
                 enabled=!busy,modifier=Modifier.weight(1f).heightIn(min=50.dp)){
-                Text("Save")
+                Text(if(canRetake)"Save" else "Save changes")
             }
         }
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){

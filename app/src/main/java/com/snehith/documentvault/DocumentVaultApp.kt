@@ -60,6 +60,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var cropBitmap by remember{mutableStateOf<android.graphics.Bitmap?>(null)}
     var initialCropRotation by rememberSaveable{mutableIntStateOf(0)}
     var cropResult by remember{mutableStateOf<DetectedScan?>(null)}
+    var cropSessionId by rememberSaveable{mutableStateOf("")}
+    var pendingCropCorners by rememberSaveable{mutableStateOf("")}
+    var pendingCropRotation by rememberSaveable{mutableIntStateOf(0)}
     var cameraPath by rememberSaveable{mutableStateOf("")}
     var cameraPending by rememberSaveable{mutableStateOf(false)}
     var retakePending by rememberSaveable{mutableStateOf(false)}
@@ -258,6 +261,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         ScanPrepare.load(activity.applicationContext,file)
                     }
                     cropBitmap=prepared.preview;cropResult=prepared.corners
+                    cropSessionId=UUID.randomUUID().toString()
+                    pendingCropCorners=CropGeometry.encode(prepared.corners.corners.map{it.x to it.y})
+                    pendingCropRotation=prepared.rotation
                     initialCropRotation=prepared.rotation
                     retakePending=false;previousCapturePath=""
                     if(route!="crop"){
@@ -295,7 +301,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         val image=current?.files?.firstOrNull{it.id==enhancingFileId}
                         if(image!=null)ScanPrepare.loadForEdit(
                             file,image.cropCorners,image.cropRotation) else null
-                    }else ScanPrepare.load(activity.applicationContext,file)
+                     }else if(pendingCropCorners.isNotBlank())
+                        ScanPrepare.loadForEdit(file,pendingCropCorners,pendingCropRotation)
+                    else ScanPrepare.load(activity.applicationContext,file)
                 }
             }catch(cancelled:CancellationException){throw cancelled}
             catch(e:Exception){
@@ -304,6 +312,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             }
             if(recovered!=null){
                 cropBitmap=recovered.preview;cropResult=recovered.corners
+                if(cropSessionId.isBlank())cropSessionId=path
                 initialCropRotation=recovered.rotation
             }else{
                 cameraPath=""
@@ -615,6 +624,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     enhancingFileId=imageFile.id
                                     cameraUri=null;cameraPath=prepared.first
                                     cropBitmap=prepared.second.preview;cropResult=prepared.second.corners
+                                    cropSessionId=UUID.randomUUID().toString()
+                                    pendingCropCorners=CropGeometry.encode(prepared.second.corners.corners.map{it.x to it.y})
+                                    pendingCropRotation=prepared.second.rotation
                                     initialCropRotation=prepared.second.rotation
                                      busy=""
                                      navigate("crop")
@@ -697,7 +709,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 },
                                 {cropBitmap=null;cropResult=null;enhancingFileId=null;goBack()},
                                 {camera(scanTarget,retake=true)},
-                                canRetake=!cropFromAttachment)
+                                canRetake=!cropFromAttachment,
+                                sessionKey=cropSessionId.ifBlank{cameraPath})
                         }
                         "edit"->(editing?:editingJson.takeIf{it.isNotBlank()}?.let{repo.decodeCard(it)})?.let{c->
                             CardEditorScreen(c,repo.profiles.toList(),
