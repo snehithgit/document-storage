@@ -258,11 +258,15 @@ class VaultRepository(private val context: Context) {
                 "Expiry date must be a valid ISO date (YYYY-MM-DD); got: "+card.expiry
             }
         }
-        if(i<0)cards.add(0,card) else cards[i]=card
-        try{persist()}catch(e:Exception){
-            if(i<0)cards.removeAll{it.id==card.id}
-            else if(old!=null)cards[i]=old
-            throw e
+        // Publish attachment-list changes atomically to Compose observers.
+        // A half-updated list while the attachment manager recomposes can crash UI.
+        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            if(i<0)cards.add(0,card) else cards[i]=card
+            try{persist()}catch(e:Exception){
+                if(i<0)cards.removeAll{it.id==card.id}
+                else if(old!=null)cards[i]=old
+                throw e
+            }
         }
     }
     /** Commit list changes before unlinking blobs, including hidden preserved originals. */
