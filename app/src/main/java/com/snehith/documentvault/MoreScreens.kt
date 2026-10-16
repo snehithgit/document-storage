@@ -425,21 +425,69 @@ import java.util.UUID
     Spacer(Modifier.height(8.dp))
 }
 @Composable fun BackupScreen(onBackup:(String)->Unit,onRestore:(String)->Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp),
-        verticalArrangement=Arrangement.spacedBy(15.dp)) {
-        Heading("Backup & Restore","Export your cards and documents as a standard ZIP file")
-        Text("Backups are NOT encrypted. Anyone with the ZIP can read its documents and personal details.",
-            color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)
-        Text("The ZIP includes card fields, OCR text, templates, family profiles and original attachments.",
-            style=MaterialTheme.typography.bodyMedium)
-        Button(onClick={onBackup("")},modifier=Modifier.fillMaxWidth()) {
-            Icon(Icons.Outlined.FileUpload,null);Text(" Export ZIP backup")
+    LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+        contentPadding=PaddingValues(16.dp,18.dp,16.dp,30.dp),
+        verticalArrangement=Arrangement.spacedBy(18.dp)){
+        item{
+            VaultHeader("Backup & Recovery","Keep a separate copy of your documents")
         }
-        HorizontalDivider()
-        Text("Restoring replaces the card list. Create a ZIP backup first. Backups from older, incompatible app versions may not be supported.",
-            style=MaterialTheme.typography.bodyMedium)
-        OutlinedButton(onClick={onRestore("")},modifier=Modifier.fillMaxWidth()) {
-            Icon(Icons.Outlined.Restore,null);Text(" Restore ZIP backup")
+        item{
+            HubCard(Modifier.fillMaxWidth()){
+                Row(verticalAlignment=Alignment.CenterVertically){
+                    HubIcon(Icons.Outlined.FileUpload)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)){
+                        Text("Export backup",style=MaterialTheme.typography.titleLarge)
+                        Text("Save documents, information, profiles and templates in one backup file.",
+                            style=MaterialTheme.typography.bodySmall,
+                            color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Button(onClick={onBackup("")},modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)){
+                    Icon(Icons.Outlined.FileUpload,null,Modifier.size(19.dp))
+                    Text(" Export Backup")
+                }
+            }
+        }
+        item{
+            HubCard(Modifier.fillMaxWidth()){
+                Row(verticalAlignment=Alignment.CenterVertically){
+                    HubIcon(Icons.Outlined.Restore)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)){
+                        Text("Restore backup",style=MaterialTheme.typography.titleLarge)
+                        Text("Replace your current documents using a saved backup.",
+                            style=MaterialTheme.typography.bodySmall,
+                            color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                OutlinedButton(onClick={onRestore("")},
+                    modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)){
+                    Icon(Icons.Outlined.Restore,null,Modifier.size(19.dp))
+                    Text(" Choose Backup to Restore")
+                }
+                Text("You will be asked to confirm before existing documents are replaced.",
+                    color=MaterialTheme.colorScheme.onSurfaceVariant,
+                    style=MaterialTheme.typography.bodySmall)
+            }
+        }
+        item{
+            Surface(shape=RoundedCornerShape(14.dp),
+                color=MaterialTheme.colorScheme.surface,
+                border=BorderStroke(1.dp,VaultColors.expiring)){
+                Row(Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment=Alignment.Top){
+                    Icon(Icons.Outlined.Info,null,tint=VaultColors.expiring)
+                    Spacer(Modifier.width(12.dp))
+                    Column{
+                        Text("Backups are not encrypted",style=MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(5.dp))
+                        Text("Anyone who has the backup file may read its contents. Store it in a safe place.",
+                            color=MaterialTheme.colorScheme.onSurfaceVariant,
+                            style=MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
         }
     }
 }
@@ -457,7 +505,7 @@ import java.util.UUID
         items(files){file->
             ElevatedCard {
                 Column(Modifier.padding(13.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-                    Text(file.name,fontWeight=FontWeight.SemiBold)
+                    Text(if(file.name.startsWith("Recovered-",ignoreCase=true))"Recovered file" else VaultNames.label(file.name),fontWeight=FontWeight.SemiBold)
                     Text(((file.bytes/1024).coerceAtLeast(1)).toString()+" KB",style=MaterialTheme.typography.labelSmall)
                     OutlinedButton(onClick={selected=file;name="Recovered document"}){Text("Recover into new card")}
                 }
