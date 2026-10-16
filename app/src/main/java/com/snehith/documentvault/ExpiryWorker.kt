@@ -21,15 +21,12 @@ class ExpiryWorker(context:Context,params:WorkerParameters):Worker(context,param
             val store=VaultStorage.get(applicationContext)
             val today=LocalDate.now()
             val days=applicationContext.getSharedPreferences("vault_options",Context.MODE_PRIVATE).getInt("remindDays",30)
-            val renewedIds=store.cards.map{it.previousId}.filter{it.isNotBlank()}.toSet()
-            val invalid=store.cards.filter { it.expiry.isNotBlank() &&
-                runCatching { LocalDate.parse(it.expiry) }.isFailure }
-            val expiring=store.cards.filter{it.id !in renewedIds}.mapNotNull { card ->
-                try {
-                    val date=LocalDate.parse(card.expiry)
-                    val remaining=ChronoUnit.DAYS.between(today,date)
-                    if(remaining in -30L..days.toLong())card to remaining else null
-                } catch(_:Exception){null}
+            val active=VaultExpiryRules.active(store.cards.toList())
+            val invalid=active.filter{VaultExpiryRules.status(it,days,today)=="Check expiry"}
+            val expiring=active.mapNotNull{card->
+                if(VaultExpiryRules.status(card,days,today) in setOf("Expired","Expiring"))
+                    VaultExpiryRules.daysLeft(card,today)?.let{card to it}
+                else null
             }.sortedBy{it.second}
             if(expiring.isNotEmpty()||invalid.isNotEmpty()) {
                 val manager=applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

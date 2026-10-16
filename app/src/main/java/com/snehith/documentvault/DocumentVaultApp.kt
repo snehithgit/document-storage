@@ -36,7 +36,6 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
-private data class ReviewJob(val cardId:String,val file:VaultFile,val analysis:ExtractedDocument)
 private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,val to:Int)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -76,7 +75,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var addToCardId by rememberSaveable{mutableStateOf<String?>(null)}
     var importTarget by rememberSaveable{mutableStateOf<String?>(null)}
     var userProfile by rememberSaveable{mutableStateOf("all")}
-    var categoryFilter by rememberSaveable{mutableStateOf("All")}
+    var categoryFilter by rememberSaveable{mutableStateOf("")}
     val options=remember { activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE) }
     var ocrLanguage by rememberSaveable {
         mutableStateOf(options.getString("ocrLanguage","Latin") ?: "Latin")
@@ -91,8 +90,10 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var error by remember{mutableStateOf("")}
     var pdfJob by remember{mutableStateOf<PdfJob?>(null)}
     var backupPassword by remember{mutableStateOf("")}
-    val reviewQueue= remember{mutableStateListOf<ReviewJob>()}
     var themeMode by rememberSaveable { mutableStateOf(options.getString("displayTheme","dark") ?: "dark") }
+    var biometricEnabled by rememberSaveable {
+        mutableStateOf(options.getBoolean("biometricUnlock",false))
+    }
     val dark=when(themeMode){"dark"->true;"light"->false;else->isSystemInDarkTheme()}
     val current=repo.cards.firstOrNull{it.id==selectedCardId}
     val regular=route in setOf("home","cards","people","more")
@@ -246,13 +247,14 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         }
     }
     fun importUris(uris:List<Uri>,targetId:String?=null,addPage:Boolean=false,
-        originalUri:Uri?=null,savedCorners:String="",savedRotation:Int=0) {
+        originalUri:Uri?=null,savedCorners:String="",savedRotation:Int=0,
+        groupAsOne:Boolean=false) {
         if(uris.isEmpty())return
         val chosen=uris.toList()
         val profile=if(userProfile=="all")"self" else userProfile
         operations.start("Importing "+VaultCounts.format(chosen.size,"document")){
             val saved=VaultLongOperations.importDocuments(repo,chosen,targetId,profile,
-                originalUri,savedCorners,savedRotation)
+                originalUri,savedCorners,savedRotation,groupAsOne)
             VaultJobResult(
                 note=when{
                     saved.count==0->"No new files were added"
@@ -266,8 +268,10 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     val importPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()){uriList->
         importUris(uriList,importTarget)
     }
+    var pendingGallery by rememberSaveable{mutableStateOf(emptyList<String>())}
     val galleryPicker=rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()){photos->
-        importUris(photos,importTarget)
+        if(photos.size>1&&importTarget==null)pendingGallery=photos.map(Uri::toString)
+        else importUris(photos,importTarget)
     }
     var cameraUri by rememberSaveable{mutableStateOf<Uri?>(null)}
     val cameraLauncher=rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()){success->
@@ -382,17 +386,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                     "rotate"->engine.rotate(job.files.first(),90,uri)
                     "images"->engine.imagesToPdf(job.files,uri)
                     "searchable"->engine.searchableCopy(job.files.first(),uri)
-                    "combine"->engine.combineDocuments(job.files,uri)
+                    "export-combine"->engine.combineDocuments(job.files,uri)
                 }
-                if(job.op=="combine"){
-                    val combined=repo.importFile(uri)
-                    try {
-                        val original=repo.cards.firstOrNull{it.id==cardId}
-                            ?:throw java.io.IOException("Document no longer available")
-                        repo.saveCard(original.copy(files=original.files+combined))
-                    }catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){repo.removeOrphan(combined);throw e}
-                }
-                VaultJobResult(note=if(job.op=="combine")"Combined PDF saved" else "PDF exported")
+                VaultJobResult(note="PDF exported")
             }
         }
         pdfJobToExport=null
@@ -526,16 +522,34 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         }
     }
     VaultTheme(dark) {
+        if(activity.unlocked.value&&pendingGallery.isNotEmpty())AlertDialog(
+            onDismissRequest={pendingGallery=emptyList()},
+            title={Text("Import ${pendingGallery.size} photos")},
+            text={Text("Save as one document with ${pendingGallery.size} pages, or make separate documents?")},
+            confirmButton={TextButton(onClick={
+                val chosen=pendingGallery.map(Uri::parse)
+                pendingGallery=emptyList()
+                importUris(chosen,groupAsOne=true)
+            }){Text("One document")}},
+            dismissButton={TextButton(onClick={
+                val chosen=pendingGallery.map(Uri::parse)
+                pendingGallery=emptyList()
+                importUris(chosen)
+            }){Text("Separate documents")}}
+        )
         if(!activity.unlocked.value) {
             UnlockScreen(onPin={pin->
-                if(repo.checkPin(pin)){activity.unlocked.value=true;true}else false
+                if(withContext(Dispatchers.Default){repo.checkPin(pin)}){
+                    activity.unlocked.value=true;true
+                } else false
             },waitSeconds={repo.pinWaitSeconds()},
                 onBiometric={activity.authenticate({activity.unlocked.value=true},{activity.notify(it)})},
                 biometricAvailable=remember(activity){
                     androidx.biometric.BiometricManager.from(activity).canAuthenticate(
                         androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
                     )==androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
-                })
+                },
+                autoBiometric=biometricEnabled)
         } else {
             androidx.activity.compose.BackHandler(enabled=working||busy.isNotBlank()||!regular||route!="home"){
                 if(!working&&busy.isBlank())goBack()
@@ -558,7 +572,6 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     "viewer"->current?.files?.firstOrNull{it.id==viewingId}
                                         ?.let{VaultNames.label(it.name)} ?: "Document viewer"
                                     "externalviewer"->"Open PDF"
-                                    "review"->"OCR review"
                                     "tools"->"PDF Tools"
                                     "expiry"->"Expiry and renewal"
                                     "profiles"->"Family profiles"
@@ -642,8 +655,12 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 }}
                             )
                         }
-                        "cards"->VaultNavCards(repo.cards.toList(),repo,{openCard(it)},{navigate("scan")},categoryFilter,{navigateRoot("search")})
-                        "search"->VaultNavSearch(repo.cards.toList(),repo){openCard(it)}
+                        "cards"->VaultNavCards(repo.cards.toList(),repo,
+                            {openCard(it)},{navigate("scan")},categoryFilter,
+                            {navigateRoot("search")},repo.profiles.toList(),userProfile,
+                            {userProfile=it},{categoryFilter=""})
+                        "search"->VaultNavSearch(repo.cards.toList(),repo,
+                            {openCard(it)},repo.profiles.toList(),userProfile,{userProfile=it})
                         "scan"->NavyScanScreen(
                             onCamera={camera()},
                             onGallery={importTarget=null;galleryPicker.launch("image/*")},
@@ -668,7 +685,16 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 if(Build.VERSION.SDK_INT>=33)notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                                 activity.notify("Expiry reminders: "+days+" days")},
                             options.getBoolean("keepScanOriginal",true),
-                            {keep->options.edit().putBoolean("keepScanOriginal",keep).apply()},{navigate("about")})
+                            {keep->options.edit().putBoolean("keepScanOriginal",keep).apply()},{navigate("about")},
+                            {repo.retainedOriginalBytes()},
+                            {operations.start("Removing retained originals"){
+                                val count=repo.removeRetainedOriginals()
+                                VaultJobResult(note="Removed $count retained originals")
+                            }},
+                            operationState.sequence,biometricEnabled,{
+                                enabled->biometricEnabled=enabled
+                                options.edit().putBoolean("biometricUnlock",enabled).apply()
+                            })
                         "detail"->current?.let{c->VaultNavDetail(c,repo,
                             {f->viewingId=f.id;navigate("viewer")},
                             {f->startOcr(c.id,f)},{f->activity.share(f)},{activity.shareAll(c.files)},
@@ -842,49 +868,37 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             DocumentViewerScreen(f,repo,engine,{activity.share(f)},
                                 {startOcr(selectedCardId,f)})
                         }
-                        "review"->{
-                            val job=reviewQueue.firstOrNull()
-                            if(job!=null)OcrReviewScreen(job.file.name,job.analysis,
-                                {fields->
-                                    val original=repo.cards.firstOrNull{it.id==job.cardId}
-                                    if(original!=null){
-                                        val merged=original.fields.toMutableList()
-                                        fields.filter{it.name.isNotBlank()&&it.value.isNotBlank()}.forEach{suggested->
-                                            val match=merged.indexOfFirst{it.name.equals(suggested.name,true)}
-                                            if(match<0)merged.add(suggested)
-                                            else if(merged[match].value.isBlank())merged[match]=suggested
-                                        }
-                                        val expiryField=merged.firstOrNull{it.name.contains("expiry",true)}
-                                        val expiry=if(original.expiry.isNotBlank())original.expiry else expiryField?.value?.let{date->
-                                            SmartDocuments.normalizeDate(date).orEmpty()
-                                        } ?: ""
-                                        scope.launch {
-                                            try{withContext(Dispatchers.IO){
-                                                repo.updateCard(original.id){latest->
-                                                    latest.copy(fields=VaultFieldUpdates.merge(
-                                                        original.fields,merged,latest.fields),
-                                                        expiry=latest.expiry.ifBlank{expiry})
-                                                }
-                                            }}
-                                            catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error="Cannot save OCR fields: "+(e.message?:"Storage error")}
-                                        }
-                                        selectedCardId=job.cardId
-                                    }
-                                    reviewQueue.removeAt(0)
-                                    if(reviewQueue.isEmpty())replaceRoute("detail")
-                                },{
-                                    selectedCardId=job.cardId;reviewQueue.removeAt(0)
-                                    if(reviewQueue.isEmpty())replaceRoute("detail")
-                                })
-                            else LaunchedEffect(Unit){replaceRoute(if(current==null)"cards" else "detail")}
-                        }
                         "tools"->current?.let{c->PdfToolsScreen(c,repo,
                             {addToCardId=c.id},
                             {op,files,from,to->
-                                pdfJobToExport=PdfJob(op,files,from,to)
-                                pdfExport.launch("DocumentVault_"+op+"_"+System.currentTimeMillis()+".pdf")
+                                if(op=="combine"){
+                                    operations.start("Saving combined PDF"){
+                                        val staged=File(activity.cacheDir,
+                                            "shared/combined-"+UUID.randomUUID()+".pdf")
+                                        staged.parentFile?.mkdirs()
+                                        try{
+                                            val uri=FileProvider.getUriForFile(activity,
+                                                activity.packageName+".provider",staged)
+                                            engine.combineDocuments(files,uri)
+                                            val imported=repo.importFile(uri)
+                                            try{
+                                                repo.updateCard(c.id){latest->
+                                                    latest.copy(files=latest.files+imported.copy(
+                                                        name=VaultNames.title(c.title)+" - combined.pdf"))
+                                                }
+                                            }catch(e:Exception){repo.removeOrphan(imported);throw e}
+                                            VaultJobResult(note="Combined PDF added",cardId=c.id)
+                                        }finally{staged.delete()}
+                                    }
+                                }else{
+                                    pdfJobToExport=PdfJob(op,files,from,to)
+                                    pdfExport.launch(if(op=="export-combine")
+                                        VaultNames.title(c.title)+" - combined.pdf"
+                                        else VaultNames.title(c.title)+" - "+op+".pdf")
+                                }
                             })}
-                        "expiry"->ExpiriesScreen(repo.cards.toList()){openCard(it)}
+                        "expiry"->ExpiriesScreen(repo.cards.toList(),{openCard(it)},
+                            options.getInt("remindDays",30))
                         "profiles"->ProfilesScreen(repo.profiles.toList()){p->repo.saveProfile(p)}
                         "templates"->TemplatesScreen(FieldSuggestions.templates+repo.customTemplates){template->
                             val card=repo.newCard().copy(title=template.name,kind=template.name,fields=template.fieldNames.map{DataField(it,"")})
@@ -946,25 +960,60 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     }
 }
 
-@Composable fun UnlockScreen(onPin:(String)->Boolean,waitSeconds:()->Long,onBiometric:()->Unit,biometricAvailable:Boolean) {
+@Composable fun UnlockScreen(
+    onPin:suspend (String)->Boolean,waitSeconds:()->Long,
+    onBiometric:()->Unit,biometricAvailable:Boolean,autoBiometric:Boolean=false
+) {
+    val scope=rememberCoroutineScope()
     var pin by remember{mutableStateOf("")}
     var invalid by remember{mutableStateOf(false)}
-    Column(Modifier.fillMaxSize().padding(28.dp),verticalArrangement=Arrangement.Center,horizontalAlignment=Alignment.CenterHorizontally) {
+    var trying by remember{mutableStateOf(false)}
+    var remaining by remember{mutableLongStateOf(waitSeconds())}
+    LaunchedEffect(Unit) {
+        while(true){
+            remaining=withContext(Dispatchers.Default){waitSeconds()}
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+    LaunchedEffect(autoBiometric,biometricAvailable) {
+        if(autoBiometric&&biometricAvailable)onBiometric()
+    }
+    Column(Modifier.fillMaxSize().padding(28.dp),verticalArrangement=Arrangement.Center,
+        horizontalAlignment=Alignment.CenterHorizontally) {
         Icon(Icons.Outlined.Lock,null,tint=VaultColors.syntax,modifier=Modifier.size(65.dp))
         Spacer(Modifier.height(24.dp))
-        Text("Document Vault",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold)
+        Text("Document Vault",style=MaterialTheme.typography.headlineMedium,
+            fontWeight=FontWeight.Bold)
         Text("Unlock your personal document library")
         Spacer(Modifier.height(8.dp))
         Text("The PIN locks the app. It does not encrypt your saved documents.",
             color=MaterialTheme.colorScheme.onSurfaceVariant,
             style=MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(30.dp))
-        OutlinedTextField(pin,{pin=it;invalid=false},label={Text("Vault PIN")},visualTransformation=PasswordVisualTransformation(),
+        OutlinedTextField(pin,{pin=it;invalid=false},label={Text("Vault PIN")},
+            visualTransformation=PasswordVisualTransformation(),
+            keyboardOptions=androidx.compose.foundation.text.KeyboardOptions(
+                keyboardType=androidx.compose.ui.text.input.KeyboardType.NumberPassword),
+            enabled=!trying&&remaining==0L,
             singleLine=true,modifier=Modifier.fillMaxWidth())
-        if(invalid)Text(if(waitSeconds()>0)"Too many attempts. Try again in "+waitSeconds()+" seconds."
-            else "Incorrect PIN",color=MaterialTheme.colorScheme.error)
+        if(remaining>0)Text("Too many attempts. Try again in $remaining seconds.",
+            color=MaterialTheme.colorScheme.error)
+        else if(invalid)Text("Incorrect PIN",color=MaterialTheme.colorScheme.error)
         Spacer(Modifier.height(12.dp))
-        Button(onClick={if(!onPin(pin))invalid=true},modifier=Modifier.fillMaxWidth(),enabled=pin.isNotBlank()){Text("Unlock")}
+        Button(onClick={
+            val submitted=pin
+            scope.launch {
+                trying=true
+                try {
+                    if(!onPin(submitted)){invalid=true;pin=""}
+                }catch(cancelled:CancellationException){throw cancelled}
+                catch(e:Exception){invalid=true}
+                finally{trying=false}
+            }
+        },modifier=Modifier.fillMaxWidth(),
+            enabled=pin.isNotBlank()&&!trying&&remaining==0L){
+            Text(if(trying)"Checking…" else "Unlock")
+        }
         if(biometricAvailable)OutlinedButton(onClick=onBiometric,
             modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) {
             Icon(Icons.Outlined.Fingerprint,null);Text(" Use biometrics")

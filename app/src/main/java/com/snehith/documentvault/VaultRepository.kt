@@ -298,6 +298,31 @@ class VaultRepository(private val context: Context) {
         }
     }
     /** Commit list changes before unlinking blobs, including hidden preserved originals. */
+    /** Hidden raw captures are optional. Remove their bytes without touching edited pages. */
+    @Synchronized fun retainedOriginalBytes():Long =
+        cards.flatMap{it.files}.map{it.originalId}.filter{it.isNotBlank()}
+            .distinct().sumOf{blob(it).takeIf(File::isFile)?.length()?:0L}
+
+    @Synchronized fun removeRetainedOriginals():Int {
+        val originals=cards.flatMap{it.files}.map{it.originalId}
+            .filter{it.isNotBlank()}.distinct()
+        if(originals.isEmpty())return 0
+        val before=cards.toList()
+        val updated=before.map{card->card.copy(files=card.files.map{file->
+            if(file.originalId.isNotBlank())file.copy(originalId="",
+                cropCorners="",cropRotation=0) else file
+        })}
+        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            cards.clear();cards.addAll(updated)
+            try{persist()}
+            catch(e:Exception){cards.clear();cards.addAll(before);throw e}
+        }
+        val stillUsed=referencedIds()
+        originals.filterNot{it in stillUsed}.forEach{id->
+            blob(id).delete();meta(id).delete()
+        }
+        return originals.size
+    }
     @Synchronized fun removeFile(cardId:String,fileId:String) {
         val current=cards.firstOrNull{it.id==cardId}?:throw IOException("Document not found")
         val target=current.files.firstOrNull{it.id==fileId}?:throw IOException("Attachment not found")

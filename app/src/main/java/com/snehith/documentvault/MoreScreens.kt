@@ -20,6 +20,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -32,7 +34,14 @@ import java.util.UUID
     engine:DocumentEngine,onShare:()->Unit,onOcr:()->Unit,sourceOverride:File?=null) {
     val pdf=file.mime=="application/pdf"||file.name.endsWith(".pdf",true)
     val isImage=file.mime.startsWith("image/")
+    val context=LocalContext.current
+    val viewPrefs=remember(context){
+        context.getSharedPreferences("viewer_rotation",android.content.Context.MODE_PRIVATE)
+    }
     var page by rememberSaveable(file.id){mutableIntStateOf(0)}
+    var rotation by rememberSaveable(file.id,page){
+        mutableIntStateOf(viewPrefs.getInt(file.id+":"+page,0))
+    }
     var pageCount by remember(file.id){mutableIntStateOf(1)}
     var bitmap by remember(file.id){mutableStateOf<Bitmap?>(null)}
     var session by remember(file.id){mutableStateOf<PdfPageSession?>(null)}
@@ -44,6 +53,15 @@ import java.util.UUID
     var panX by remember(file.id){mutableFloatStateOf(0f)}
     var panY by remember(file.id){mutableFloatStateOf(0f)}
     var loading by remember(file.id){mutableStateOf(false)}
+    var decodedEdge by remember(file.id){mutableIntStateOf(1550)}
+    LaunchedEffect(zoom){
+        delay(170)
+        decodedEdge=when{
+            zoom>=2.4f->3400
+            zoom>=1.45f->2400
+            else->1550
+        }
+    }
 
     DisposableEffect(session,file.id) {
         val active=session
@@ -73,7 +91,7 @@ import java.util.UUID
         }catch(e:Exception){error=e.message?:"Unable to open PDF"}
         finally{loading=false}
     }
-    LaunchedEffect(file.id,page,showText,session) {
+    LaunchedEffect(file.id,page,showText,session,decodedEdge) {
         if(showText){
             // Viewer reads only the persisted OCR result. Request extraction through
             // the regular worker so language choice, errors and storage stay consistent.
@@ -85,8 +103,9 @@ import java.util.UUID
         try{
             loading=true
             val rendered=withContext(Dispatchers.IO){
-                if(pdf)session!!.render(page)
-                else engine.scaledBitmap(sourceOverride?:repo.documentFile(file),1550)
+                if(pdf)session!!.render(page,decodedEdge)
+                else ImageDecode.decode(sourceOverride?:repo.documentFile(file),
+                    decodedEdge,highQuality=true)
             }
             bitmap=rendered
             error=""
@@ -104,6 +123,12 @@ import java.util.UUID
             },modifier=Modifier.size(48.dp)){
                 Icon(if(showText)Icons.Outlined.Image else Icons.Outlined.TextSnippet,
                     if(showText)"Show document" else "Read text")
+            }
+            IconButton(onClick={
+                rotation=(rotation+90)%360
+                viewPrefs.edit().putInt(file.id+":"+page,rotation).apply()
+            },modifier=Modifier.size(48.dp)){
+                Icon(Icons.Outlined.RotateRight,"Rotate viewed page")
             }
             IconButton(onClick=onOcr,modifier=Modifier.size(48.dp)){
                 Icon(Icons.Outlined.DocumentScanner,"Read page")
@@ -134,7 +159,7 @@ import java.util.UUID
                                     panY=(panY+move.y).coerceIn(-1800f,1800f)
                                 }
                             }
-                            .graphicsLayer(scaleX=zoom,scaleY=zoom,
+                            .graphicsLayer(scaleX=zoom,scaleY=zoom,rotationZ=rotation.toFloat(),
                                 translationX=panX,translationY=panY),
                         contentScale=androidx.compose.ui.layout.ContentScale.Fit)
                 }
@@ -160,34 +185,6 @@ import java.util.UUID
             style=MaterialTheme.typography.bodySmall,
             modifier=Modifier.fillMaxWidth(),
             color=MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-@Composable fun ScanImportScreen(onCamera:()->Unit,onImport:()->Unit,onNew:()->Unit) {
-    Column(Modifier.fillMaxSize().padding(18.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
-        Heading("Add documents","Everything stays on your device unless you share or export it")
-        ElevatedCard(onClick=onCamera,modifier=Modifier.fillMaxWidth()) {
-            Row(Modifier.padding(21.dp),verticalAlignment=Alignment.CenterVertically) {
-                Icon(Icons.Outlined.CameraAlt,null,Modifier.size(35.dp),tint=MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(15.dp))
-                Column {Text("Scan using camera",fontWeight=FontWeight.SemiBold);Text("Capture a page. Attach more pages from its card.",style=MaterialTheme.typography.bodySmall)}
-            }
-        }
-        ElevatedCard(onClick=onImport,modifier=Modifier.fillMaxWidth()) {
-            Row(Modifier.padding(21.dp),verticalAlignment=Alignment.CenterVertically) {
-                Icon(Icons.Outlined.UploadFile,null,Modifier.size(35.dp),tint=MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(15.dp))
-                Column {Text("Import files",fontWeight=FontWeight.SemiBold);Text("PDF, image, DOC/DOCX, TXT; multiple files supported",style=MaterialTheme.typography.bodySmall)}
-            }
-        }
-        ElevatedCard(onClick=onNew,modifier=Modifier.fillMaxWidth()) {
-            Row(Modifier.padding(21.dp),verticalAlignment=Alignment.CenterVertically) {
-                Icon(Icons.Outlined.AddCard,null,Modifier.size(35.dp),tint=MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(15.dp))
-                Column {Text("Information-only card",fontWeight=FontWeight.SemiBold);Text("Create details without an attachment",style=MaterialTheme.typography.bodySmall)}
-            }
-        }
-        Text("Share from CamScanner, Files, WhatsApp or any app using Android's Share menu and choose Document Vault.",
-            style=MaterialTheme.typography.bodyMedium)
     }
 }
 @Composable fun PdfToolsScreen(card:VaultCard,repo:VaultRepository,
@@ -287,7 +284,13 @@ import java.util.UUID
                 enabled=combining,modifier=Modifier.fillMaxWidth().heightIn(min=54.dp)){
                 Icon(Icons.Outlined.PictureAsPdf,null)
                 Spacer(Modifier.width(9.dp))
-                Text("Combine into PDF",style=MaterialTheme.typography.titleMedium)
+                Text("Save combined PDF to document",style=MaterialTheme.typography.titleMedium)
+            }
+        }
+        item{
+            OutlinedButton(onClick={onExport("export-combine",selectedFiles,1,1)},
+                enabled=combining,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
+                Text("Export combined PDF…")
             }
         }
         item{
@@ -353,89 +356,6 @@ import java.util.UUID
             }
         }}
     }
-}
-@Composable fun SettingsScreen(hasPin:Boolean,languages:List<String>,currentScript:String,privacyScreen:Boolean,
-    onPrivacyScreenChanged:(Boolean)->Unit,onPin:(String,String)->Unit,onClearPin:(String)->Unit,
-    onProfiles:()->Unit,onTemplates:()->Unit,onBackups:()->Unit,onRecovery:()->Unit,onImportLanguage:()->Unit,onScript:(String)->Unit,
-    onRemindDays:(Int)->Unit) {
-    var pin by remember{mutableStateOf("")}
-    var old by remember{mutableStateOf("")}
-    var confirmPin by remember{mutableStateOf("")}
-    var languageOpen by remember{mutableStateOf(false)}
-    var days by remember{mutableStateOf("30")}
-    LazyColumn(contentPadding=PaddingValues(16.dp,12.dp,16.dp,90.dp),verticalArrangement=Arrangement.spacedBy(13.dp)) {
-        item{Heading("Vault Settings","Offline-first, plain local files and on-device processing")}
-        item{
-            SectionSettings("Organization")
-            SettingAction("Family profiles","Create and manage people",Icons.Outlined.People,onProfiles)
-            SettingAction("Card templates","Reusable information fields",Icons.Outlined.ViewAgenda,onTemplates)
-            SettingAction("Backup & restore","Export an ordinary, unencrypted ZIP",Icons.Outlined.Backup,onBackups)
-            SettingAction("Recover previous imports","Find unattached files from failed saves in this installation",Icons.Outlined.Restore,onRecovery)
-        }
-        item {
-            SectionSettings("Offline OCR")
-            Box {
-                OutlinedButton(onClick={languageOpen=true},modifier=Modifier.fillMaxWidth()){
-                    Text("Recognition model: "+currentScript);Icon(Icons.Outlined.ArrowDropDown,null)
-                }
-                DropdownMenu(expanded=languageOpen,onDismissRequest={languageOpen=false}) {
-                    languages.forEach{language->DropdownMenuItem(text={Text(language)},onClick={onScript(language);languageOpen=false})}
-                }
-            }
-            OutlinedButton(onClick=onImportLanguage,modifier=Modifier.fillMaxWidth()){
-                Icon(Icons.Outlined.Translate,null);Text(" Add an offline recognition language")
-            }
-            Text("Latin, Hindi/Devanagari, Chinese, Japanese and Korean models are bundled. Add Tesseract traineddata for Telugu or other scripts.",
-                style=MaterialTheme.typography.bodySmall)
-        }
-        item{
-            SectionSettings("Display privacy")
-            Row(verticalAlignment=Alignment.CenterVertically,modifier=Modifier.fillMaxWidth()) {
-                Column(Modifier.weight(1f)) {
-                    Text("Block screenshots and screen recording",fontWeight=FontWeight.SemiBold)
-                    Text("Turn off to allow screenshots. Turn on before showing sensitive documents.",style=MaterialTheme.typography.bodySmall)
-                }
-                Switch(checked=privacyScreen,onCheckedChange=onPrivacyScreenChanged)
-            }
-        }
-        item{
-            SectionSettings("App lock")
-            Text(if(hasPin)"App access PIN enabled. Documents are not encrypted." else "Files are stored unencrypted in private app storage. You can add an optional app-access PIN.",
-                style=MaterialTheme.typography.bodySmall)
-            if(hasPin)OutlinedTextField(old,{old=it},label={Text("Current PIN")},modifier=Modifier.fillMaxWidth(),
-                visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation())
-            OutlinedTextField(pin,{pin=it},label={Text("New PIN (at least 4 digits)")},modifier=Modifier.fillMaxWidth(),
-                visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation())
-            OutlinedTextField(confirmPin,{confirmPin=it},label={Text("Confirm new PIN")},modifier=Modifier.fillMaxWidth(),
-                visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation())
-            Button(onClick={onPin(pin,old);pin="";confirmPin=""},enabled=pin.length>=4&&pin==confirmPin&&(!hasPin||old.isNotBlank()),modifier=Modifier.fillMaxWidth()){Text("Set / change PIN")}
-            if(hasPin)TextButton(onClick={onClearPin(old);old=""},enabled=old.isNotBlank()){Text("Remove PIN lock")}
-        }
-        item{
-            SectionSettings("Notifications")
-            OutlinedTextField(days,{days=it},label={Text("Remind before expiry (days)")},modifier=Modifier.fillMaxWidth())
-            OutlinedButton(onClick={onRemindDays(days.toIntOrNull()?.coerceIn(1,365)?:30)},modifier=Modifier.fillMaxWidth()){
-                Text("Save reminder preference")
-            }
-        }
-        item {
-            Text("No account or server required. Documents and ZIP backups are not encrypted. Files remain in app-private storage, and sharing grants access only to the selected files.",
-                style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-@Composable private fun SectionSettings(label:String) {
-    Text(label,style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(vertical=10.dp))
-}
-@Composable private fun SettingAction(title:String,desc:String,icon:androidx.compose.ui.graphics.vector.ImageVector,onClick:()->Unit) {
-    Card(onClick=onClick,modifier=Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically) {
-            Icon(icon,null);Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)){Text(title,fontWeight=FontWeight.SemiBold);Text(desc,style=MaterialTheme.typography.bodySmall)}
-            Icon(Icons.Outlined.ChevronRight,null)
-        }
-    }
-    Spacer(Modifier.height(8.dp))
 }
 @Composable fun BackupScreen(onBackup:(String)->Unit,onRestore:(String)->Unit) {
     LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),

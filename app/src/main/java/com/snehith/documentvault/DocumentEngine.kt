@@ -49,21 +49,23 @@ class PdfPageSession(private val source:File):Closeable {
     private val renderer=try{PdfRenderer(descriptor)}catch(e:Exception){descriptor.close();throw e}
     private var closed=false
     val pageCount:Int get()=renderer.pageCount
-    private val cached=object:LinkedHashMap<Int,Bitmap>(3,0.75f,true){
-        override fun removeEldestEntry(eldest:MutableMap.MutableEntry<Int,Bitmap>?):Boolean=size>2
+    private val cached=object:LinkedHashMap<Pair<Int,Int>,Bitmap>(3,0.75f,true){
+        override fun removeEldestEntry(eldest:MutableMap.MutableEntry<Pair<Int,Int>,Bitmap>?):Boolean=size>2
     }
     @Synchronized fun render(index:Int,maxWidth:Int=1050):Bitmap {
         check(!closed){"PDF viewing session already closed"}
-        cached[index]?.let{return it}
+        val cacheKey=index to maxWidth
+        cached[cacheKey]?.let{return it}
         renderer.openPage(index.coerceIn(0,renderer.pageCount-1)).use{page->
-            val scale=(maxWidth.toFloat()/page.width).coerceIn(0.5f,2.25f)
-            val w=(page.width*scale).toInt().coerceIn(1,1500)
-            val h=(page.height*scale).toInt().coerceIn(1,3200)
+            val scale=(maxWidth.toFloat()/page.width).coerceIn(0.5f,4f)
+            val w=(page.width*scale).toInt().coerceIn(1,3200)
+            val h=(page.height*scale).toInt().coerceIn(1,4200)
+            require(w.toLong()*h<=18_000_000L){"PDF page exceeds safe rendering size"}
             val image=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888)
             try {
                 image.eraseColor(android.graphics.Color.WHITE)
                 page.render(image,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                cached[index]=image
+                cached[cacheKey]=image
                 return image
             }catch(e:Exception){image.recycle();throw e}
         }

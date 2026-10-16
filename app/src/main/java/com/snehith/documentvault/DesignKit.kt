@@ -71,12 +71,10 @@ object DesignLogic{
     }
     /** Only cards with valid expiry dates contribute to the percentage. */
     fun trackedExpiryCount(cards:List<VaultCard>):Int =
-        cards.count{it.expiry.isNotBlank()&&daysLeft(it)!=null}
-    fun healthyShare(cards:List<VaultCard>,today:LocalDate=LocalDate.now()):Float{
-        val dates=cards.mapNotNull{card->daysLeft(card,today)}
-        if(dates.isEmpty())return 0f
-        return dates.count{it>30}.toFloat()/dates.size
-    }
+        VaultExpiryRules.trackedCount(cards)
+    fun healthyShare(cards:List<VaultCard>,today:LocalDate=LocalDate.now(),
+        remindDays:Int=30):Float =
+        VaultExpiryRules.healthyShare(cards,remindDays,today)
     fun initials(name:String)=name.trim().split(Regex("\\s+"))
         .filter{it.isNotBlank()}.take(2).joinToString(""){it.take(1).uppercase(Locale.ROOT)}
         .ifBlank{"?"}

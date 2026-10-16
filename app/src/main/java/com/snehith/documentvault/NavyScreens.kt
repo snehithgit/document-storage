@@ -80,14 +80,13 @@ private val thumbnailCache=object:LruCache<String,Bitmap>(16*1024*1024){
         else Icon(Icons.Outlined.Description,"Preview unavailable",tint=VaultSky,modifier=Modifier.size(37.dp))
     }
 }
-fun vaultValidity(card:VaultCard):Pair<String,Color> {
-    val days=try{ChronoUnit.DAYS.between(LocalDate.now(),LocalDate.parse(card.expiry))}catch(_:Exception){null}
-    return when {
-        days==null && card.expiry.isNotBlank()->"Check expiry" to VaultColors.expiring
-        days==null->"Saved" to Color(0xFF64748B)
-        days<0->"Expired" to VaultColors.expired
-        days<=30->"Expiring" to VaultColors.expiring
-        else->"Valid" to VaultColors.valid
+fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
+    val status=VaultExpiryRules.status(card,remindDays)
+    return status to when(status) {
+        "Expired"->VaultColors.expired
+        "Expiring","Check expiry"->VaultColors.expiring
+        "Valid"->VaultColors.valid
+        else->Color(0xFF64748B)
     }
 }
 @Composable fun VaultPill(text:String,color:Color=VaultBlue){
@@ -96,7 +95,7 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
             modifier=Modifier.padding(horizontal=8.dp,vertical=4.dp),maxLines=1)
     }
 }
-@Composable fun VaultTile(card:VaultCard,repo:VaultRepository,onClick:()->Unit){
+@Composable fun VaultTile(card:VaultCard,repo:VaultRepository,personName:String="",onClick:()->Unit){
     Card(onClick=onClick,
         colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface),
         shape=RoundedCornerShape(18.dp),
@@ -112,12 +111,18 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
                 VaultCounts.format(card.files.size,"file"),
                 style=MaterialTheme.typography.bodySmall,color=VaultMuted,
                 maxLines=1,overflow=TextOverflow.Ellipsis)
+            if(personName.isNotBlank())Text(personName,
+                color=MaterialTheme.colorScheme.onSurfaceVariant,
+                style=MaterialTheme.typography.labelSmall,maxLines=1)
             ExpiryTag(card)
         }
     }
 }
-@Composable fun VaultRow(card:VaultCard,repo:VaultRepository,onClick:()->Unit){
-    val(v,c)=vaultValidity(card)
+@Composable fun VaultRow(card:VaultCard,repo:VaultRepository,personName:String="",onClick:()->Unit){
+    val context=androidx.compose.ui.platform.LocalContext.current
+    val remind=context.getSharedPreferences("vault_options",android.content.Context.MODE_PRIVATE)
+        .getInt("remindDays",30)
+    val(v,c)=vaultValidity(card,remind)
     Card(onClick=onClick,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=rounded,
         border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline),
         elevation=CardDefaults.cardElevation(defaultElevation=0.dp)){
@@ -127,88 +132,29 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
             Column(Modifier.weight(1f)){
                 Text(VaultNames.title(card.title),color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
                 Text(card.category.ifBlank{"Other"},color=VaultMuted,style=MaterialTheme.typography.labelSmall)
-                Text(VaultCounts.format(card.files.size,"attachment"),color=VaultColors.syntax,style=MaterialTheme.typography.labelSmall)
+                Text(VaultCounts.format(card.files.size,"attachment")+
+                    if(personName.isNotBlank())" · "+personName else "",
+                    color=VaultColors.syntax,style=MaterialTheme.typography.labelSmall)
             }
             VaultPill(v,c)
         }
     }
 }
-@Composable fun VaultNavHome(cards:List<VaultCard>,repo:VaultRepository,profiles:List<VaultProfile>,profile:String,
-    onProfile:(String)->Unit,onOpen:(VaultCard)->Unit,onSearch:()->Unit,onScan:()->Unit,
-    onImport:()->Unit,onNew:()->Unit,onPdf:()->Unit,onExpiries:()->Unit) {
-    val visible=cards.filter{profile=="all"||it.profile==profile}
-    LazyColumn(Modifier.fillMaxSize().background(bgBrush),contentPadding=PaddingValues(15.dp,12.dp,15.dp,95.dp),
-        verticalArrangement=Arrangement.spacedBy(15.dp)){
-        item {
-            Column(Modifier.fillMaxWidth().background(VaultPanel,rounded)
-                .border(1.dp,MaterialTheme.colorScheme.outlineVariant,rounded).padding(17.dp)){
-                Text("MY DOCUMENT SPACE",color=VaultSky,style=MaterialTheme.typography.labelSmall)
-                Text("Your essentials, organized.",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.height(12.dp))
-                OutlinedButton(onClick=onSearch,modifier=Modifier.fillMaxWidth()){
-                    Icon(Icons.Outlined.Search,null);Text(" Search documents and details")
-                }
-            }
-        }
-        item {
-            Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(7.dp)){
-                (listOf(VaultProfile("all","Everyone"))+profiles).forEach{p->
-                    FilterChip(selected=profile==p.id,onClick={onProfile(p.id)},label={Text(p.name)})
-                }
-            }
-        }
-        item {
-            Row(horizontalArrangement=Arrangement.spacedBy(9.dp)){
-                VaultMetric(visible.size.toString(),"Cards",Modifier.weight(1f))
-                VaultMetric(visible.sumOf{it.files.size}.toString(),"Files",Modifier.weight(1f))
-                VaultMetric(visible.count{vaultValidity(it).first in listOf("Expired","Expiring","Check expiry")}.toString(),
-                    "Expiring",Modifier.weight(1f),onExpiries)
-            }
-        }
-        item {
-            Text("Quick actions",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold)
-            Spacer(Modifier.height(9.dp))
-            Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
-                VaultQuick("Scan",Icons.Outlined.DocumentScanner,Modifier.weight(1f),onScan)
-                VaultQuick("Import",Icons.Outlined.FileUpload,Modifier.weight(1f),onImport)
-                VaultQuick("New Card",Icons.Outlined.AddCard,Modifier.weight(1f),onNew)
-                VaultQuick("PDF",Icons.Outlined.PictureAsPdf,Modifier.weight(1f),onPdf)
-            }
-        }
-        item {VaultHeader("Recent documents",VaultCounts.format(visible.size,"card")+" in your vault")}
-        items(visible.sortedByDescending{it.created}.take(10),key={it.id}){c->VaultRow(c,repo){onOpen(c)}}
-        if(visible.isEmpty())item{
-            Text("Import a document or scan a new one to get started.",color=VaultMuted)
-        }
-    }
-}
-@Composable fun VaultMetric(n:String,label:String,modifier:Modifier,onClick:()->Unit={}){
-    Card(onClick=onClick,modifier=modifier,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=rounded,
-        elevation=CardDefaults.cardElevation(defaultElevation=3.dp)){
-        Column(Modifier.padding(11.dp)){
-            Text(n,color=VaultSky,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.headlineSmall)
-            Text(label,color=VaultMuted,style=MaterialTheme.typography.labelSmall)
-        }
-    }
-}
-@Composable fun VaultQuick(label:String,icon:androidx.compose.ui.graphics.vector.ImageVector,modifier:Modifier,onClick:()->Unit){
-    Card(onClick=onClick,modifier=modifier,colors=CardDefaults.cardColors(containerColor=VaultPanel),
-         border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),shape=RoundedCornerShape(12.dp)){
-        Column(Modifier.padding(vertical=12.dp,horizontal=2.dp),horizontalAlignment=Alignment.CenterHorizontally){
-            Icon(icon,null,tint=MaterialTheme.colorScheme.onSurface)
-            Text(label,color=MaterialTheme.colorScheme.onSurface,style=MaterialTheme.typography.labelSmall)
-        }
-    }
-}
 @Composable fun VaultNavCards(cards:List<VaultCard>,repo:VaultRepository,
-    onOpen:(VaultCard)->Unit,onNew:()->Unit,selectedCategory:String="All",onSearch:()->Unit={}){
+    onOpen:(VaultCard)->Unit,onNew:()->Unit,selectedCategory:String="",onSearch:()->Unit={},
+    profiles:List<VaultProfile> = emptyList(),selectedPerson:String="all",
+    onPerson:(String)->Unit={},onCategoryConsumed:()->Unit={}){
     var filter by rememberSaveable{mutableStateOf("All")}
     var sort by rememberSaveable{mutableStateOf("Recent")}
     var listView by rememberSaveable{mutableStateOf(false)}
     var showSort by remember{mutableStateOf(false)}
-    LaunchedEffect(selectedCategory){filter=selectedCategory}
-    val categories=remember(cards){listOf("All")+cards.map{it.category.ifBlank{"Other"}}.distinct().sorted()}
-    val visible=remember(cards,filter,sort){DocumentBrowseLogic.browse(cards,filter,sort)}
+    LaunchedEffect(selectedCategory){
+        if(selectedCategory.isNotBlank()){filter=selectedCategory;onCategoryConsumed()}
+    }
+    val personCards=remember(cards,selectedPerson){VaultPersonFilter.filter(cards,selectedPerson)}
+    val categories=remember(personCards){listOf("All")+
+        personCards.map{it.category.ifBlank{"Other"}}.distinct().sorted()}
+    val visible=remember(personCards,filter,sort){DocumentBrowseLogic.browse(personCards,filter,sort)}
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)){
         Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=14.dp),
             verticalAlignment=Alignment.CenterVertically){
@@ -221,6 +167,16 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
             IconButton(onClick={listView=!listView},modifier=Modifier.size(48.dp)){
                 Icon(if(listView)Icons.Outlined.GridView else Icons.Outlined.ViewList,
                     if(listView)"Grid view" else "List view")
+            }
+        }
+        if(profiles.isNotEmpty())Row(
+            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal=16.dp),
+            horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            FilterChip(selected=selectedPerson=="all",onClick={onPerson("all")},
+                label={Text("Everyone")})
+            profiles.forEach{person->
+                FilterChip(selected=selectedPerson==person.id,onClick={onPerson(person.id)},
+                    label={Text(person.name)})
             }
         }
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal=16.dp),
@@ -258,7 +214,11 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
         }else if(listView){
             LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(16.dp,8.dp,16.dp,24.dp),
                 verticalArrangement=Arrangement.spacedBy(12.dp)){
-                items(visible,key={it.id}){card->VaultRow(card,repo){onOpen(card)}}
+                items(visible,key={it.id}){card->
+                    VaultRow(card,repo,profiles.firstOrNull{it.id==card.profile}?.name.orEmpty()){
+                        onOpen(card)
+                    }
+                }
             }
         }else{
             BoxWithConstraints(Modifier.weight(1f)){
@@ -267,7 +227,11 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
                     contentPadding=PaddingValues(16.dp,8.dp,16.dp,24.dp),
                     verticalArrangement=Arrangement.spacedBy(12.dp),
                     horizontalArrangement=Arrangement.spacedBy(12.dp)){
-                    items(visible,key={it.id}){card->VaultTile(card,repo){onOpen(card)}}
+                    items(visible,key={it.id}){card->
+                        VaultTile(card,repo,profiles.firstOrNull{it.id==card.profile}?.name.orEmpty()){
+                            onOpen(card)
+                        }
+                    }
                 }
             }
         }
@@ -275,15 +239,17 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
 }
 private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
 
-@Composable fun VaultNavSearch(cards:List<VaultCard>,repo:VaultRepository,onOpen:(VaultCard)->Unit){
+@Composable fun VaultNavSearch(cards:List<VaultCard>,repo:VaultRepository,
+    onOpen:(VaultCard)->Unit,profiles:List<VaultProfile> = emptyList(),
+    selectedPerson:String="all",onPerson:(String)->Unit={}){
     var query by rememberSaveable{mutableStateOf("")}
     var mode by rememberSaveable{mutableStateOf("All")}
     var hits by remember(cards){mutableStateOf(cards.map{VaultSearchHit(it,null)})}
     var searching by remember{mutableStateOf(false)}
-    LaunchedEffect(query,mode,cards){
+    LaunchedEffect(query,mode,cards,selectedPerson){
         searching=true
         delay(250)
-        val snapshot=cards.toList()
+        val snapshot=VaultPersonFilter.filter(cards,selectedPerson)
         hits=withContext(Dispatchers.Default){
             snapshot.mapNotNull{card->
                 val document=card.title+" "+card.category+" "+card.kind+" "+
@@ -321,6 +287,15 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
         OutlinedTextField(query,{query=it},modifier=Modifier.fillMaxWidth(),singleLine=true,
             leadingIcon={Icon(Icons.Outlined.Search,null)},
             placeholder={Text("Search documents or information")})
+        if(profiles.isNotEmpty())Row(Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            FilterChip(selected=selectedPerson=="all",onClick={onPerson("all")},
+                label={Text("Everyone")})
+            profiles.forEach{profile->
+                FilterChip(selected=selectedPerson==profile.id,onClick={onPerson(profile.id)},
+                    label={Text(profile.name)})
+            }
+        }
         Row(Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement=Arrangement.spacedBy(8.dp)){
             listOf("All","Documents","Information","Scanned Text").forEach{choice->
@@ -342,7 +317,9 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)){
                             Text(VaultNames.title(hit.card.title),style=MaterialTheme.typography.titleMedium)
-                            Text(hit.card.category,color=VaultMuted,style=MaterialTheme.typography.bodySmall)
+                            Text(hit.card.category+" · "+
+                                (profiles.firstOrNull{it.id==hit.card.profile}?.name?:"Me"),
+                                color=VaultMuted,style=MaterialTheme.typography.bodySmall)
                             hit.snippet?.let{excerpt->
                                 Text(excerpt,color=MaterialTheme.colorScheme.onSurfaceVariant,
                                     style=MaterialTheme.typography.bodySmall,maxLines=3,
@@ -563,36 +540,6 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
         }
     }
 }
-@Composable private fun EditorImportRow(
-    index:String,title:String,detail:String,
-    icon:androidx.compose.ui.graphics.vector.ImageVector,onClick:()->Unit
-){
-    Surface(
-        modifier=Modifier.fillMaxWidth().clickable(onClick=onClick),
-        color=MaterialTheme.colorScheme.surface,
-        shape=RoundedCornerShape(14.dp),
-        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)
-    ){
-        Row(Modifier.padding(horizontal=16.dp,vertical=17.dp),verticalAlignment=Alignment.CenterVertically){
-            Text(index,color=VaultColors.lineNumber,style=MaterialTheme.typography.labelSmall)
-            Spacer(Modifier.width(14.dp))
-            Box(
-                Modifier.size(42.dp).background(MaterialTheme.colorScheme.surfaceVariant,RoundedCornerShape(10.dp)),
-                contentAlignment=Alignment.Center
-            ){Icon(icon,null,tint=MaterialTheme.colorScheme.onSurface,modifier=Modifier.size(21.dp))}
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)){
-                Text(title,fontWeight=FontWeight.SemiBold,style=MaterialTheme.typography.bodyLarge)
-                Text(detail,color=MaterialTheme.colorScheme.onSurfaceVariant,
-                    style=MaterialTheme.typography.labelSmall)
-            }
-            Icon(Icons.Outlined.NorthEast,null,
-                tint=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.size(18.dp))
-        }
-    }
-}
-
-/** A deliberate source choice: the centered Scan action never opens the camera automatically. */
 @Composable fun NavyScanScreen(
     onCamera:()->Unit,
     onGallery:()->Unit,

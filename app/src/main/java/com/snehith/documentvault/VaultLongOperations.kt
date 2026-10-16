@@ -16,7 +16,8 @@ object VaultLongOperations {
     data class ImportResult(val cardId:String?,val count:Int,val skipped:Int)
     fun importDocuments(
         repo:VaultRepository, uris:List<Uri>, targetId:String?,
-        profile:String, originalUri:Uri?=null,corners:String="",rotation:Int=0
+        profile:String, originalUri:Uri?=null,corners:String="",rotation:Int=0,
+        groupAsOne:Boolean=false
     ):ImportResult {
         var last:VaultCard?=null
         var count=0
@@ -30,7 +31,8 @@ object VaultLongOperations {
                     repo.removeOrphan(file)
                     continue
                 }
-                val existing=targetId?.let{id->repo.cards.firstOrNull{it.id==id}}
+                val nextTarget=VaultImportGrouping.nextTarget(targetId,last?.id,groupAsOne)
+                val existing=nextTarget?.let{id->repo.cards.firstOrNull{it.id==id}}
                 val card=if(existing!=null)existing.copy(files=existing.files+file)
                 else {
                     val kind=when {

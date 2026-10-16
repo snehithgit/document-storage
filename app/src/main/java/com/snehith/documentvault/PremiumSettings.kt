@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.withContext
 
 @Composable fun PremiumSettings(
     hasPin:Boolean,languages:List<String>,currentScript:String,privacyScreen:Boolean,
@@ -23,10 +24,17 @@ import androidx.compose.ui.unit.dp
     onPrivacyScreenChanged:(Boolean)->Unit,onPin:(String,String)->Unit,onClearPin:(String)->Unit,
     onProfiles:()->Unit,onTemplates:()->Unit,onBackups:()->Unit,onRecovery:()->Unit,
     onImportLanguage:()->Unit,onScript:(String)->Unit,onRemindDays:(Int)->Unit,
-    keepOriginal:Boolean,onKeepOriginalChanged:(Boolean)->Unit,onAbout:()->Unit
+    keepOriginal:Boolean,onKeepOriginalChanged:(Boolean)->Unit,onAbout:()->Unit,
+    onOriginalUsage:suspend ()->Long,onRemoveOriginals:()->Unit,
+    originalsRevision:Long=0L,
+    biometricEnabled:Boolean=false,onBiometricChanged:(Boolean)->Unit={}
 ){
     val context=LocalContext.current
     var dialog by rememberSaveable{mutableStateOf("")}
+    var originalBytes by remember{mutableLongStateOf(0L)}
+    LaunchedEffect(originalsRevision,keepOriginal){
+        originalBytes=withContext(kotlinx.coroutines.Dispatchers.IO){onOriginalUsage()}
+    }
     var pin by remember{mutableStateOf("")}
     var old by remember{mutableStateOf("")}
     var confirm by remember{mutableStateOf("")}
@@ -37,6 +45,7 @@ import androidx.compose.ui.unit.dp
         "ocr"->"Offline OCR language"
         "pin"->"App lock"
         "remind"->"Expiry reminders"
+        "originals"->"Remove saved originals?"
         else->"Settings"
     })},text={Column(verticalArrangement=Arrangement.spacedBy(9.dp)){
         when(dialog){
@@ -68,6 +77,10 @@ import androidx.compose.ui.unit.dp
                 Button(onClick={onRemindDays(days.toIntOrNull()?.coerceIn(1,365)?:30);dialog=""}){
                     Text("Save reminder")
                 }
+            }
+            "originals"->{
+                Text("Delete retained raw scans only? The edited documents stay available. Reopening a deleted original for re-cropping will no longer be possible.")
+                Button(onClick={onRemoveOriginals();dialog=""}){Text("Remove originals")}
             }
         }
     }},confirmButton={TextButton(onClick={dialog=""}){Text("Close")}})
@@ -108,6 +121,18 @@ import androidx.compose.ui.unit.dp
             }
         }
         item{
+            HubCard(Modifier.fillMaxWidth()){
+                Text("Retained original photos: "+
+                    if(originalBytes>=1024*1024)
+                        String.format(java.util.Locale.US,"%.1f MB",originalBytes/1048576.0)
+                    else "${originalBytes/1024} KB",
+                    style=MaterialTheme.typography.bodyMedium)
+                OutlinedButton(onClick={dialog="originals"},enabled=originalBytes>0){
+                    Text("Remove originals")
+                }
+            }
+        }
+        item{
             Spacer(Modifier.height(5.dp))
             Text("APPEARANCE",color=VaultColors.syntax,
                 style=MaterialTheme.typography.labelMedium)
@@ -144,7 +169,24 @@ import androidx.compose.ui.unit.dp
                 }
             }
         }
-        item{NavySettingRow(Icons.Outlined.Lock,"App lock",if(hasPin)"PIN configured (files are not encrypted)" else "Optional PIN / biometrics",{dialog="pin"})}
+        item{NavySettingRow(Icons.Outlined.Lock,"App lock",
+            if(hasPin)"PIN configured (files are not encrypted)" else "Optional UI PIN",
+            {dialog="pin"})}
+        item{
+            HubCard(Modifier.fillMaxWidth()){
+                Row(verticalAlignment=Alignment.CenterVertically){
+                    Icon(Icons.Outlined.Fingerprint,null,tint=VaultColors.syntax)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)){
+                        Text("Unlock with biometrics",fontWeight=FontWeight.SemiBold)
+                        Text("Prompt on opening when available",
+                            style=MaterialTheme.typography.bodySmall,
+                            color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked=biometricEnabled,onCheckedChange=onBiometricChanged)
+                }
+            }
+        }
         item{NavySettingRow(Icons.Outlined.Notifications,"Expiry reminders","Notify before documents expire",{dialog="remind"})}
         item{NavySettingRow(Icons.Outlined.Info,"About Document Vault","App version, privacy and open-source attribution",onAbout)}
         item {

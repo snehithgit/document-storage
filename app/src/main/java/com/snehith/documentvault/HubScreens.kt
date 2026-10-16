@@ -69,8 +69,10 @@ private fun categoryIcon(category:String):ImageVector=when {
     onCategory:(String)->Unit){
     val displayed=remember(cards,profile){cards.filter{profile=="all"||it.profile==profile}}
     val latest=displayed.sortedByDescending{it.created}
-    val attention=displayed.filter{vaultValidity(it).first in
-        setOf("Expired","Expiring","Check expiry")}
+    val context=androidx.compose.ui.platform.LocalContext.current
+    val reminderDays=context.getSharedPreferences("vault_options",android.content.Context.MODE_PRIVATE)
+        .getInt("remindDays",30)
+    val attention=VaultExpiryRules.needsAttention(displayed,reminderDays)
     val categories=displayed.groupBy{it.category.ifBlank{"Other"}}
         .entries.sortedByDescending{it.value.size}
     LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
@@ -105,10 +107,10 @@ private fun categoryIcon(category:String):ImageVector=when {
                             Text(VaultCounts.format(attention.size,"item")+" to review")
                         }
                     }
-                    val tracked=DesignLogic.trackedExpiryCount(displayed)
+                    val tracked=VaultExpiryRules.trackedCount(displayed)
                     if(tracked>0){
                         Column(horizontalAlignment=Alignment.CenterHorizontally){
-                            HealthRing(DesignLogic.healthyShare(displayed),size=80.dp)
+                            HealthRing(VaultExpiryRules.healthyShare(displayed,reminderDays),size=80.dp)
                             Text("Valid expiry dates",style=MaterialTheme.typography.labelSmall,
                                 color=MaterialTheme.colorScheme.onSurfaceVariant)
                         }
