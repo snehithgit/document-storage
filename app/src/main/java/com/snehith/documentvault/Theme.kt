@@ -9,98 +9,81 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
-/**
- * Terminal / code-editor palette. Both appearances are deliberately dark:
- * Graphite is gently lifted black; OLED is a true, deeper black.
- * Pure white is the dominant action colour. Cyan is a restrained data accent.
- */
+/** Shared, accessible palette. OLED is the default; Graphite is an optional surface lift. */
 object VaultColors {
-    val bgTop=Color(0xFF0D1015)
-    val bgBottom=Color(0xFF0D1015)
-    val surface=Color(0xFF171B22)
-    val primary=Color(0xFFF3F6FA)
-    val onPrimary=Color(0xFF0A0D12)
-    val primaryText=Color(0xFFE8EFF8)
-    val ink=Color(0xFFF3F6FA)
-    val muted=Color(0xFF9EA9B9)
-    val outline=Color(0xFF303743)
-    val tagPrivateBg=Color(0xFF202631)
-    val valid=Color(0xFF8BDDAD)
-    val expiring=Color(0xFFFFCF8D)
-    val expired=Color(0xFFFF9D9D)
-    val darkBg=Color(0xFF080A0D)
-    val darkSurface=Color(0xFF14181E)
-    val darkPrimary=Color(0xFFFFFFFF)
-    val darkInk=Color(0xFFF7FAFF)
-    val darkMuted=Color(0xFF9EA9B9)
-    val darkOutline=Color(0xFF303743)
-    val syntax=Color(0xFF9FD7F2)
-    val keyword=Color(0xFFC3B5FD)
-    val lineNumber=Color(0xFF697484)
-    fun statusTint(color:Color)=color.copy(alpha=.12f)
+    val darkBg = Color(0xFF000000)
+    val darkSurface = Color(0xFF101114)
+    val darkPrimary = Color.White
+    val darkInk = Color.White
+    val darkMuted = Color(0xFFB6BCC7)
+    val darkOutline = Color(0xFF292D35)
+
+    val bgTop = Color(0xFF0B0D10)
+    val bgBottom = bgTop
+    val surface = Color(0xFF191B20)
+    val primary = Color.White
+    val onPrimary = Color.Black
+    val primaryText = Color.White
+    val ink = Color.White
+    val muted = Color(0xFFB6BCC7)
+    val outline = darkOutline
+    val tagPrivateBg = Color(0xFF191B20)
+
+    val syntax = Color(0xFF9FD7F2)
+    val keyword = syntax // legacy token; not used for decorated user text
+    val valid = Color(0xFF89D9A7)
+    val expiring = Color(0xFFFFD18A)
+    val expired = Color(0xFFFF9898)
+    val lineNumber = Color(0xFF858D9A)
+    fun statusTint(color: Color) = color.copy(alpha = .12f)
 }
-val VaultLightScheme=darkColorScheme(
-    primary=VaultColors.primary,onPrimary=VaultColors.onPrimary,
-    primaryContainer=Color(0xFF2A313B),onPrimaryContainer=VaultColors.ink,
-    secondary=VaultColors.syntax,onSecondary=VaultColors.onPrimary,
-    secondaryContainer=Color(0xFF202D38),onSecondaryContainer=Color(0xFFE3F4FF),
-    tertiary=VaultColors.valid,onTertiary=VaultColors.onPrimary,
-    background=VaultColors.bgTop,onBackground=VaultColors.ink,
-    surface=VaultColors.surface,onSurface=VaultColors.ink,
-    surfaceVariant=VaultColors.tagPrivateBg,onSurfaceVariant=VaultColors.muted,
-    surfaceContainer=VaultColors.surface,surfaceContainerLow=Color(0xFF13171D),
-    surfaceContainerHigh=Color(0xFF222832),
-    outline=VaultColors.outline,outlineVariant=VaultColors.outline,
-    inverseSurface=VaultColors.ink,inverseOnSurface=VaultColors.onPrimary,
-    inversePrimary=VaultColors.syntax,
-    error=VaultColors.expired,onError=VaultColors.onPrimary,
-    surfaceTint=VaultColors.primary,scrim=Color.Black
-)
-val VaultDarkScheme=darkColorScheme(
-    primary=VaultColors.darkPrimary,onPrimary=VaultColors.onPrimary,
-    primaryContainer=Color(0xFF242B35),onPrimaryContainer=VaultColors.darkInk,
-    secondary=VaultColors.syntax,onSecondary=VaultColors.onPrimary,
-    secondaryContainer=Color(0xFF1D2A34),onSecondaryContainer=Color(0xFFE3F4FF),
-    tertiary=VaultColors.valid,onTertiary=VaultColors.onPrimary,
-    background=VaultColors.darkBg,onBackground=VaultColors.darkInk,
-    surface=VaultColors.darkSurface,onSurface=VaultColors.darkInk,
-    surfaceVariant=Color(0xFF1B2028),onSurfaceVariant=VaultColors.darkMuted,
-    surfaceContainer=VaultColors.darkSurface,surfaceContainerLow=Color(0xFF10141A),
-    surfaceContainerHigh=Color(0xFF202630),
+
+private fun palette(bg:Color,panel:Color,raised:Color)=darkColorScheme(
+    primary=Color.White,onPrimary=Color.Black,
+    primaryContainer=raised,onPrimaryContainer=Color.White,
+    secondary=VaultColors.syntax,onSecondary=Color.Black,
+    secondaryContainer=raised,onSecondaryContainer=Color.White,
+    tertiary=VaultColors.valid,onTertiary=Color.Black,
+    background=bg,onBackground=Color.White,
+    surface=panel,onSurface=Color.White,
+    surfaceVariant=raised,onSurfaceVariant=VaultColors.muted,
+    surfaceContainer=panel,surfaceContainerLow=panel,surfaceContainerHigh=raised,
     outline=VaultColors.darkOutline,outlineVariant=VaultColors.darkOutline,
-    inverseSurface=VaultColors.darkInk,inverseOnSurface=VaultColors.onPrimary,
+    inverseSurface=Color.White,inverseOnSurface=Color.Black,
     inversePrimary=VaultColors.syntax,
-    error=VaultColors.expired,onError=VaultColors.onPrimary,
-    surfaceTint=VaultColors.darkPrimary,scrim=Color.Black
+    error=VaultColors.expired,onError=Color.Black,
+    surfaceTint=Color.Transparent,scrim=Color.Black
 )
+
+val VaultDarkScheme=palette(VaultColors.darkBg,VaultColors.darkSurface,Color(0xFF191B20))
+val VaultLightScheme=palette(VaultColors.bgTop,VaultColors.surface,Color(0xFF22252B))
 val VaultShapes=Shapes(
-    extraSmall=RoundedCornerShape(5.dp),
-    small=RoundedCornerShape(8.dp),
+    extraSmall=RoundedCornerShape(8.dp),
+    small=RoundedCornerShape(12.dp),
     medium=RoundedCornerShape(13.dp),
     large=RoundedCornerShape(16.dp),
     extraLarge=RoundedCornerShape(20.dp)
 )
 val VaultTypography=Typography(
-    headlineSmall=TextStyle(fontFamily=FontFamily.SansSerif,fontWeight=FontWeight.SemiBold),
-    headlineMedium=TextStyle(fontFamily=FontFamily.SansSerif,fontWeight=FontWeight.SemiBold),
-    titleLarge=TextStyle(fontFamily=FontFamily.SansSerif,fontWeight=FontWeight.SemiBold),
-    titleMedium=TextStyle(fontFamily=FontFamily.SansSerif,fontWeight=FontWeight.SemiBold),
-    labelLarge=TextStyle(fontFamily=FontFamily.Monospace,fontWeight=FontWeight.Medium),
-    labelMedium=TextStyle(fontFamily=FontFamily.Monospace,fontWeight=FontWeight.Medium),
-    labelSmall=TextStyle(fontFamily=FontFamily.Monospace,fontWeight=FontWeight.Normal),
-    bodySmall=TextStyle(fontFamily=FontFamily.Monospace,fontWeight=FontWeight.Normal)
+    headlineSmall=TextStyle(fontFamily=FontFamily.SansSerif,fontWeight=FontWeight.SemiBold,fontSize=25.sp,lineHeight=31.sp),
+    headlineMedium=TextStyle(fontFamily=FontFamily.SansSerif,fontWeight=FontWeight.SemiBold,fontSize=26.sp,lineHeight=32.sp),
+    titleLarge=TextStyle(fontFamily=FontFamily.SansSerif,fontWeight=FontWeight.SemiBold,fontSize=18.sp,lineHeight=24.sp),
+    titleMedium=TextStyle(fontFamily=FontFamily.SansSerif,fontWeight=FontWeight.SemiBold,fontSize=16.sp,lineHeight=22.sp),
+    bodyLarge=TextStyle(fontFamily=FontFamily.SansSerif,fontSize=16.sp,lineHeight=23.sp),
+    bodyMedium=TextStyle(fontFamily=FontFamily.SansSerif,fontSize=15.sp,lineHeight=21.sp),
+    bodySmall=TextStyle(fontFamily=FontFamily.SansSerif,fontSize=13.sp,lineHeight=18.sp),
+    labelLarge=TextStyle(fontFamily=FontFamily.SansSerif,fontWeight=FontWeight.Medium,fontSize=14.sp),
+    labelMedium=TextStyle(fontFamily=FontFamily.SansSerif,fontWeight=FontWeight.Medium,fontSize=13.sp),
+    labelSmall=TextStyle(fontFamily=FontFamily.SansSerif,fontSize=12.sp)
 )
-@Composable fun VaultTheme(dark:Boolean,content: @Composable () -> Unit){
+@Composable fun VaultTheme(dark:Boolean,content:@Composable ()->Unit) {
     MaterialTheme(
-        colorScheme=if(dark)VaultDarkScheme else VaultLightScheme,
-        shapes=VaultShapes,
-        typography=VaultTypography,
-        content=content
+        colorScheme=if(dark) VaultDarkScheme else VaultLightScheme,
+        shapes=VaultShapes,typography=VaultTypography,content=content
     )
 }
 @Composable fun vaultWarmBrush(dark:Boolean):Brush =
-    Brush.verticalGradient(
-        if(dark)listOf(VaultColors.darkBg,VaultColors.darkBg)
-        else listOf(VaultColors.bgTop,VaultColors.bgBottom)
-    )
+    Brush.verticalGradient(if(dark)listOf(VaultColors.darkBg,VaultColors.darkBg)
+        else listOf(VaultColors.bgTop,VaultColors.bgBottom))
