@@ -74,7 +74,8 @@ object FieldSuggestions {
                 else->rawName.replaceFirstChar{it.uppercase()}
             }
             val rawValue=m.groupValues[2].trim().take(250)
-            val value=if(key.endsWith("Date"))SmartDocuments.normalizeDate(rawValue)?:rawValue else rawValue
+            val value=if(key=="Date of Birth" || key=="Expiry Date" || key=="Issue Date")
+                SmartDocuments.normalizeDate(rawValue)?:rawValue else rawValue
             if(value.isNotBlank() && value.length<251) found[key] = DataField(key,value,-1,"extracted")
         }
         return found.values.toList()
