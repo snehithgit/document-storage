@@ -1,3 +1,74 @@
+# Document Vault v2.0 — Phases 1–4 integration
+
+**Status:** Built using GitHub Actions. On-device camera/scan accuracy still requires user testing.
+
+The original fast v1.2 plaintext, local-only architecture is retained. The app
+has no INTERNET permission and no account or sync server. **The UI PIN does not
+encrypt documents, the JSON index, or ZIP backups.**
+
+## Phase 1 — Document wallet design
+
+- Warm cream / orange light theme, warm charcoal dark theme and system default.
+- Material 3, rounded cards, floating four-tab navigation and separate Scan action.
+- Home vault summary, categories, expiry attention and recent cards.
+- Cards, Search, Full Details and Settings remain part of the same navigation.
+
+## Phase 2 — Offline scanner
+
+- Bundled MakeACopy DocQuadNet-256 model through ONNX Runtime with DocuScan
+  OpenCV border-detection fallback. No network or cloud inference.
+- Auto-edge detection, crop-corner review, perspective correction, rotate,
+  and photo enhancements including document-friendly presets.
+- Multi-page capture with add-page flow and user choice to keep the original.
+- Enhance/Crop available for existing gallery image attachments, preserving
+  the imported original.
+- See THIRD_PARTY_SCAN_NOTICES.md for Apache 2.0 / MIT attributions.
+
+## Phase 3 — Smart extraction
+
+- Offline recognition of Passport MRZ, Aadhaar (Verhoeff), PAN, driving
+  licences and Seafarer CDC.
+- Passport ICAO MRZ checks, strict ISO date conversion, meaningful field names
+  and confidence indicators.
+- Full Details exposes editable/copyable OCR fields (copy one/selected/all).
+- Validation and OCR extraction remain heuristics, **not identity verification**.
+
+## Phase 4 — Reliability / version tools
+
+- **Manage individual attachments** from a card: rename, move up/down, remove.
+  Files shared with other cards are preserved.
+- OCR runs in WorkManager with per-page progress and Cancel. It can continue
+  after navigation. Extracted fields are added as suggestions; **review before use**.
+- Search queries, filters and screen state use rememberSaveable and a screen
+  state holder.
+- Restores clean obsolete blobs only after committing the new vault index.
+  A rolling vault.json.bak retains the previous good index.
+- Settings → About shows installed app version and offline privacy information.
+
+## Install, transfer and verification
+
+The GitHub Actions **v2.0 debug APK** installs alongside previous test editions
+with suffix .v2; it does not automatically share data with them. Create a ZIP
+backup in your old app, then restore the ZIP inside v2.0 after first backing up
+any v2.0 data.
+
+Run the GitHub Actions Android APK workflow. It executes
+testDebugUnitTest, assembleDebug, lintDebug, plus a merged-manifest assertion
+that INTERNET permission is absent.
+
+**On-device checklist:** auto-crop a photographed notebook with a side shadow;
+rotate a portrait ID; check enhancing a gallery import keeps its original;
+scan and reorder several pages; OCR a multi-page PDF and cancel midway; verify
+text extraction and expiry; rename/reorder/delete an individual attachment;
+restart while WorkManager is running; try Copy All/Selected; and test ZIP backup.
+
+**Known limitations:** OCR field candidates must be reviewed, scanner corners
+can require manual adjustment, WorkManager cancellation may wait for an
+in-flight ML Kit recognition call, and native ONNX/OpenCV libraries enlarge
+the APK. Never treat parsed identity fields as proof of authenticity.
+
+---
+
 
 ## v1.3 Premium Navy UI + Full Details
 
