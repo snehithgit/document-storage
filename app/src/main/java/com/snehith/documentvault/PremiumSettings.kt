@@ -22,8 +22,8 @@ import androidx.compose.ui.unit.dp
     themeMode:String,onThemeModeChanged:(String)->Unit,
     onPrivacyScreenChanged:(Boolean)->Unit,onPin:(String,String)->Unit,onClearPin:(String)->Unit,
     onProfiles:()->Unit,onTemplates:()->Unit,onBackups:()->Unit,onRecovery:()->Unit,
-    onImportLanguage:()->Unit,onScript:(String)->Unit,onRemindDays:(Int)->Unit,onAbout:()->Unit,
-    keepOriginal:Boolean,onKeepOriginalChanged:(Boolean)->Unit
+    onImportLanguage:()->Unit,onScript:(String)->Unit,onRemindDays:(Int)->Unit,
+    keepOriginal:Boolean,onKeepOriginalChanged:(Boolean)->Unit,onAbout:()->Unit
 ){
     val context=LocalContext.current
     var dialog by rememberSaveable{mutableStateOf("")}
