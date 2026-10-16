@@ -13,7 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
-@Composable fun AttachmentManagerScreen(card:VaultCard,onView:(VaultFile)->Unit,
+@Composable fun AttachmentManagerScreen(card:VaultCard,repo:VaultRepository,onView:(VaultFile)->Unit,
     onRename:(VaultFile,String)->Unit,onDelete:(VaultFile)->Unit,onReorder:(List<String>)->Unit){
     var renameId by rememberSaveable(card.id){mutableStateOf("")}
     var filename by rememberSaveable(card.id){mutableStateOf("")}
@@ -32,21 +32,21 @@ import androidx.compose.ui.unit.dp
     LazyColumn(Modifier.fillMaxSize().background(vaultWarmBrush(MaterialTheme.colorScheme.background==VaultColors.darkBg)),
         contentPadding=PaddingValues(16.dp,12.dp,16.dp,96.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
         item{
-            Text("Manage attachments",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.SemiBold)
-            Text(VaultCounts.format(card.files.size,"file")+" · Rename, reorder, remove",
+            Text("Attachments",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.SemiBold)
+            Text(VaultCounts.format(card.files.size,"file")+" · Rename, reorder or remove",
                 color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
         itemsIndexed(card.files,key={_,file->file.id}){i,file->
             HubCard(Modifier.fillMaxWidth()){
                 Row(verticalAlignment=Alignment.CenterVertically){
-                    HubIcon(if(file.mime.startsWith("image/"))Icons.Outlined.Image else Icons.Outlined.Description)
+                    VaultThumbnail(file,repo,Modifier.size(58.dp,68.dp))
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)){
                         Text(VaultNames.label(file.name),fontWeight=FontWeight.Medium,maxLines=2)
                         Text(((file.bytes/1024).coerceAtLeast(1)).toString()+" KB",
                             color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.labelSmall)
                     }
-                    IconButton(onClick={onView(file)}){Icon(Icons.Outlined.Visibility,"Open")}
+                    IconButton(onClick={onView(file)},modifier=Modifier.size(48.dp)){Icon(Icons.Outlined.Visibility,"View "+VaultNames.label(file.name))}
                 }
                 HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
@@ -67,7 +67,7 @@ import androidx.compose.ui.unit.dp
                     },enabled=i<card.files.lastIndex){
                         Icon(Icons.Outlined.KeyboardArrowDown,"Move down")
                     }
-                    IconButton(onClick={deleteId=file.id}){
+                    IconButton(onClick={deleteId=file.id},modifier=Modifier.size(48.dp)){
                         Icon(Icons.Outlined.Delete,"Remove attachment",tint=MaterialTheme.colorScheme.error)
                     }
                 }
