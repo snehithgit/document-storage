@@ -158,12 +158,12 @@ object DocumentCropEngine {
             contentAlignment=Alignment.Center){
             val ratio=image.width.toFloat()/image.height.coerceAtLeast(1)
             val gutter=22.dp
-            val contentW=(maxWidth-2*gutter).coerceAtLeast(24.dp)
-            val contentH=(maxHeight-2*gutter).coerceAtLeast(24.dp)
+            val contentW=(maxWidth-gutter*2).coerceAtLeast(24.dp)
+            val contentH=(maxHeight-gutter*2).coerceAtLeast(24.dp)
             val displayW=minOf(contentW,contentH*ratio)
             val displayH=displayW/ratio
             val shown=preview?.takeUnless{it.isRecycled}?:image
-            Box(Modifier.width(displayW+2*gutter).height(displayH+2*gutter),
+            Box(Modifier.width(displayW+gutter*2).height(displayH+gutter*2),
                 contentAlignment=Alignment.Center){
                 Image(shown.asImageBitmap(),"Image to adjust",
                     modifier=Modifier.width(displayW).height(displayH),
