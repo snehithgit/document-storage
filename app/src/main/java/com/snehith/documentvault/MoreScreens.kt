@@ -27,53 +27,59 @@ import java.time.LocalDate
 import java.io.File
 import java.util.UUID
 
-@Composable fun DocumentViewerScreen(file:VaultFile,repo:VaultRepository,engine:DocumentEngine,onShare:()->Unit,onOcr:()->Unit) {
-    val pdf=file.name.endsWith(".pdf",true)||file.mime=="application/pdf"
+@Composable fun DocumentViewerScreen(file:VaultFile,repo:VaultRepository,
+    engine:DocumentEngine,onShare:()->Unit,onOcr:()->Unit) {
+    val pdf=file.mime=="application/pdf"||file.name.endsWith(".pdf",true)
+    val isImage=file.mime.startsWith("image/")
+    val scope=rememberCoroutineScope()
     var page by rememberSaveable(file.id){mutableIntStateOf(0)}
-    var pages by remember(file.id){mutableIntStateOf(1)}
+    var pageCount by remember(file.id){mutableIntStateOf(1)}
     var bitmap by remember(file.id){mutableStateOf<Bitmap?>(null)}
-    var pdfSession by remember(file.id){mutableStateOf<PdfPageSession?>(null)}
-    var previewText by remember(file.id){mutableStateOf(file.extractedText)}
-    var showText by rememberSaveable(file.id){mutableStateOf(!pdf&&!file.mime.startsWith("image/"))}
+    var session by remember(file.id){mutableStateOf<PdfPageSession?>(null)}
+    var text by remember(file.id){mutableStateOf(file.extractedText)}
+    var showText by rememberSaveable(file.id){mutableStateOf(!pdf&&!isImage)}
     var error by remember(file.id){mutableStateOf("")}
     var zoom by remember(file.id){mutableFloatStateOf(1f)}
     var panX by remember(file.id){mutableFloatStateOf(0f)}
     var panY by remember(file.id){mutableFloatStateOf(0f)}
     var loading by remember(file.id){mutableStateOf(false)}
 
-    DisposableEffect(pdfSession,file.id) {
-        onDispose { pdfSession?.close() }
+    DisposableEffect(session,file.id) {
+        val active=session
+        onDispose { if(active!=null)scope.launch(Dispatchers.IO){active.close()} }
     }
-    DisposableEffect(file.id) {
-        onDispose { if(!pdf)bitmap?.takeIf{!it.isRecycled}?.recycle() }
+    DisposableEffect(bitmap,file.id) {
+        val shown=bitmap
+        onDispose { if(shown!=null&&!shown.isRecycled)shown.recycle() }
     }
-    LaunchedEffect(file.id) {
+    LaunchedEffect(file.id){
         if(pdf)try{
             loading=true
-            val session=withContext(Dispatchers.IO){PdfPageSession(repo.documentFile(file))}
-            if(!kotlinx.coroutines.currentCoroutineContext().isActive) {
-                session.close()
+            val opened=withContext(Dispatchers.IO){PdfPageSession(repo.documentFile(file))}
+            if(!kotlinx.coroutines.currentCoroutineContext().isActive){
+                withContext(Dispatchers.IO){opened.close()}
                 return@LaunchedEffect
             }
-            pdfSession=session
-            pages=session.pageCount
-        }catch(e:Exception){error=e.message?:"Cannot read PDF"}
+            session=opened
+            pageCount=opened.pageCount
+            page=page.coerceIn(0,(pageCount-1).coerceAtLeast(0))
+        }catch(e:Exception){error=e.message?:"Unable to open PDF"}
         finally{loading=false}
     }
-    LaunchedEffect(file.id,page,showText,pdfSession) {
-        if(showText){
-            if(previewText.isBlank()) {
-                try{loading=true;previewText=withContext(Dispatchers.IO){engine.extract(file).text}}
-                catch(e:Exception){error=e.message?:"Text extraction failed"}
-                finally{loading=false}
-            }
+    LaunchedEffect(file.id,page,showText,session) {
+        if(showText) {
+            if(text.isBlank())try {
+                loading=true
+                text=withContext(Dispatchers.IO){engine.extract(file).text}
+            }catch(e:Exception){error=e.message?:"Unable to read the document"}
+            finally{loading=false}
             return@LaunchedEffect
         }
-        if(pdf && pdfSession==null)return@LaunchedEffect
+        if(pdf&&session==null)return@LaunchedEffect
         try{
             loading=true
             val rendered=withContext(Dispatchers.IO){
-                if(pdf)pdfSession!!.render(page)
+                if(pdf)session!!.render(page)
                 else engine.scaledBitmap(repo.documentFile(file),1550)
             }
             bitmap=rendered
@@ -81,53 +87,70 @@ import java.util.UUID
         }catch(e:Exception){error=e.message?:"Unable to preview document"}
         finally{loading=false}
     }
-
-    Column(Modifier.fillMaxSize().padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-        Text(VaultNames.label(file.name),fontWeight=FontWeight.SemiBold,style=MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement=Arrangement.spacedBy(6.dp),verticalAlignment=Alignment.CenterVertically) {
-            FilterChip(selected=!showText,onClick={showText=false},label={Text("Pages")})
-            FilterChip(selected=showText,onClick={showText=true},label={Text("Text")})
-            IconButton(onClick=onOcr){Icon(Icons.Outlined.DocumentScanner,"OCR")}
-            IconButton(onClick=onShare){Icon(Icons.Outlined.Share,"Share")}
-        }
-        if(error.isNotBlank())Text(error,color=MaterialTheme.colorScheme.error)
-        if(showText){
-            Surface(Modifier.weight(1f).fillMaxWidth(),shape=RoundedCornerShape(14.dp),
-                color=MaterialTheme.colorScheme.surfaceContainerLow) {
-                Column(Modifier.verticalScroll(rememberScrollState()).padding(14.dp)) {
-                    if(loading)LinearProgressIndicator(Modifier.fillMaxWidth())
-                    if(previewText.isBlank())Text("No selectable text. Run OCR to extract it.")
-                    else SelectionContainer{Text(previewText)}
-                }
+    Column(Modifier.fillMaxSize().background(Color.Black).padding(horizontal=12.dp,vertical=8.dp),
+        verticalArrangement=Arrangement.spacedBy(8.dp)){
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+            Text(VaultNames.label(file.name),style=MaterialTheme.typography.titleMedium,
+                maxLines=1,modifier=Modifier.weight(1f))
+            IconButton(onClick={showText=!showText},modifier=Modifier.size(48.dp)){
+                Icon(if(showText)Icons.Outlined.Image else Icons.Outlined.TextSnippet,
+                    if(showText)"Show document" else "Read text")
             }
-        }else {
-            Surface(modifier=Modifier.weight(1f).fillMaxWidth(),shape=RoundedCornerShape(14.dp),
-                color=MaterialTheme.colorScheme.surfaceContainerLow) {
-                Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) {
-                    val image=bitmap
-                    if(image!=null){
-                        Image(image.asImageBitmap(),contentDescription="Document page",
-                            modifier=Modifier.fillMaxSize()
-                                .pointerInput(file.id,page){detectTransformGestures{_,move,factor,_->
+            IconButton(onClick=onOcr,modifier=Modifier.size(48.dp)){
+                Icon(Icons.Outlined.DocumentScanner,"Read page")
+            }
+            IconButton(onClick=onShare,modifier=Modifier.size(48.dp)){
+                Icon(Icons.Outlined.Share,"Share document")
+            }
+        }
+        if(error.isNotBlank())Text(error,color=MaterialTheme.colorScheme.error,
+            style=MaterialTheme.typography.bodySmall)
+        Box(Modifier.weight(1f).fillMaxWidth().background(Color.Black),
+            contentAlignment=Alignment.Center){
+            if(showText){
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)){
+                    if(text.isBlank()&&!loading)Text("No recognized text found. Use Read page to extract it.",
+                        color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    else SelectionContainer{Text(text,style=MaterialTheme.typography.bodyLarge)}
+                }
+            }else{
+                val picture=bitmap
+                if(picture!=null && !picture.isRecycled){
+                    Image(picture.asImageBitmap(),"Document page",
+                        modifier=Modifier.fillMaxSize()
+                            .pointerInput(file.id,page){
+                                detectTransformGestures{_,move,factor,_->
                                     zoom=(zoom*factor).coerceIn(1f,5f)
                                     panX=(panX+move.x).coerceIn(-1100f,1100f)
                                     panY=(panY+move.y).coerceIn(-1800f,1800f)
-                                }}
-                                .graphicsLayer(scaleX=zoom,scaleY=zoom,translationX=panX,translationY=panY),
-                            contentScale=androidx.compose.ui.layout.ContentScale.Fit)
-                    }
-                    if(loading||image==null)CircularProgressIndicator()
+                                }
+                            }
+                            .graphicsLayer(scaleX=zoom,scaleY=zoom,
+                                translationX=panX,translationY=panY),
+                        contentScale=androidx.compose.ui.layout.ContentScale.Fit)
                 }
             }
-            if(pdf){
-                Row(modifier=Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,
-                    horizontalArrangement=Arrangement.SpaceBetween){
-                    OutlinedButton(onClick={page=(page-1).coerceAtLeast(0);zoom=1f;panX=0f;panY=0f},enabled=page>0){Text("Previous")}
-                    Text((page+1).toString()+" / "+pages)
-                    OutlinedButton(onClick={page=(page+1).coerceAtMost(pages-1);zoom=1f;panX=0f;panY=0f},enabled=page<pages-1){Text("Next")}
-                }
-            }else Text("Pinch to zoom and drag to pan.",style=MaterialTheme.typography.labelSmall)
+            if(loading)CircularProgressIndicator(Modifier.size(32.dp))
         }
+        if(pdf&&!showText){
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,
+                horizontalArrangement=Arrangement.SpaceBetween){
+                IconButton(onClick={
+                    page=(page-1).coerceAtLeast(0);zoom=1f;panX=0f;panY=0f
+                },enabled=page>0,modifier=Modifier.size(48.dp)){
+                    Icon(Icons.Outlined.ChevronLeft,"Previous page")
+                }
+                Text("Page ${page+1} of $pageCount",style=MaterialTheme.typography.bodyMedium)
+                IconButton(onClick={
+                    page=(page+1).coerceAtMost(pageCount-1);zoom=1f;panX=0f;panY=0f
+                },enabled=page<pageCount-1,modifier=Modifier.size(48.dp)){
+                    Icon(Icons.Outlined.ChevronRight,"Next page")
+                }
+            }
+        }else if(!showText)Text("Pinch to zoom. Drag to move the page.",
+            style=MaterialTheme.typography.bodySmall,
+            modifier=Modifier.fillMaxWidth(),
+            color=MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 @Composable fun ScanImportScreen(onCamera:()->Unit,onImport:()->Unit,onNew:()->Unit) {
@@ -158,82 +181,133 @@ import java.util.UUID
             style=MaterialTheme.typography.bodyMedium)
     }
 }
-@Composable fun PdfToolsScreen(card:VaultCard,onAdd:()->Unit,
-    onExport:(String,List<VaultFile>,Int,Int)->Unit) {
-    val selected=remember(card.id){mutableStateListOf<String>().apply{addAll(card.files.map{it.id})}}
-    var start by remember{mutableStateOf("1")}
-    var end by remember{mutableStateOf("1")}
+@Composable fun PdfToolsScreen(card:VaultCard,repo:VaultRepository,
+    onAdd:()->Unit,onExport:(String,List<VaultFile>,Int,Int)->Unit) {
+    var selected by rememberSaveable(card.id){mutableStateOf(card.files.map{it.id})}
+    var fromPage by rememberSaveable(card.id){mutableStateOf("1")}
+    var toPage by rememberSaveable(card.id){mutableStateOf("1")}
     val selectedFiles=selected.mapNotNull{id->card.files.firstOrNull{it.id==id}}
-    val combinedPossible=selectedFiles.isNotEmpty()&&selectedFiles.all{
+    val combining=selectedFiles.isNotEmpty()&&selectedFiles.all{
         it.mime=="application/pdf"||it.name.endsWith(".pdf",true)||it.mime.startsWith("image/")
     }
-    LazyColumn(Modifier.fillMaxSize().background(VaultNavy),
-        contentPadding=PaddingValues(15.dp,12.dp,15.dp,95.dp),
-        verticalArrangement=Arrangement.spacedBy(12.dp)){
+    val onlyPdf=selectedFiles.size==1 && (selectedFiles[0].mime=="application/pdf"||
+        selectedFiles[0].name.endsWith(".pdf",true))
+    val startIndex=fromPage.toIntOrNull()
+    val endIndex=toPage.toIntOrNull()
+    val validRange=startIndex!=null&&endIndex!=null&&startIndex>0&&endIndex>=startIndex
+    LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+        contentPadding=PaddingValues(16.dp,16.dp,16.dp,28.dp),
+        verticalArrangement=Arrangement.spacedBy(14.dp)){
         item {
-            VaultHeader("PDF Studio",card.title+" · Combine, reorder, split, rotate or export")
+            VaultHeader("PDF Tools",VaultNames.title(card.title))
             Spacer(Modifier.height(8.dp))
-            Button(onClick=onAdd,modifier=Modifier.fillMaxWidth()){
-                Icon(Icons.Outlined.Add,null);Text(" Add scans, photos or PDF files")
+            Text("Choose the files to include, then create a PDF.",
+                style=MaterialTheme.typography.bodyMedium,
+                color=MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick=onAdd,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
+                Icon(Icons.Outlined.Add,null)
+                Text(" Add photos or documents")
             }
-            Text("Select attachments below. Use ↑ and ↓ to choose their order in the combined PDF.",
-                color=VaultMuted,style=MaterialTheme.typography.bodySmall)
+        }
+        item {
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+                Text("Selected files",style=MaterialTheme.typography.titleLarge,
+                    modifier=Modifier.weight(1f))
+                Text(VaultCounts.format(selectedFiles.size,"file"),
+                    color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text("Move files up or down to choose their order.",
+                style=MaterialTheme.typography.bodySmall,
+                color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
         items(selectedFiles,key={it.id}){file->
-            Card(colors=CardDefaults.cardColors(containerColor=VaultPanel),
-                border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),shape=RoundedCornerShape(10.dp)) {
-                Row(Modifier.padding(8.dp),verticalAlignment=Alignment.CenterVertically){
-                    Checkbox(checked=true,onCheckedChange={selected.remove(file.id)})
-                    Icon(if(file.mime.startsWith("image/"))Icons.Outlined.Image else Icons.Outlined.PictureAsPdf,
-                        null,tint=VaultSky)
-                    Spacer(Modifier.width(8.dp))
+            val index=selected.indexOf(file.id)
+            Card(colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface),
+                shape=RoundedCornerShape(14.dp),
+                border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
+                Row(Modifier.fillMaxWidth().padding(horizontal=8.dp,vertical=10.dp),
+                    verticalAlignment=Alignment.CenterVertically){
+                    VaultThumbnail(file,repo,Modifier.size(54.dp,70.dp))
+                    Spacer(Modifier.width(9.dp))
                     Column(Modifier.weight(1f)){
-                        Text(file.name,color=MaterialTheme.colorScheme.onSurface,maxLines=2)
-                        Text("PDF page or document",color=VaultMuted,style=MaterialTheme.typography.labelSmall)
+                        Text(VaultNames.label(file.name),style=MaterialTheme.typography.bodyMedium,
+                            maxLines=2)
+                        Text("File ${index+1}",style=MaterialTheme.typography.bodySmall,
+                            color=MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     IconButton(onClick={
-                        val i=selected.indexOf(file.id)
-                        if(i>0){selected.removeAt(i);selected.add(i-1,file.id)}
-                    }){Icon(Icons.Outlined.KeyboardArrowUp,null,tint=VaultSky)}
+                        if(index>0){
+                            val next=selected.toMutableList()
+                            java.util.Collections.swap(next,index,index-1)
+                            selected=next
+                        }
+                    },enabled=index>0,modifier=Modifier.size(48.dp)){
+                        Icon(Icons.Outlined.KeyboardArrowUp,"Move file up")
+                    }
                     IconButton(onClick={
-                        val i=selected.indexOf(file.id)
-                        if(i<selected.lastIndex){selected.removeAt(i);selected.add(i+1,file.id)}
-                    }){Icon(Icons.Outlined.KeyboardArrowDown,null,tint=VaultSky)}
+                        if(index>=0&&index<selected.lastIndex){
+                            val next=selected.toMutableList()
+                            java.util.Collections.swap(next,index,index+1)
+                            selected=next
+                        }
+                    },enabled=index>=0&&index<selected.lastIndex,modifier=Modifier.size(48.dp)){
+                        Icon(Icons.Outlined.KeyboardArrowDown,"Move file down")
+                    }
+                    IconButton(onClick={selected=selected-file.id},modifier=Modifier.size(48.dp)){
+                        Icon(Icons.Outlined.Close,"Deselect file")
+                    }
                 }
             }
         }
-        if(card.files.size>selected.size)item {
-            Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(7.dp)){
-                card.files.filter{it.id !in selected}.forEach{f->
-                    AssistChip(onClick={selected.add(f.id)},label={Text("+ "+f.name.take(20))})
+        if(card.files.any{it.id !in selected})item {
+            Text("Add more files",style=MaterialTheme.typography.titleMedium)
+            Column(verticalArrangement=Arrangement.spacedBy(6.dp)){
+                card.files.filter{it.id !in selected}.forEach{file->
+                    OutlinedButton(onClick={selected=selected+file.id},
+                        modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
+                        Icon(Icons.Outlined.Add,null,Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(VaultNames.label(file.name),maxLines=1,modifier=Modifier.weight(1f))
+                    }
                 }
             }
         }
-        item {
+        item{
             Button(onClick={onExport("combine",selectedFiles,1,1)},
-                enabled=combinedPossible,modifier=Modifier.fillMaxWidth()){
-                Icon(Icons.Outlined.PictureAsPdf,null);Text(" Create one PDF from selected files")
+                enabled=combining,modifier=Modifier.fillMaxWidth().heightIn(min=54.dp)){
+                Icon(Icons.Outlined.PictureAsPdf,null)
+                Spacer(Modifier.width(9.dp))
+                Text("Combine into PDF",style=MaterialTheme.typography.titleMedium)
             }
         }
-        item {
-            HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-            Text("More PDF tools",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold)
-            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                OutlinedTextField(start,{start=it},label={Text("From page")},modifier=Modifier.weight(1f),singleLine=true)
-                OutlinedTextField(end,{end=it},label={Text("To page")},modifier=Modifier.weight(1f),singleLine=true)
+        item{
+            Text("Other PDF tools",style=MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                OutlinedTextField(fromPage,{fromPage=it},label={Text("First page")},
+                    modifier=Modifier.weight(1f),singleLine=true)
+                OutlinedTextField(toPage,{toPage=it},label={Text("Last page")},
+                    modifier=Modifier.weight(1f),singleLine=true)
             }
-            Spacer(Modifier.height(9.dp))
-            OutlinedButton(onClick={onExport("split",selectedFiles,start.toIntOrNull()?:1,end.toIntOrNull()?:1)},
-                enabled=selectedFiles.size==1&&selectedFiles[0].name.endsWith(".pdf",true),
-                modifier=Modifier.fillMaxWidth()){Text("Export selected page range")}
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick={
+                onExport("split",selectedFiles,startIndex?:1,endIndex?:1)
+            },enabled=onlyPdf&&validRange,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
+                Text("Export selected pages")
+            }
             OutlinedButton(onClick={onExport("rotate",selectedFiles,1,1)},
-                enabled=selectedFiles.size==1&&selectedFiles[0].name.endsWith(".pdf",true),
-                modifier=Modifier.fillMaxWidth()){Text("Rotate PDF 90°")}
+                enabled=onlyPdf,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
+                Text("Rotate PDF 90°")
+            }
             OutlinedButton(onClick={onExport("searchable",selectedFiles,1,1)},
-                enabled=selectedFiles.size==1&&selectedFiles[0].name.endsWith(".pdf",true)&&selectedFiles[0].extractedText.isNotBlank(),
-                modifier=Modifier.fillMaxWidth()){Text("Export searchable PDF")}
-            Text("Documents remain unchanged. The combined PDF is exported to a location you choose.",
-                style=MaterialTheme.typography.bodySmall,color=VaultMuted)
+                enabled=onlyPdf&&selectedFiles[0].extractedText.isNotBlank(),
+                modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
+                Text("Make searchable PDF")
+            }
+            Text("Original files are kept unchanged. You choose where exports are saved.",
+                style=MaterialTheme.typography.bodySmall,
+                color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
