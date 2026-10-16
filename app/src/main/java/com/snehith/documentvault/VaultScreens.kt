@@ -422,11 +422,11 @@ fun copyToClipboard(context:Context,label:String,value:String) {
             item{Text("No expiry dates added yet. Edit a document to add one.",
                 color=MaterialTheme.colorScheme.onSurfaceVariant)}
         fun androidx.compose.foundation.lazy.LazyListScope.group(
-            title:String,items:List<Pair<VaultCard,Long>>,color:Color){
-            if(items.isNotEmpty()){
+            title:String,entries:List<Pair<VaultCard,Long>>,color:Color){
+            if(entries.isNotEmpty()){
                 item{Text(title,style=MaterialTheme.typography.titleLarge,
                     modifier=Modifier.padding(top=8.dp))}
-                items(items,key={it.first.id}){(card,days)->
+                items(entries,key={it.first.id}){(card,days)->
                     Card(onClick={onOpen(card)},
                         colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface),
                         border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
