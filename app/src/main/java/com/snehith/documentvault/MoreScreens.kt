@@ -46,12 +46,16 @@ import java.util.UUID
 
     DisposableEffect(session,file.id) {
         val active=session
-        onDispose { if(active!=null)runCatching { active.close() } }
+        onDispose {
+            // PdfRenderer's synchronized render() may still run in Dispatchers.IO.
+            // Defer close off the UI thread; do not recycle its page bitmap while drawn.
+            if(active!=null) kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                runCatching { active.close() }
+            }
+        }
     }
-    DisposableEffect(bitmap,file.id) {
-        val shown=bitmap
-        onDispose { if(shown!=null&&!shown.isRecycled)shown.recycle() }
-    }
+    // Do not recycle a displayed or cached page on Back/page changes: renderer cache
+    // can legitimately return that bitmap while Compose is still painting it.
     LaunchedEffect(file.id){
         if(pdf)try{
             loading=true
