@@ -22,7 +22,7 @@ import androidx.compose.ui.unit.dp
     themeMode:String,onThemeModeChanged:(String)->Unit,
     onPrivacyScreenChanged:(Boolean)->Unit,onPin:(String,String)->Unit,onClearPin:(String)->Unit,
     onProfiles:()->Unit,onTemplates:()->Unit,onBackups:()->Unit,onRecovery:()->Unit,
-    onImportLanguage:()->Unit,onScript:(String)->Unit,onRemindDays:(Int)->Unit,
+    onImportLanguage:()->Unit,onScript:(String)->Unit,onRemindDays:(Int)->Unit,onAbout:()->Unit,
     keepOriginal:Boolean,onKeepOriginalChanged:(Boolean)->Unit
 ){
     val context=LocalContext.current
@@ -145,6 +145,7 @@ import androidx.compose.ui.unit.dp
         }
         item{NavySettingRow(Icons.Outlined.Lock,"App lock",if(hasPin)"PIN configured (files are not encrypted)" else "Optional PIN / biometrics",{dialog="pin"})}
         item{NavySettingRow(Icons.Outlined.Notifications,"Expiry reminders","Notify before documents expire",{dialog="remind"})}
+        item{NavySettingRow(Icons.Outlined.Info,"About Document Vault","App version, privacy and open-source attribution",onAbout)}
         item {
             Spacer(Modifier.height(8.dp))
             Text("Document Vault • Local-only files • No encryption. The optional PIN protects the app interface, not files or exported ZIPs.",
