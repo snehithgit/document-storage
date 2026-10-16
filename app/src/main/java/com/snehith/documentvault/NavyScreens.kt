@@ -53,10 +53,10 @@ private val thumbnailCache=object:LruCache<String,Bitmap>(16*1024*1024){
         bitmap=null
         if(file==null)return@LaunchedEffect
         try {
-            val cacheKey=file.id+"-"+repo.documentFile(file).lastModified()
             val image=withContext(Dispatchers.IO) {
+                val raw=repo.documentFile(file)
+                val cacheKey=file.id+"-"+raw.lastModified()
                 synchronized(thumbnailCache){thumbnailCache.get(cacheKey)} ?: run {
-                    val raw=repo.documentFile(file)
                     val thumbnail=if(file.mime=="application/pdf"||file.name.endsWith(".pdf",true)){
                         PdfPageSession(raw).use{it.render(0,340)}
                     }else if(file.mime.startsWith("image/")){
@@ -97,7 +97,7 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
         Column(Modifier.fillMaxWidth().padding(9.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
             Box {
                 VaultThumbnail(card.files.firstOrNull(),repo,Modifier.fillMaxWidth().height(140.dp))
-                Box(Modifier.align(Alignment.TopEnd).padding(5.dp)){VaultPill(card.kind.take(12))}
+                Box(Modifier.align(Alignment.TopEnd).padding(5.dp)){VaultPill(card.category.ifBlank{"Other"}.take(17))}
             }
             Text(VaultNames.title(card.title),color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold,
                 style=MaterialTheme.typography.bodyMedium,maxLines=2,minLines=2,overflow=TextOverflow.Ellipsis)
@@ -119,7 +119,7 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
             Spacer(Modifier.width(11.dp))
             Column(Modifier.weight(1f)){
                 Text(VaultNames.title(card.title),color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
-                Text(card.kind+" · "+card.category,color=VaultMuted,style=MaterialTheme.typography.labelSmall)
+                Text(card.category.ifBlank{"Other"},color=VaultMuted,style=MaterialTheme.typography.labelSmall)
                 Text(VaultCounts.format(card.files.size,"attachment"),color=VaultColors.syntax,style=MaterialTheme.typography.labelSmall)
             }
             VaultPill(v,c)
