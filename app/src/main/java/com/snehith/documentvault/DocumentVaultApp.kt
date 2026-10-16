@@ -622,12 +622,17 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     finally{busy=""}
                                 }},
                                 {
-                                    if(cropFromAttachment)goBack()
-                                    else cameraUri?.let{uri->
+                                    if(cropFromAttachment) {
+                                        cropBitmap=null;cropResult=null;enhancingFileId=null
                                         goBack()
-                                        importUris(listOf(uri),scanTarget)
+                                    } else cameraUri?.let{uri->
+                                        importUris(listOf(uri),scanTarget,
+                                            onSaved={
+                                                cropBitmap=null;cropResult=null
+                                                enhancingFileId=null
+                                                goBack()
+                                            })
                                     }
-                                    cropBitmap=null;cropResult=null;enhancingFileId=null
                                 },
                                 {cropBitmap=null;cropResult=null;enhancingFileId=null;goBack()},
                                 {cropBitmap=null;cropResult=null;camera(scanTarget)},
