@@ -367,51 +367,141 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
 }
 
 
-@Composable fun NavyScanScreen(onCamera:()->Unit,onImport:()->Unit,onNew:()->Unit){
-    Column(Modifier.fillMaxSize().background(VaultNavy).padding(16.dp),
-        verticalArrangement=Arrangement.spacedBy(14.dp)){
-        VaultHeader("Scan & add","Capture clean multi-page documents, all on device")
-        Card(onClick=onCamera,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=RoundedCornerShape(19.dp),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
-            Column(Modifier.fillMaxWidth().padding(20.dp),horizontalAlignment=Alignment.CenterHorizontally){
-                Icon(Icons.Outlined.DocumentScanner,null,tint=VaultSky,modifier=Modifier.size(61.dp))
-                Spacer(Modifier.height(12.dp))
-                Text("Scan with auto-crop",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold,
-                    style=MaterialTheme.typography.titleMedium)
-                Text("Detect edges · adjust four corners · straighten perspective",
-                    color=VaultMuted,style=MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.height(13.dp))
-                Button(onClick=onCamera){Icon(Icons.Outlined.CameraAlt,null);Text(" Open camera")}
+@Composable private fun EditorImportRow(
+    index:String,title:String,detail:String,
+    icon:androidx.compose.ui.graphics.vector.ImageVector,onClick:()->Unit
+){
+    Surface(
+        modifier=Modifier.fillMaxWidth().clickable(onClick=onClick),
+        color=MaterialTheme.colorScheme.surface,
+        shape=RoundedCornerShape(14.dp),
+        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)
+    ){
+        Row(Modifier.padding(horizontal=16.dp,vertical=17.dp),verticalAlignment=Alignment.CenterVertically){
+            Text(index,color=VaultColors.lineNumber,style=MaterialTheme.typography.labelSmall)
+            Spacer(Modifier.width(14.dp))
+            Box(
+                Modifier.size(42.dp).background(MaterialTheme.colorScheme.surfaceVariant,RoundedCornerShape(10.dp)),
+                contentAlignment=Alignment.Center
+            ){Icon(icon,null,tint=MaterialTheme.colorScheme.onSurface,modifier=Modifier.size(21.dp))}
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)){
+                Text(title,fontWeight=FontWeight.SemiBold,style=MaterialTheme.typography.bodyLarge)
+                Text(detail,color=MaterialTheme.colorScheme.onSurfaceVariant,
+                    style=MaterialTheme.typography.labelSmall)
             }
+            Icon(Icons.Outlined.NorthEast,null,
+                tint=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.size(18.dp))
         }
-        Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
-            Card(onClick=onImport,modifier=Modifier.weight(1f),
-                colors=CardDefaults.cardColors(containerColor=VaultPanel),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
-                Column(Modifier.padding(17.dp)){
-                    Icon(Icons.Outlined.UploadFile,null,tint=VaultSky,modifier=Modifier.size(29.dp))
-                    Spacer(Modifier.height(9.dp))
-                    Text("Import files",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.SemiBold)
-                    Text("PDF, JPG, PNG, DOCX",color=VaultMuted,style=MaterialTheme.typography.labelSmall)
+    }
+}
+
+/** No accidental launch into camera: all three import sources remain visible. */
+@Composable fun NavyScanScreen(
+    onCamera:()->Unit,
+    onGallery:()->Unit,
+    onFiles:()->Unit,
+    onNew:()->Unit
+){
+    LazyColumn(
+        Modifier.fillMaxSize().background(bgBrush),
+        contentPadding=PaddingValues(horizontal=20.dp,vertical=18.dp),
+        verticalArrangement=Arrangement.spacedBy(14.dp)
+    ){
+        item{
+            Row(verticalAlignment=Alignment.CenterVertically){
+                Text("WORKSPACE  /  CAPTURE",color=VaultColors.syntax,
+                    style=MaterialTheme.typography.labelSmall,modifier=Modifier.weight(1f))
+                Text("● OFFLINE",color=VaultColors.valid,
+                    style=MaterialTheme.typography.labelSmall)
+            }
+            Spacer(Modifier.height(12.dp))
+            Text("Add documents.",color=MaterialTheme.colorScheme.onSurface,
+                fontWeight=FontWeight.SemiBold,style=MaterialTheme.typography.headlineMedium)
+            Spacer(Modifier.height(5.dp))
+            Text("Capture, import, organize. Your files stay on this device.",
+                color=MaterialTheme.colorScheme.onSurfaceVariant,
+                style=MaterialTheme.typography.bodySmall)
+        }
+        item{
+            Surface(
+                color=MaterialTheme.colorScheme.surface,
+                border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline),
+                shape=RoundedCornerShape(18.dp)
+            ){
+                Column(Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement=Arrangement.spacedBy(14.dp)){
+                    Row(verticalAlignment=Alignment.CenterVertically){
+                        Text("scan_session.kt",color=VaultColors.syntax,
+                            style=MaterialTheme.typography.labelSmall,
+                            modifier=Modifier.weight(1f))
+                        Text("01 / CAMERA",color=VaultColors.lineNumber,
+                            style=MaterialTheme.typography.labelSmall)
+                    }
+                    Box(
+                        Modifier.fillMaxWidth().height(164.dp)
+                            .background(MaterialTheme.colorScheme.background,RoundedCornerShape(12.dp)),
+                        contentAlignment=Alignment.Center
+                    ){
+                        Column(horizontalAlignment=Alignment.CenterHorizontally,
+                            verticalArrangement=Arrangement.spacedBy(8.dp)){
+                            Icon(Icons.Outlined.CropFree,null,tint=MaterialTheme.colorScheme.onSurface,
+                                modifier=Modifier.size(65.dp))
+                            Text("[  AUTO-EDGE DETECTION  ]",color=VaultColors.syntax,
+                                style=MaterialTheme.typography.labelSmall)
+                            Text("Detect → Crop → Enhance → Save",
+                                color=MaterialTheme.colorScheme.onSurfaceVariant,
+                                style=MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    Button(onClick=onCamera,modifier=Modifier.fillMaxWidth().height(52.dp),
+                        shape=RoundedCornerShape(11.dp)){
+                        Icon(Icons.Outlined.CameraAlt,null,Modifier.size(21.dp))
+                        Spacer(Modifier.width(9.dp))
+                        Text("Open camera",fontWeight=FontWeight.SemiBold)
+                        Spacer(Modifier.weight(1f))
+                        Icon(Icons.Outlined.ArrowForward,null,Modifier.size(20.dp))
+                    }
                 }
             }
-            Card(onClick=onNew,modifier=Modifier.weight(1f),
-                colors=CardDefaults.cardColors(containerColor=VaultPanel),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
-                Column(Modifier.padding(17.dp)){
-                    Icon(Icons.Outlined.AddCard,null,tint=VaultSky,modifier=Modifier.size(29.dp))
-                    Spacer(Modifier.height(9.dp))
-                    Text("Information card",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.SemiBold)
-                    Text("Create without files",color=VaultMuted,style=MaterialTheme.typography.labelSmall)
-                }
+        }
+        item{
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment=Alignment.CenterVertically){
+                Text("IMPORT SOURCES",color=MaterialTheme.colorScheme.onSurface,
+                    fontWeight=FontWeight.SemiBold,
+                    style=MaterialTheme.typography.labelMedium,
+                    modifier=Modifier.weight(1f))
+                Text("02 OPTIONS",color=VaultColors.lineNumber,
+                    style=MaterialTheme.typography.labelSmall)
             }
         }
-        Column(Modifier.background(VaultPanel,RoundedCornerShape(12.dp)).border(1.dp,MaterialTheme.colorScheme.outlineVariant,RoundedCornerShape(12.dp)).padding(15.dp)){
-            Text("Multi-page document workflow",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold)
-            Spacer(Modifier.height(7.dp))
-            Text("1. Open a document card, then tap Add to attach more scans or PDFs.",
-                color=VaultMuted,style=MaterialTheme.typography.bodyMedium)
-            Text("2. Open PDF Tools to select pages/files and create one combined PDF.",
-                color=VaultMuted,style=MaterialTheme.typography.bodyMedium)
-            Text("3. Use Full Details to save and copy selected OCR information.",
-                color=VaultMuted,style=MaterialTheme.typography.bodyMedium)
+        item{
+            EditorImportRow("02","Import from gallery","JPG · PNG · HEIC · multiple photos",
+                Icons.Outlined.PhotoLibrary,onGallery)
+        }
+        item{
+            EditorImportRow("03","Import files / PDF","PDF · DOCX · images · text · ZIP",
+                Icons.Outlined.FolderOpen,onFiles)
+        }
+        item{
+            EditorImportRow("04","New information card","Save custom fields without an attachment",
+                Icons.Outlined.DataObject,onNew)
+        }
+        item{
+            Surface(color=MaterialTheme.colorScheme.surfaceVariant,
+                shape=RoundedCornerShape(12.dp)){
+                Row(Modifier.fillMaxWidth().padding(14.dp),
+                    verticalAlignment=Alignment.Top){
+                    Icon(Icons.Outlined.Info,null,
+                        tint=VaultColors.syntax,modifier=Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("// To add pages to an existing document, open its card and choose Add.\n"+
+                        "// PDF Studio can combine attached pages into one file.",
+                        style=MaterialTheme.typography.bodySmall,
+                        color=MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
     }
 }
