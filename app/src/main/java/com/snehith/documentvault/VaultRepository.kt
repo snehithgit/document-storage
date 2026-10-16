@@ -20,7 +20,8 @@ import java.util.zip.ZipOutputStream
 data class DataField(val name: String, val value: String, val page: Int = -1,
     val source: String = "manual", val id: String = UUID.randomUUID().toString(),
     val confidence:Float=0f)
-data class VaultFile(val id: String, val name: String, val mime: String, val bytes: Long, val sha256: String, val extractedText: String = "", val ocrStatus: String = "pending")
+data class VaultFile(val id: String, val name: String, val mime: String, val bytes: Long, val sha256: String, val extractedText: String = "", val ocrStatus: String = "pending",
+    val originalId:String = "", val cropCorners:String = "", val cropRotation:Int = 0)
 data class VaultCard(
     val id: String = UUID.randomUUID().toString(),
     val title: String = "New card",
@@ -143,6 +144,11 @@ class VaultRepository(private val context: Context) {
         if(!it.isFile)throw FileNotFoundException("Attachment missing: "+file.name)
     }
     fun hasDocument(file:VaultFile)=blob(file.id).isFile
+    /** Source survives re-editing; it is never exposed as a duplicate attachment. */
+    fun originalDocumentFile(file:VaultFile):File =
+        blob(file.originalId.ifBlank{file.id}).also {
+            if(!it.isFile)throw FileNotFoundException("Original image is unavailable")
+        }
     fun removeOrphan(file:VaultFile){ blob(file.id).delete();meta(file.id).delete() }
 
     @Synchronized fun load() {
@@ -203,7 +209,8 @@ class VaultRepository(private val context: Context) {
             previousId=o.optString("previousId"),created=o.optLong("created",System.currentTimeMillis()),
             fields=(0 until fields.length()).map { val f=fields.getJSONObject(it);DataField(f.optString("name"),f.optString("value"),f.optInt("page",-1),
                 f.optString("source","manual"),f.optString("id").ifBlank{uid()},f.optDouble("confidence",0.0).toFloat()) },
-            files=(0 until files.length()).map { val f=files.getJSONObject(it);VaultFile(f.getString("id"),f.optString("name"),f.optString("mime"),f.optLong("bytes"),f.optString("sha256"),f.optString("extractedText"),f.optString("ocrStatus","pending")) }
+            files=(0 until files.length()).map { val f=files.getJSONObject(it);VaultFile(f.getString("id"),f.optString("name"),f.optString("mime"),f.optLong("bytes"),f.optString("sha256"),f.optString("extractedText"),f.optString("ocrStatus","pending"),
+                f.optString("originalId"),f.optString("cropCorners"),f.optInt("cropRotation",0)) }
         )
     }
     fun encodeCard(card:VaultCard):String=writeCard(card).toString()
@@ -213,7 +220,8 @@ class VaultRepository(private val context: Context) {
         .put("profile",c.profile).put("tags",c.tags).put("notes",c.notes).put("expiry",c.expiry)
         .put("previousId",c.previousId).put("created",c.created)
         .put("fields",JSONArray().apply { c.fields.forEach{ put(JSONObject().put("name",it.name).put("value",it.value).put("page",it.page).put("source",it.source).put("id",it.id).put("confidence",it.confidence.toDouble())) } })
-        .put("files",JSONArray().apply { c.files.forEach{ put(JSONObject().put("id",it.id).put("name",it.name).put("mime",it.mime).put("bytes",it.bytes).put("sha256",it.sha256).put("extractedText",it.extractedText).put("ocrStatus",it.ocrStatus)) } })
+        .put("files",JSONArray().apply { c.files.forEach{ put(JSONObject().put("id",it.id).put("name",it.name).put("mime",it.mime).put("bytes",it.bytes).put("sha256",it.sha256).put("extractedText",it.extractedText).put("ocrStatus",it.ocrStatus)
+            .put("originalId",it.originalId).put("cropCorners",it.cropCorners).put("cropRotation",it.cropRotation)) } })
     private fun snapshot():String=JSONObject()
         .put("cards",JSONArray().apply { cards.forEach{put(writeCard(it))} })
         .put("profiles",JSONArray().apply { profiles.forEach{put(JSONObject().put("id",it.id).put("name",it.name))} })
@@ -257,11 +265,46 @@ class VaultRepository(private val context: Context) {
             throw e
         }
     }
+    /** Commit list changes before unlinking blobs, including hidden preserved originals. */
     @Synchronized fun removeFile(cardId:String,fileId:String) {
-        val current=cards.firstOrNull{it.id==cardId}?:throw IOException("Card not found")
+        val current=cards.firstOrNull{it.id==cardId}?:throw IOException("Document not found")
         val target=current.files.firstOrNull{it.id==fileId}?:throw IOException("Attachment not found")
         saveCard(current.copy(files=current.files.filterNot{it.id==fileId}))
-        if(cards.none{c->c.files.any{it.id==fileId}})removeOrphan(target)
+        cleanupReplacedBlobs(target)
+    }
+    private fun referencedIds():Set<String> = cards.flatMap { card->
+        card.files.flatMap{file->listOf(file.id,file.originalId).filter{it.isNotBlank()}}
+    }.toSet()
+    private fun cleanupReplacedBlobs(file:VaultFile){
+        val kept=referencedIds()
+        listOf(file.id,file.originalId).filter{it.isNotBlank() && it !in kept}.forEach{id->
+            blob(id).delete();meta(id).delete()
+        }
+    }
+    /** A re-edit replaces the attachment at its original position, not a new page. */
+    @Synchronized fun replaceImageFile(
+        cardId:String,fileId:String,updated:VaultFile,
+        corners:String,rotation:Int
+    ){
+        val card=cards.firstOrNull{it.id==cardId}?:throw IOException("Document not found")
+        val existing=card.files.firstOrNull{it.id==fileId}?:throw IOException("Attachment not found")
+        require(existing.mime.startsWith("image/")){"Only photos can be enhanced"}
+        val origin=existing.originalId.ifBlank{existing.id}
+        val replacement=updated.copy(name=existing.name,originalId=origin,
+            cropCorners=corners,cropRotation=((rotation%360)+360)%360,
+            extractedText="",ocrStatus="pending")
+        saveCard(card.copy(files=card.files.map{if(it.id==fileId)replacement else it}))
+        cleanupReplacedBlobs(existing)
+    }
+    /** Retain the raw capture outside the visible page list for later re-cropping. */
+    @Synchronized fun keepScanSource(cardId:String,fileId:String,raw:VaultFile,
+        corners:String,rotation:Int) {
+        val card=cards.firstOrNull{it.id==cardId}?:throw IOException("Document not found")
+        if(card.files.none{it.id==fileId})throw IOException("Processed scan missing")
+        saveCard(card.copy(files=card.files.map{
+            if(it.id==fileId)it.copy(originalId=raw.id,
+                cropCorners=corners,cropRotation=((rotation%360)+360)%360) else it
+        }))
     }
     @Synchronized fun renameFile(cardId:String,fileId:String,newName:String) {
         val name=newName.trim()
@@ -287,8 +330,7 @@ class VaultRepository(private val context: Context) {
         val previous=cards.toList()
         cards.removeAll{it.id==card.id}
         try{persist()}catch(e:Exception){cards.clear();cards.addAll(previous);throw e}
-        val stillUsed=cards.flatMap{it.files}.map{it.id}.toSet()
-        card.files.filter { it.id !in stillUsed }.forEach {removeOrphan(it)}
+        card.files.forEach(::cleanupReplacedBlobs)
     }
     @Synchronized fun saveProfile(p:VaultProfile){
         val previous=profiles.toList()
@@ -406,9 +448,10 @@ class VaultRepository(private val context: Context) {
                 }
                 zip.putNextEntry(ZipEntry("filenames.txt"))
                 zip.write(readable.toByteArray(Charsets.UTF_8));zip.closeEntry()
-                cards.flatMap{it.files}.distinctBy{it.id}.forEach{file->
-                    zip.putNextEntry(ZipEntry("blobs/"+file.id))
-                    documentFile(file).inputStream().use{it.copyTo(zip,65536)}
+                val fileIds=referencedIds()
+                fileIds.forEach{id->
+                    zip.putNextEntry(ZipEntry("blobs/"+id))
+                    blob(id).inputStream().use{it.copyTo(zip,65536)}
                     zip.closeEntry()
                 }
             }
@@ -457,7 +500,8 @@ class VaultRepository(private val context: Context) {
             val json=JSONObject(root?:throw IOException("Backup index missing"))
             val array=json.getJSONArray("cards")
             val nextCards=(0 until array.length()).map{readCard(array.getJSONObject(it))}
-            val ids=nextCards.flatMap{it.files}.map{it.id}.toSet()
+            val ids=nextCards.flatMap{it.files}.flatMap{listOf(it.id,it.originalId)}
+                .filter{it.isNotBlank()}.toSet()
             require(ids.all{imported[it]?.isFile==true}){"Backup has missing files"}
             val nextProfiles=mutableListOf<VaultProfile>()
             val p=json.optJSONArray("profiles")?:JSONArray()
