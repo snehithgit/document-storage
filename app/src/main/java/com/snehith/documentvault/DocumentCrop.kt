@@ -105,7 +105,6 @@ object DocumentCropEngine {
     var detecting by remember{mutableStateOf(false)}
     var rotating by remember{mutableStateOf(false)}
     var image by remember(original){mutableStateOf(original)}
-    val ownedRotations=remember(original){mutableListOf<Bitmap>()}
     val points=remember(original){mutableStateListOf<PointF>().apply{
         addAll(initial.corners.map{PointF(it.x,it.y)})
     }}
@@ -113,21 +112,15 @@ object DocumentCropEngine {
     var quarterTurns by rememberSaveable(original){mutableIntStateOf(0)}
     var dragging by remember{mutableIntStateOf(-1)}
     val busy=detecting||rotating
-    DisposableEffect(original){
-        onDispose {
-            // Cropping owns the preview; no bitmap is recycled while still displayed.
-            ownedRotations.forEach { if(!it.isRecycled)it.recycle() }
-            if(!original.isRecycled)original.recycle()
-        }
-    }
+    // Never recycle a bitmap in composition disposal. A running OpenCV filter,
+    // async rotation or Canvas draw can still be using the pixels when Back is pressed.
+    // Once this screen and its jobs release references Android can safely reclaim them.
     LaunchedEffect(image,settings){
         val filtered=withContext(Dispatchers.Default){ScanEnhance.apply(image,settings)}
         preview=filtered
     }
-    DisposableEffect(preview){
-        val old=preview
-        onDispose {if(old!=null&&old!==image&&!old.isRecycled)old.recycle()}
-    }
+    // Pending filter results can arrive around navigation; Compose's LaunchedEffect
+    // cancels updates when the screen leaves without destroying live bitmap pixels.
     fun redetect() {
         if(busy)return
         val snapshot=image
@@ -281,7 +274,6 @@ object DocumentCropEngine {
                                 Bitmap.createBitmap(previous,0,0,previous.width,previous.height,matrix,true)
                             }
                             if(image===previous){
-                                if(next!==previous)ownedRotations.add(next)
                                 val transformed=CropGeometry.rotateClockwise(
                                     points.map{it.x to it.y})
                                 points.clear()
