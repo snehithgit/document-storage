@@ -3,6 +3,7 @@ package com.snehith.documentvault
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
+import java.time.format.ResolverStyle
 import java.util.Locale
 
 data class SmartDocument(
@@ -75,7 +76,7 @@ object SmartDocuments {
             DateTimeFormatter.ofPattern("dd MMM uuuu",Locale.ENGLISH),
             DateTimeFormatter.ofPattern("MMM dd uuuu",Locale.ENGLISH)
         )){
-            try{return LocalDate.parse(clean,format).toString()}catch(_:DateTimeParseException){}
+            try{return LocalDate.parse(clean,format.withResolverStyle(ResolverStyle.STRICT)).toString()}catch(_:DateTimeParseException){}
         }
         return null
     }
