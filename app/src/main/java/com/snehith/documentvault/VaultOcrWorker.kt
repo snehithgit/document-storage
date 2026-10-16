@@ -67,7 +67,7 @@ class VaultOcrWorker(appContext:Context,params:WorkerParameters):CoroutineWorker
                     !smart.fullName.isNullOrBlank())smart.title else latest.title,
                 expiry=if(latest.expiry.isBlank())smart?.expiry?:"" else latest.expiry
             ))
-            setProgress(workDataOf(KEY_PAGE to result.pages,KEY_TOTAL to result.pages))
+            setProgress(workDataOf(KEY_PAGE to result.pageCount,KEY_TOTAL to result.pageCount))
             Result.success(workDataOf(KEY_CARD to cardId, KEY_FILE to fileId))
         }catch(c:CancellationException){throw c}
         catch(e:Exception){Result.failure(workDataOf(KEY_ERROR to (e.message?:"OCR failed")))}
