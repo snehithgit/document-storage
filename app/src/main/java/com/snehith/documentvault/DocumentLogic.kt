@@ -62,3 +62,14 @@ object VaultExpiry {
         true
     }catch(_:java.time.format.DateTimeParseException){false}
 }
+
+/** Verifies an attachment reorder preserves all IDs exactly once. */
+object VaultOrder {
+    fun reorder(files:List<VaultFile>,ids:List<String>):List<VaultFile> {
+        val mapped=files.associateBy{it.id}
+        require(ids.size==files.size && ids.size==ids.distinct().size && ids.toSet()==mapped.keys) {
+            "Reorder must contain every attachment exactly once"
+        }
+        return ids.map{mapped.getValue(it)}
+    }
+}
