@@ -36,7 +36,8 @@ import java.time.LocalTime
 @Composable fun MockupHome(
     cards:List<VaultCard>,profiles:List<VaultProfile>,profile:String,
     reminderDays:Int,onProfile:(String)->Unit,onOpen:(VaultCard)->Unit,
-    onAllCards:()->Unit,onSettings:()->Unit,onExpiries:()->Unit
+    onAllCards:()->Unit,onSettings:()->Unit,onExpiries:()->Unit,
+    documentStyle:String="pages",repo:VaultRepository
 ) {
     val colors=mockupPalette
     val displayed=cards.filter{profile=="all"||it.profile==profile}
@@ -45,7 +46,7 @@ import java.time.LocalTime
     val alert=(VaultExpiryRules.needsAttention(displayed,reminderDays)+
         displayed.filter{card->card.fields.any{f->f.confidence>0f&&f.confidence<.75f} ||
             DesignLogic.hasHolderConflict(card)}).distinctBy{it.id}.take(5)
-    val pages=displayed.sumOf{it.files.size}
+    val pages=rememberVaultPageTotal(repo,displayed)
     val categories=displayed.groupBy{it.category.ifBlank{"Other"}}
         .mapValues{(_,list)->list.sumOf{it.files.size}}
         .filterValues{it>0}
@@ -82,7 +83,8 @@ import java.time.LocalTime
                 }
             }
         }
-        item{MockupSection("Your cards","All ${displayed.size}",onAllCards)}
+        item{MockupSection(if(documentStyle=="wallet")"Your cards" else "Recent documents",
+            "All "+displayed.size,onAllCards)}
         if(stack.isEmpty()){
             item{
                 Column(Modifier.fillMaxWidth().padding(vertical=46.dp),
@@ -100,15 +102,29 @@ import java.time.LocalTime
                 }
             }
         }else{
-            item{
-                BoxWithConstraints(Modifier.fillMaxWidth()){
-                    val step=58.dp
-                    val height=maxWidth/1.586f + step*(stack.size-1)
-                    Box(Modifier.fillMaxWidth().height(height)){
-                        stack.forEachIndexed{index,card->
-                            CardFace(card,
-                                Modifier.fillMaxWidth().offset(y=step*index)
-                                    .zIndex(index.toFloat()),onClick={onOpen(card)})
+            if(documentStyle=="wallet"){
+                item{
+                    BoxWithConstraints(Modifier.fillMaxWidth()){
+                        val step=58.dp
+                        val height=maxWidth/1.586f + step*(stack.size-1)
+                        Box(Modifier.fillMaxWidth().height(height)){
+                            stack.forEachIndexed{index,card->
+                                CardFace(card,
+                                    Modifier.fillMaxWidth().offset(y=step*index)
+                                        .zIndex(index.toFloat()),onClick={onOpen(card)})
+                            }
+                        }
+                    }
+                }
+            }else{
+                item{
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                        .padding(vertical=4.dp),
+                        horizontalArrangement=Arrangement.spacedBy(14.dp)){
+                        displayed.take(8).forEach{card->
+                            VaultDocumentTile(card,repo,Modifier.width(138.dp)){
+                                onOpen(card)
+                            }
                         }
                     }
                 }

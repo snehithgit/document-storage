@@ -64,6 +64,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var editing by remember{mutableStateOf<VaultCard?>(null)}
     var editingJson by rememberSaveable{mutableStateOf("")}
     var viewingId by rememberSaveable{mutableStateOf("")}
+    var viewingPage by rememberSaveable{mutableIntStateOf(0)}
     var cropBitmap by remember{mutableStateOf<android.graphics.Bitmap?>(null)}
     var initialCropRotation by rememberSaveable{mutableIntStateOf(0)}
     var cropResult by remember{mutableStateOf<DetectedScan?>(null)}
@@ -81,7 +82,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var scanTarget by rememberSaveable{mutableStateOf<String?>(null)}
     var addToCardId by rememberSaveable{mutableStateOf<String?>(null)}
     var importTarget by rememberSaveable{mutableStateOf<String?>(null)}
-    var userProfile by rememberSaveable{mutableStateOf("all")}
+    var userProfile by rememberSaveable{mutableStateOf("self")}
     var categoryFilter by rememberSaveable{mutableStateOf("")}
     val options=remember { activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE) }
     var ocrLanguage by rememberSaveable {
@@ -98,6 +99,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var pdfJob by remember{mutableStateOf<PdfJob?>(null)}
     var backupPassword by remember{mutableStateOf("")}
     var themeMode by rememberSaveable { mutableStateOf(options.getString("displayTheme","dark") ?: "dark") }
+    var documentStyle by rememberSaveable {
+        mutableStateOf(options.getString("documentStyle","pages") ?: "pages")
+    }
     var biometricEnabled by rememberSaveable {
         mutableStateOf(options.getBoolean("biometricUnlock",false))
     }
@@ -636,7 +640,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             userProfile,options.getInt("remindDays",30),
                             {userProfile=it},{openCard(it)},
                             {navigateRoot("cards")},{navigateRoot("more")},
-                            {navigate("expiry")})
+                            {navigate("expiry")},documentStyle,repo)
                         "people"->PeopleScreen(repo.profiles.toList(),repo.entries.toList(),
                             repo.cards.toList(),
                             {person->selectedPersonId=person.id;navigate("person")},
@@ -685,7 +689,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         "cards"->VaultNavCards(repo.cards.toList(),repo,
                             {openCard(it)},{navigate("scan")},categoryFilter,
                             {navigate("search")},repo.profiles.toList(),userProfile,
-                            {userProfile=it},{categoryFilter=""},{navigateRoot("people")})
+                            {userProfile=it},{categoryFilter=""},{navigateRoot("people")},
+                            documentStyle)
                         "search"->VaultNavSearch(repo.cards.toList(),repo,
                             {openCard(it)},repo.profiles.toList(),userProfile,{userProfile=it})
                         "scan"->NavyScanScreen(
@@ -726,9 +731,14 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             cardCount=VaultPersonFilter.filter(repo.cards.toList(),userProfile).size,
                             pageCount=VaultPersonFilter.filter(repo.cards.toList(),userProfile)
                                 .sumOf{it.files.size},
-                            peopleCount=repo.profiles.size)
+                            peopleCount=repo.profiles.size,
+                            documentStyle=documentStyle,
+                            onDocumentStyleChanged={style->
+                                documentStyle=style
+                                options.edit().putString("documentStyle",style).apply()
+                            })
                         "detail"->current?.let{c->VaultNavDetail(c,repo,
-                            {f->viewingId=f.id;navigate("viewer")},
+                            {f,page->viewingId=f.id;viewingPage=page;navigate("viewer")},
                             {f->activity.share(f)},{f->activity.shareAsPdf(f)},{activity.shareAll(c.files)},
                             {addToCardId=c.id},
                             {navigate("fulldetails")},{navigate("tools")},
@@ -763,7 +773,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                      navigate("crop")
                                 }catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error="Cannot enhance image: "+(e.message?:"Error")}
                                 finally{busy=""}
-                            }})}
+                            }},documentStyle)}
                         "attachments"->current?.let{c->AttachmentManagerScreen(c,repo,
                             {f->viewingId=f.id;navigate("viewer")},
                             {f,name->scope.launch {
@@ -897,7 +907,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     {activity.notify("Save to vault before sharing")},sourceOverride=external)
                         }
                         "viewer"->current?.files?.firstOrNull{it.id==viewingId}?.let{f->
-                            DocumentViewerScreen(f,repo,engine,{activity.share(f)})
+                            DocumentViewerScreen(f,repo,engine,{activity.share(f)},
+                                initialPage=viewingPage)
                         }
                         "tools"->current?.let{c->PdfToolsScreen(c,repo,
                             {addToCardId=c.id},

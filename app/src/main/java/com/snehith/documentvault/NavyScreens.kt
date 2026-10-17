@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -61,7 +62,8 @@ private object VaultThumbnailCache {
             }
         }
 }
-@Composable fun VaultThumbnail(file:VaultFile?,repo:VaultRepository,modifier:Modifier=Modifier,maxEdge:Int=360) {
+@Composable fun VaultThumbnail(file:VaultFile?,repo:VaultRepository,modifier:Modifier=Modifier,
+    maxEdge:Int=360,pageIndex:Int=0) {
     val context=LocalContext.current
     val cache=remember(context){VaultThumbnailCache.get(context)}
     var measuredPx by remember(file?.id){mutableIntStateOf(0)}
@@ -69,18 +71,18 @@ private object VaultThumbnailCache {
     val wanted=if(measuredPx>0)(measuredPx*1.25f).toInt() else maxEdge
     val targetEdge=listOf(160,240,360,540,800).firstOrNull{it>=wanted&&it<=maxEdge}
         ?:minOf(maxEdge,wanted).coerceAtLeast(160)
-    var bitmap by remember(file?.id){mutableStateOf<Bitmap?>(null)}
+    var bitmap by remember(file?.id,pageIndex){mutableStateOf<Bitmap?>(null)}
     var loading by remember(file?.id,targetEdge){mutableStateOf(file!=null)}
-    LaunchedEffect(file?.id,targetEdge) {
+    LaunchedEffect(file?.id,targetEdge,pageIndex) {
         loading=file!=null
         if(file==null)return@LaunchedEffect
         try {
             val image=withContext(Dispatchers.IO) {
                 val raw=repo.documentFile(file)
-                val cacheKey=file.id+"-"+targetEdge+"-"+raw.lastModified()
+                val cacheKey=file.id+"-"+pageIndex+"-"+targetEdge+"-"+raw.lastModified()
                 synchronized(cache){cache.get(cacheKey)} ?: run {
                     val thumbnail=if(file.mime=="application/pdf"||file.name.endsWith(".pdf",true)){
-                        PdfPageSession(raw).use{it.render(0,targetEdge)}
+                        PdfPageSession(raw).use{it.render(pageIndex.coerceIn(0,(it.pageCount-1).coerceAtLeast(0)),targetEdge)}
                     }else if(file.mime.startsWith("image/")){
                         ImageDecode.decode(raw,targetEdge,highQuality=targetEdge>800)
                     }else null
@@ -164,9 +166,10 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
     onOpen:(VaultCard)->Unit,onNew:()->Unit,selectedCategory:String="",onSearch:()->Unit={},
     profiles:List<VaultProfile> = emptyList(),selectedPerson:String="all",
     onPerson:(String)->Unit={},onCategoryConsumed:()->Unit={},
-    onPeople:()->Unit={}){
+    onPeople:()->Unit={},documentStyle:String="pages"){
     val colors=mockupPalette
     var filter by rememberSaveable{mutableStateOf("All")}
+    var listView by rememberSaveable{mutableStateOf(false)}
     LaunchedEffect(selectedCategory){
         if(selectedCategory.isNotBlank()){
             filter=selectedCategory
@@ -174,6 +177,7 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
         }
     }
     val personCards=VaultPersonFilter.filter(cards,selectedPerson)
+    val totalPages=rememberVaultPageTotal(repo,personCards)
     val categories=listOf("All")+
         personCards.map{it.category.ifBlank{"Other"}}.distinct().sorted()
     val visible=DocumentBrowseLogic.browse(personCards,filter,"Recent")
@@ -201,7 +205,7 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
                 Text("Cards",fontWeight=FontWeight.Bold,
                     fontSize=32.sp,lineHeight=34.sp,color=colors.ink)
                 Spacer(Modifier.height(8.dp))
-                Text("${personCards.size} documents · ${personCards.sumOf{it.files.size}} attachments",
+                Text("${personCards.size} documents · $totalPages pages",
                     color=colors.inkMuted,fontSize=14.sp)
             }
             Box(Modifier.size(42.dp).background(colors.ink,
@@ -212,16 +216,37 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
                     fontSize=14.sp,fontWeight=FontWeight.Bold)
             }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal=18.dp)
-            .height(54.dp).background(colors.panelRaised,RoundedCornerShape(18.dp))
-            .border(1.dp,colors.line,RoundedCornerShape(18.dp))
-            .clickable(onClick=onSearch).padding(horizontal=16.dp),
+        Row(Modifier.fillMaxWidth().padding(horizontal=18.dp),
             verticalAlignment=Alignment.CenterVertically,
             horizontalArrangement=Arrangement.spacedBy(10.dp)){
-            Icon(Icons.Outlined.Search,null,Modifier.size(20.dp),tint=colors.inkFaint)
-            Text("Search names, numbers, text on pages",
-                color=colors.inkFaint,fontSize=14.sp,maxLines=1,
-                overflow=TextOverflow.Ellipsis)
+            Row(Modifier.weight(1f).height(54.dp)
+                .background(colors.panelRaised,RoundedCornerShape(18.dp))
+                .border(1.dp,colors.line,RoundedCornerShape(18.dp))
+                .clickable(onClick=onSearch).padding(horizontal=16.dp),
+                verticalAlignment=Alignment.CenterVertically,
+                horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                Icon(Icons.Outlined.Search,null,Modifier.size(20.dp),tint=colors.inkFaint)
+                Text("Search names, numbers, text on pages",
+                    color=colors.inkFaint,fontSize=14.sp,maxLines=1,
+                    overflow=TextOverflow.Ellipsis)
+            }
+            if(documentStyle!="wallet"){
+                Row(Modifier.clip(RoundedCornerShape(12.dp))
+                    .background(colors.panelRaised).border(1.dp,colors.line,RoundedCornerShape(12.dp))
+                    .padding(3.dp)){
+                    listOf(false,true).forEach{list->
+                        Box(Modifier.size(34.dp,32.dp)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(if(listView==list)colors.ink else colors.panelRaised)
+                            .clickable{listView=list},contentAlignment=Alignment.Center){
+                            Icon(if(list)Icons.Outlined.ViewList else Icons.Outlined.GridView,
+                                if(list)"List view" else "Grid view",
+                                Modifier.size(17.dp),
+                                tint=if(listView==list)colors.panel else colors.inkFaint)
+                        }
+                    }
+                }
+            }
         }
         Row(Modifier.horizontalScroll(rememberScrollState())
             .padding(horizontal=18.dp,vertical=6.dp),
@@ -251,30 +276,66 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
                 Text("No cards in this category.",color=colors.inkMuted,
                     fontSize=14.sp)
             }
+        }else if(documentStyle!="wallet"&&listView){
+            LazyColumn(Modifier.fillMaxSize(),
+                contentPadding=PaddingValues(18.dp,4.dp,18.dp,24.dp),
+                verticalArrangement=Arrangement.spacedBy(10.dp)){
+                items(visible,key={it.id}){card->
+                    val pages=rememberVaultDocumentPages(repo,card.files)
+                    Surface(onClick={onOpen(card)},shape=RoundedCornerShape(18.dp),
+                        color=colors.panelRaised,border=BorderStroke(1.dp,colors.line)){
+                        Row(Modifier.fillMaxWidth().padding(11.dp),
+                            verticalAlignment=Alignment.CenterVertically,
+                            horizontalArrangement=Arrangement.spacedBy(14.dp)){
+                            VaultDocumentPaper(pages.firstOrNull(),repo,Modifier.width(54.dp),
+                                maxEdge=220,numberOfPages=pages.size)
+                            Column(Modifier.weight(1f)){
+                                Text(VaultNames.title(card.title),color=colors.ink,
+                                    fontSize=14.sp,fontWeight=FontWeight.SemiBold,maxLines=1,
+                                    overflow=TextOverflow.Ellipsis)
+                                Text(VaultCounts.format(pages.size,"page"),
+                                    color=colors.inkFaint,fontSize=11.sp)
+                            }
+                            ExpiryTag(card)
+                        }
+                    }
+                }
+            }
         }else{
             BoxWithConstraints(Modifier.fillMaxSize()){
                 val columns=if(maxWidth>=600.dp)3 else 2
                 LazyVerticalGrid(columns=GridCells.Fixed(columns),
                     contentPadding=PaddingValues(start=18.dp,end=18.dp,top=0.dp,bottom=30.dp),
-                    verticalArrangement=Arrangement.spacedBy(16.dp),
-                    horizontalArrangement=Arrangement.spacedBy(12.dp)){
+                    verticalArrangement=Arrangement.spacedBy(22.dp),
+                    horizontalArrangement=Arrangement.spacedBy(16.dp)){
                     items(visible,key={it.id}){card->
-                        VaultTile(card,repo,profiles.firstOrNull{it.id==card.profile}?.name.orEmpty()){
-                            onOpen(card)
-                        }
+                        if(documentStyle=="wallet")
+                            VaultTile(card,repo,profiles.firstOrNull{
+                                it.id==card.profile}?.name.orEmpty()){onOpen(card)}
+                        else VaultDocumentTile(card,repo){onOpen(card)}
                     }
                 }
             }
         }
     }
 }
-@Composable fun VaultNavDetail(card:VaultCard,repo:VaultRepository,onFile:(VaultFile)->Unit,
+@Composable fun VaultNavDetail(card:VaultCard,repo:VaultRepository,onFile:(VaultFile,Int)->Unit,
     onShare:(VaultFile)->Unit,onSharePdf:(VaultFile)->Unit,onShareAll:()->Unit,onAdd:()->Unit,
     onFull:()->Unit,onTools:()->Unit,onEdit:()->Unit,onManage:()->Unit,onDelete:()->Unit,
-    onFetchDetails:()->Unit,fetchingDetails:Boolean,onEnhance:(VaultFile)->Unit){
+    onFetchDetails:()->Unit,fetchingDetails:Boolean,onEnhance:(VaultFile)->Unit,
+    documentStyle:String="pages"){
     var selectedId by rememberSaveable(card.id){mutableStateOf("")}
     var selectedIndex by rememberSaveable(card.id){mutableIntStateOf(0)}
-    val selected=AttachmentSelection.select(card.files,selectedId,selectedIndex)
+    val pages=rememberVaultDocumentPages(repo,card.files)
+    var activePage by rememberSaveable(card.id){mutableIntStateOf(0)}
+    val chosenPage=pages.getOrNull(activePage.coerceIn(0,(pages.size-1).coerceAtLeast(0)))
+    val selected=if(documentStyle=="wallet")
+        AttachmentSelection.select(card.files,selectedId,selectedIndex)
+        else chosenPage?.file
+    fun viewSelected(){
+        if(documentStyle=="wallet")selected?.let{onFile(it,0)}
+        else chosenPage?.let{onFile(it.file,it.index)}
+    }
     val context=LocalContext.current
     var showMore by remember{mutableStateOf(false)}
     var confirmDelete by rememberSaveable(card.id){mutableStateOf(false)}
@@ -314,8 +375,36 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
             }
         }
         item{
-            TiltBox{
-                CardFace(card,onClick={selected?.let(onFile)})
+            if(documentStyle=="wallet"){
+                TiltBox{CardFace(card,onClick={selected?.let{file->{onFile(file,0)}}})}
+            }else{
+                Column(Modifier.fillMaxWidth().padding(vertical=6.dp),
+                    horizontalAlignment=Alignment.CenterHorizontally){
+                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
+                        .background(palette.accentSoft).padding(vertical=18.dp),
+                        contentAlignment=Alignment.Center){
+                        VaultDocumentPaper(chosenPage,repo,
+                            Modifier.fillMaxWidth(.66f),
+                            maxEdge=1050,onClick={::viewSelected})
+                    }
+                    if(pages.size>1){
+                        Spacer(Modifier.height(12.dp))
+                        Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){
+                            pages.take(25).forEachIndexed{index,_->
+                                Box(Modifier
+                                    .width(if(index==activePage)18.dp else 6.dp)
+                                    .height(6.dp).clip(RoundedCornerShape(4.dp))
+                                    .background(if(index==activePage)palette.accent else palette.line))
+                            }
+                            if(pages.size>25)Text("+"+(pages.size-25),
+                                color=palette.inkMuted,fontSize=10.sp)
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(VaultCounts.format(pages.size,"page")+" · "+
+                        VaultCounts.format(card.files.size,"attachment"),
+                        color=palette.inkFaint,fontSize=12.sp)
+                }
             }
         }
         item{ MockupExpiryRow(card) }
@@ -327,7 +416,7 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
         item{
             MockupActionRow(listOf(
                 MockupAction(Icons.Outlined.Visibility,"View",primary=true,enabled=selected!=null,
-                    onClick={selected?.let(onFile)}),
+                    onClick={::viewSelected}),
                 MockupAction(Icons.Outlined.Share,"Share",enabled=selected!=null,
                     onClick={selected?.let(onShare)}),
                 if(selected?.mime?.startsWith("image/")==true)
@@ -351,14 +440,19 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
         }
         item{
             Column{
-                MockupSectionHeader("Attachments",VaultCounts.format(card.files.size,"attachment"))
+                MockupSectionHeader(if(documentStyle=="wallet")"Attachments" else "Pages",
+                    if(documentStyle=="wallet")VaultCounts.format(card.files.size,"attachment")
+                    else VaultCounts.format(pages.size,"page"))
                 Spacer(Modifier.height(12.dp))
-                MockupPagesStrip(card.files,repo,selected?.id,
-                    onOpen={file->
-                        selectedId=file.id
-                        selectedIndex=card.files.indexOfFirst{it.id==file.id}
-                        onFile(file)
-                    },onAdd=onAdd)
+                if(documentStyle=="wallet")
+                    MockupPagesStrip(card.files,repo,selected?.id,
+                        onOpen={file->
+                            selectedId=file.id
+                            selectedIndex=card.files.indexOfFirst{it.id==file.id}
+                            onFile(file,0)
+                        },onAdd=onAdd)
+                else VaultDocumentPageStrip(pages,repo,activePage,
+                    onSelect={activePage=it},onAdd=onAdd)
             }
         }
         item{

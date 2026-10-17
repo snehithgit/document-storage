@@ -32,14 +32,15 @@ import java.io.File
 import java.util.UUID
 
 @Composable fun DocumentViewerScreen(file:VaultFile,repo:VaultRepository,
-    engine:DocumentEngine,onShare:()->Unit,sourceOverride:File?=null) {
+    engine:DocumentEngine,onShare:()->Unit,sourceOverride:File?=null,initialPage:Int=0) {
     val pdf=file.mime=="application/pdf"||file.name.endsWith(".pdf",true)
     val isImage=file.mime.startsWith("image/")
     val context=LocalContext.current
     val viewPrefs=remember(context){
         context.getSharedPreferences("viewer_rotation",android.content.Context.MODE_PRIVATE)
     }
-    var page by rememberSaveable(file.id){mutableIntStateOf(0)}
+    var page by rememberSaveable(file.id){mutableIntStateOf(initialPage.coerceAtLeast(0))}
+    LaunchedEffect(file.id,initialPage){page=initialPage.coerceAtLeast(0)}
     var rotation by rememberSaveable(file.id,page){
         mutableIntStateOf(viewPrefs.getInt(file.id+":"+page,0))
     }
@@ -163,6 +164,27 @@ import java.util.UUID
                 }
             }
             if(loading)CircularProgressIndicator(Modifier.size(32.dp))
+        }
+        if(pdf&&!showText&&pageCount>1){
+            Text("All PDF pages",style=MaterialTheme.typography.labelMedium,
+                color=MaterialTheme.colorScheme.onSurfaceVariant)
+            LazyRow(horizontalArrangement=Arrangement.spacedBy(7.dp),
+                contentPadding=PaddingValues(horizontal=4.dp)){
+                items(pageCount){index->
+                    val active=page==index
+                    Surface(onClick={
+                        page=index;zoom=1f;panX=0f;panY=0f
+                    },shape=RoundedCornerShape(10.dp),
+                        color=if(active)MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surfaceVariant){
+                        Text("Page "+(index+1),
+                            Modifier.padding(horizontal=13.dp,vertical=10.dp),
+                            color=if(active)MaterialTheme.colorScheme.onPrimary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize=12.sp)
+                    }
+                }
+            }
         }
         if(pdf&&!showText){
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,

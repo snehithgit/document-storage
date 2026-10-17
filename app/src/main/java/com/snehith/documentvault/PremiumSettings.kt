@@ -29,7 +29,8 @@ import kotlinx.coroutines.withContext
     onOriginalUsage:suspend ()->Long,onRemoveOriginals:()->Unit,
     originalsRevision:Long=0L,
     biometricEnabled:Boolean=false,onBiometricChanged:(Boolean)->Unit={},
-    profileName:String="My vault",cardCount:Int=0,pageCount:Int=0,peopleCount:Int=0
+    profileName:String="My vault",cardCount:Int=0,pageCount:Int=0,peopleCount:Int=0,
+    documentStyle:String="pages",onDocumentStyleChanged:(String)->Unit={}
 ){
     val context=LocalContext.current
     var dialog by rememberSaveable{mutableStateOf("")}
@@ -172,9 +173,13 @@ import kotlinx.coroutines.withContext
         item{MockupSectionHeader("Appearance")}
         item{
             MockupGroup(Modifier.padding(0.dp)){
-                Box(Modifier.padding(14.dp)){
+                Column(Modifier.padding(14.dp),
+                    verticalArrangement=Arrangement.spacedBy(12.dp)){
                     MockupSegment(listOf("system" to "System","light" to "Graphite",
                         "dark" to "OLED black"),themeMode,onThemeModeChanged)
+                    Eyebrow("Document style")
+                    MockupSegment(listOf("pages" to "Pages",
+                        "wallet" to "Wallet cards"),documentStyle,onDocumentStyleChanged)
                 }
             }
         }
