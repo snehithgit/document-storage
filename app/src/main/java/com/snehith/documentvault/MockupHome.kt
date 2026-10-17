@@ -42,7 +42,9 @@ import java.time.LocalTime
     val displayed=cards.filter{profile=="all"||it.profile==profile}
         .sortedByDescending{it.created}
     val stack=displayed.take(4)
-    val alert=VaultExpiryRules.needsAttention(displayed,reminderDays).take(5)
+    val alert=(VaultExpiryRules.needsAttention(displayed,reminderDays)+
+        displayed.filter{card->card.fields.any{f->f.confidence>0f&&f.confidence<.75f} ||
+            DesignLogic.hasHolderConflict(card)}).distinctBy{it.id}.take(5)
     val pages=displayed.sumOf{it.files.size}
     val categories=displayed.groupBy{it.category.ifBlank{"Other"}}
         .mapValues{(_,list)->list.sumOf{it.files.size}}
@@ -80,23 +82,6 @@ import java.time.LocalTime
                 }
             }
         }
-        if(profiles.size>1)item{
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                .padding(bottom=12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                val available=listOf(VaultProfile("all","Everyone"))+profiles
-                available.forEach{person->
-                    val active=person.id==profile
-                    Surface(onClick={onProfile(person.id)},
-                        shape=CircleShape,
-                        color=if(active)colors.ink else colors.panelRaised,
-                        border=if(active)null else BorderStroke(1.dp,colors.line)){
-                        Text(person.name,Modifier.padding(horizontal=14.dp,vertical=9.dp),
-                            color=if(active)colors.panel else colors.inkMuted,
-                            fontSize=13.sp,fontWeight=FontWeight.SemiBold)
-                    }
-                }
-            }
-        }
         item{MockupSection("Your cards","All ${displayed.size}",onAllCards)}
         if(stack.isEmpty()){
             item{
@@ -125,18 +110,6 @@ import java.time.LocalTime
                                 Modifier.fillMaxWidth().offset(y=step*index)
                                     .zIndex(index.toFloat()),onClick={onOpen(card)})
                         }
-                    }
-                }
-                Row(Modifier.fillMaxWidth().padding(top=14.dp),
-                    horizontalArrangement=Arrangement.SpaceBetween,
-                    verticalAlignment=Alignment.CenterVertically){
-                    Text("${displayed.size} cards in this vault",
-                        color=colors.inkMuted,fontSize=12.sp)
-                    TextButton(onClick=onAllCards){
-                        Text("View all",color=colors.accent,fontSize=13.sp,
-                            fontWeight=FontWeight.SemiBold)
-                        Icon(Icons.Outlined.ArrowForwardIos,null,
-                            tint=colors.accent,modifier=Modifier.size(13.dp))
                     }
                 }
             }
@@ -197,7 +170,7 @@ import java.time.LocalTime
                 horizontalArrangement=Arrangement.spacedBy(18.dp)){
                 MockupCategoryRing(categories,pages,Modifier.size(92.dp))
                 Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(7.dp)){
-                    if(categories.isEmpty())Text("No pages yet",
+                    if(categories.isEmpty())Text("No attachments yet",
                         color=colors.inkMuted,fontSize=13.sp)
                     else categories.take(5).forEach{(name,count)->
                         Row(verticalAlignment=Alignment.CenterVertically){
@@ -266,7 +239,7 @@ private fun mockupCategoryColor(category:String,colors:MockupPalette):Color =
         Column(horizontalAlignment=Alignment.CenterHorizontally){
             Text(pages.toString(),color=colors.ink,fontWeight=FontWeight.Bold,
                 fontSize=26.sp,lineHeight=27.sp)
-            MockupEyebrow("ATTACHMENTS",colors.inkFaint)
+            MockupEyebrow("FILES",colors.inkFaint)
         }
     }
 }

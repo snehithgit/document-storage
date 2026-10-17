@@ -85,49 +85,86 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
     cards:List<VaultCard>,onOpen:(VaultProfile)->Unit,onAdd:(String)->Unit){
     var creating by rememberSaveable{mutableStateOf(false)}
     var name by rememberSaveable{mutableStateOf("")}
-    if(creating)AlertDialog(onDismissRequest={creating=false},title={Text("New person")},
-        text={OutlinedTextField(name,{name=it},label={Text("Name or relation")},
+    if(creating)AlertDialog(onDismissRequest={creating=false},title={Text("Add a person")},
+        text={OutlinedTextField(name,{name=it},label={Text("Name")},
             modifier=Modifier.fillMaxWidth(),singleLine=true)},
         confirmButton={TextButton(enabled=name.isNotBlank(),onClick={
             onAdd(name.trim());name="";creating=false
-        }){Text("Create")}},
+        }){Text("Add person")}},
         dismissButton={TextButton(onClick={creating=false}){Text("Cancel")}})
     val p=mockupPalette
     LazyColumn(Modifier.fillMaxSize().background(p.panel),
-        contentPadding=PaddingValues(16.dp,18.dp,16.dp,24.dp),
+        contentPadding=PaddingValues(start=18.dp,top=22.dp,end=18.dp,bottom=110.dp),
         verticalArrangement=Arrangement.spacedBy(10.dp)){
         item{
-            Row(verticalAlignment=Alignment.CenterVertically){
-                Column(Modifier.weight(1f)){
-                    Eyebrow("Household")
-                    Text("People",color=p.ink,fontSize=32.sp,fontWeight=FontWeight.Bold)
-                    Text("Keep important details together",color=p.inkMuted,fontSize=14.sp)
-                }
-                IconButton(onClick={creating=true},modifier=Modifier.size(48.dp)){
-                    Icon(Icons.Outlined.PersonAdd,"Add person",tint=p.ink)
-                }
+            Column(Modifier.fillMaxWidth().padding(bottom=6.dp)){
+                Eyebrow("People")
+                Spacer(Modifier.height(12.dp))
+                Text("Profiles",color=p.ink,fontSize=32.sp,lineHeight=34.sp,
+                    fontWeight=FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Text("One profile per person, built from fields you pick.",
+                    color=p.inkMuted,fontSize=14.sp)
             }
+        }
+        item{
+            MockupNote(Icons.Outlined.Link,
+                "Profile information stays linked to its source documents.")
+            Spacer(Modifier.height(6.dp))
         }
         items(profiles,key={it.id}){person->
-            val count=entries.count{it.personId==person.id}
+            val personEntries=entries.filter{it.personId==person.id}
             val documents=cards.count{it.profile==person.id}
-            Surface(onClick={onOpen(person)},shape=RoundedCornerShape(18.dp),
+            Surface(onClick={onOpen(person)},shape=RoundedCornerShape(22.dp),
                 color=p.panelRaised,border=BorderStroke(1.dp,p.line)){
-                Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically){
-                    PersonAvatar(person.name)
-                    Spacer(Modifier.width(12.dp))
+                Row(Modifier.fillMaxWidth().padding(14.dp),
+                    verticalAlignment=Alignment.CenterVertically,
+                    horizontalArrangement=Arrangement.spacedBy(14.dp)){
+                    PersonAvatar(person.name,52.dp)
                     Column(Modifier.weight(1f)){
-                        Text(person.name,color=p.ink,fontSize=16.sp,fontWeight=FontWeight.SemiBold)
-                        Text(VaultCounts.format(count,"detail")+" · "+
-                            VaultCounts.format(documents,"document"),
-                            color=p.inkMuted,fontSize=12.sp)
+                        Text(person.name,color=p.ink,fontSize=16.sp,
+                            fontWeight=FontWeight.Bold,maxLines=1)
+                        Spacer(Modifier.height(3.dp))
+                        Text(VaultCounts.format(personEntries.size,"field")+" · "+
+                            VaultCounts.format(documents,"card"),
+                            color=p.inkFaint,fontSize=12.sp)
+                        Spacer(Modifier.height(9.dp))
+                        Row(Modifier.fillMaxWidth(.82f),
+                            horizontalArrangement=Arrangement.spacedBy(3.dp)){
+                            listOf("Identity","Contact","Other").forEach{section->
+                                val active=personEntries.any{
+                                    if(section=="Other")it.section!="Identity"&&it.section!="Contact"
+                                    else it.section.equals(section,true)
+                                }
+                                Box(Modifier.weight(1f).height(4.dp)
+                                    .background(if(active)p.accent else p.line,
+                                        RoundedCornerShape(3.dp)))
+                            }
+                        }
                     }
-                    Icon(Icons.Outlined.ChevronRight,null,tint=p.inkFaint)
+                    Icon(Icons.Outlined.ChevronRight,null,
+                        modifier=Modifier.size(20.dp),tint=p.ink)
                 }
             }
         }
-        item{Text("Profile information is saved offline. The app PIN does not encrypt it.",
-            color=p.inkFaint,fontSize=12.sp)}
+        item{
+            Surface(onClick={creating=true},shape=RoundedCornerShape(20.dp),
+                color=p.panel,border=BorderStroke(1.dp,p.line)){
+                Row(Modifier.fillMaxWidth().heightIn(min=68.dp),
+                    horizontalArrangement=Arrangement.Center,
+                    verticalAlignment=Alignment.CenterVertically){
+                    Icon(Icons.Outlined.Add,"Add a person",tint=p.accent)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Add a person",color=p.accent,fontSize=14.sp,
+                        fontWeight=FontWeight.Bold)
+                }
+            }
+        }
+        item{
+            Text("Profile information is stored offline. Your app PIN is not file encryption.",
+                color=p.inkFaint,fontSize=12.sp,
+                modifier=Modifier.padding(top=6.dp,bottom=6.dp))
+        }
     }
 }
 @Composable private fun PersonPinDialog(onVerify:suspend(String)->Boolean,

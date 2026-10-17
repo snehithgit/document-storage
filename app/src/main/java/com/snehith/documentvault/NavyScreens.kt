@@ -123,14 +123,12 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
     Column(Modifier.fillMaxWidth().clickable(onClick=onClick)) {
         CardFace(card)
         Row(Modifier.fillMaxWidth().padding(top=9.dp),verticalAlignment=Alignment.CenterVertically){
-            Text(VaultCounts.format(card.files.size,"page"),Modifier.weight(1f),
+            Text(VaultNames.title(card.title),Modifier.weight(1f),
                 color=palette.ink,fontSize=13.sp,fontWeight=FontWeight.SemiBold,
                 maxLines=1)
             ExpiryTag(card)
         }
-        if(personName.isNotBlank())Text(personName,color=palette.inkFaint,
-            fontSize=11.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
-    }
+     }
 }
 @Composable fun VaultRow(card:VaultCard,repo:VaultRepository,personName:String="",onClick:()->Unit){
     val context=androidx.compose.ui.platform.LocalContext.current
@@ -172,7 +170,20 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
     val categories=listOf("All")+
         personCards.map{it.category.ifBlank{"Other"}}.distinct().sorted()
     val visible=DocumentBrowseLogic.browse(personCards,filter,"Recent")
-    val name=profiles.firstOrNull{it.id==selectedPerson}?.name?:"My vault"
+    val name=profiles.firstOrNull{it.id==selectedPerson}?.name?:if(selectedPerson=="all")"My vault" else "Me"
+    var chooseProfile by remember{mutableStateOf(false)}
+    if(chooseProfile)AlertDialog(onDismissRequest={chooseProfile=false},
+        title={Text("Show cards for")},
+        text={Column{
+            (listOf(VaultProfile("all","Everyone"))+profiles).forEach{person->
+                TextButton(onClick={chooseProfile=false;onPerson(person.id)},
+                    modifier=Modifier.fillMaxWidth()){
+                    Text(person.name,modifier=Modifier.weight(1f))
+                    if(selectedPerson==person.id)Icon(Icons.Outlined.Check,null)
+                }
+            }
+        }},
+        confirmButton={TextButton(onClick={chooseProfile=false}){Text("Close")}})
     Column(Modifier.fillMaxSize().background(colors.panel)){
         Row(Modifier.fillMaxWidth().padding(start=18.dp,end=18.dp,top=22.dp,bottom=18.dp),
             verticalAlignment=Alignment.Top){
@@ -188,7 +199,7 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
             }
             Box(Modifier.size(42.dp).background(colors.ink,
                 androidx.compose.foundation.shape.CircleShape)
-                .clickable(onClick=onPeople),contentAlignment=Alignment.Center){
+                .clickable(onClick={chooseProfile=true}),contentAlignment=Alignment.Center){
                 Text(DesignLogic.initials(profiles.firstOrNull{
                     it.id==(if(selectedPerson=="all")"self" else selectedPerson)}?.name?:"Me"),color=colors.panel,
                     fontSize=14.sp,fontWeight=FontWeight.Bold)
@@ -204,21 +215,6 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
             Text("Search names, numbers, text on pages",
                 color=colors.inkFaint,fontSize=14.sp,maxLines=1,
                 overflow=TextOverflow.Ellipsis)
-        }
-        if(profiles.size>1)Row(Modifier.horizontalScroll(rememberScrollState())
-            .padding(horizontal=18.dp,vertical=10.dp),
-            horizontalArrangement=Arrangement.spacedBy(8.dp)){
-            (listOf(VaultProfile("all","Everyone"))+profiles).forEach{person->
-                val picked=person.id==selectedPerson
-                Surface(onClick={onPerson(person.id)},
-                    color=if(picked)colors.ink else colors.panelRaised,
-                    shape=androidx.compose.foundation.shape.CircleShape,
-                    border=if(picked)null else BorderStroke(1.dp,colors.line)){
-                    Text(person.name,Modifier.padding(horizontal=14.dp,vertical=9.dp),
-                        color=if(picked)colors.panel else colors.inkMuted,
-                        fontSize=13.sp)
-                }
-            }
         }
         Row(Modifier.horizontalScroll(rememberScrollState())
             .padding(horizontal=18.dp,vertical=6.dp),
@@ -274,7 +270,6 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
     val selected=AttachmentSelection.select(card.files,selectedId,selectedIndex)
     val context=LocalContext.current
     var showMore by remember{mutableStateOf(false)}
-    var fileMenuId by remember{mutableStateOf<String?>(null)}
     var confirmDelete by rememberSaveable(card.id){mutableStateOf(false)}
     if(confirmDelete)AlertDialog(onDismissRequest={confirmDelete=false},
         title={Text("Delete document?")},
@@ -373,61 +368,6 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
                     Icon(Icons.Outlined.Edit,null,Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Full details"+if(reviewCount>0)" · $reviewCount to review" else "")
-                }
-            }
-        }
-        item{
-            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
-                Text("Attachments",style=MaterialTheme.typography.titleLarge,
-                    modifier=Modifier.weight(1f))
-                TextButton(onClick=onManage){Text("Manage")}
-            }
-        }
-        if(card.files.isEmpty())item {
-            Text("No files attached. Choose Add Page to scan or import one.",
-                color=MaterialTheme.colorScheme.onSurfaceVariant,
-                style=MaterialTheme.typography.bodySmall)
-        }
-        items(card.files,key={it.id}){file->
-            Card(colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface),
-                border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline),
-                shape=RoundedCornerShape(14.dp)){
-                Row(Modifier.fillMaxWidth().padding(start=10.dp,end=4.dp,top=10.dp,bottom=10.dp),
-                    verticalAlignment=Alignment.CenterVertically){
-                    VaultThumbnail(file,repo,Modifier.size(58.dp,67.dp),maxEdge=280)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f).clickable{onFile(file)}){
-                        Text(VaultNames.label(file.name),style=MaterialTheme.typography.bodyMedium,
-                            maxLines=2,overflow=TextOverflow.Ellipsis)
-                        Text(when {
-                            file.mime=="application/pdf"->"PDF"
-                            file.mime.startsWith("image/")->"Image"
-                            file.mime.contains("word")||file.mime.contains("document")->"Word document"
-                            file.mime.startsWith("text/")->"Text file"
-                            else->"File"
-                        }+" · "+(file.bytes/1024).coerceAtLeast(1)+" KB",
-                            color=MaterialTheme.colorScheme.onSurfaceVariant,
-                            style=MaterialTheme.typography.bodySmall)
-                    }
-                    IconButton(onClick={onFile(file)},modifier=Modifier.size(48.dp)){
-                        Icon(Icons.Outlined.Visibility,"View "+VaultNames.label(file.name))
-                    }
-                    Box{
-                        IconButton(onClick={fileMenuId=file.id},modifier=Modifier.size(48.dp)){
-                            Icon(Icons.Outlined.MoreVert,"More options for "+VaultNames.label(file.name))
-                        }
-                        DropdownMenu(expanded=fileMenuId==file.id,
-                            onDismissRequest={fileMenuId=null}){
-                            DropdownMenuItem(text={Text("Share")},onClick={fileMenuId=null;onShare(file)})
-                            if(file.mime.startsWith("image/"))
-                                DropdownMenuItem(text={Text("Share as PDF")},
-                                    onClick={fileMenuId=null;onSharePdf(file)})
-                            if(file.mime.startsWith("image/"))
-                                DropdownMenuItem(text={Text("Enhance or crop")},
-                                    onClick={fileMenuId=null;onEnhance(file)})
-                            DropdownMenuItem(text={Text("Manage attachments")},onClick={fileMenuId=null;onManage()})
-                        }
-                    }
                 }
             }
         }
