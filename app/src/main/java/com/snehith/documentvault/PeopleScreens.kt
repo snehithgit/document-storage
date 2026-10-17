@@ -257,6 +257,8 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
     var pending by remember{mutableStateOf<(() -> Unit)?>(null)}
     var adding by rememberSaveable(person.id){mutableStateOf(false)}
     var deleting by rememberSaveable(person.id){mutableStateOf(false)}
+    var choosingCard by rememberSaveable(person.id){mutableStateOf(false)}
+    var profileMenu by remember{mutableStateOf(false)}
     var conflict by remember{mutableStateOf<ProfileEntry?>(null)}
     var label by rememberSaveable(person.id){mutableStateOf("")}
     var value by rememberSaveable(person.id){mutableStateOf("")}
@@ -287,6 +289,22 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
             label="";value="";adding=false
         }){Text("Add")}},
         dismissButton={TextButton(onClick={adding=false}){Text("Cancel")}})
+    if(choosingCard)AlertDialog(onDismissRequest={choosingCard=false},
+        title={Text("Linked cards")},
+        text={Column(Modifier.heightIn(max=330.dp).verticalScroll(rememberScrollState())){
+            val sources=rows.mapNotNull{record->cards.firstOrNull{it.id==record.entry.cardId}}
+            val owned=cards.filter{it.profile==person.id}
+            val linked=(sources+owned).distinctBy{it.id}
+            if(linked.isEmpty())Text("No linked documents yet.")
+            else linked.forEach{card->
+                TextButton(onClick={choosingCard=false;onOpenCard(card.id)},
+                    modifier=Modifier.fillMaxWidth()){
+                    Text(VaultNames.title(card.title),modifier=Modifier.weight(1f))
+                    Icon(Icons.Outlined.ChevronRight,null)
+                }
+            }
+        }},
+        confirmButton={TextButton(onClick={choosingCard=false}){Text("Done")}})
     if(deleting)AlertDialog(onDismissRequest={deleting=false},
         title={Text("Remove "+person.name+"?")},
         text={Text("Profile details will be removed. Documents stay in the vault.")},
@@ -314,17 +332,58 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
         contentPadding=PaddingValues(16.dp,14.dp,16.dp,32.dp),
         verticalArrangement=Arrangement.spacedBy(10.dp)){
         item{
-            Row(verticalAlignment=Alignment.CenterVertically){
-                PersonAvatar(person.name,56.dp);Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)){
-                    Eyebrow("Profile")
-                    Text(person.name,color=p.ink,fontSize=26.sp,fontWeight=FontWeight.Bold)
+            Surface(color=p.panelRaised,shape=RoundedCornerShape(24.dp),
+                border=BorderStroke(1.dp,p.line)){
+                Row(Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment=Alignment.CenterVertically,
+                    horizontalArrangement=Arrangement.spacedBy(14.dp)){
+                    PersonAvatar(person.name,52.dp)
+                    Column(Modifier.weight(1f)){
+                        Text(person.name,color=p.ink,fontSize=20.sp,
+                            fontWeight=FontWeight.Bold,maxLines=1)
+                        Spacer(Modifier.height(4.dp))
+                        Text(VaultCounts.format(rows.size,"field")+" · "+
+                            VaultCounts.format(cards.count{it.profile==person.id},"card"),
+                            color=p.inkMuted,fontSize=12.sp)
+                    }
+                    Box{
+                        IconButton(onClick={profileMenu=true},modifier=Modifier.size(44.dp)){
+                            Icon(Icons.Outlined.MoreVert,"Profile options",tint=p.ink)
+                        }
+                        DropdownMenu(expanded=profileMenu,onDismissRequest={profileMenu=false}){
+                            DropdownMenuItem(text={Text("Add field")},onClick={profileMenu=false;adding=true})
+                            if(person.id!="self")DropdownMenuItem(text={Text("Remove profile",color=p.danger)},
+                                onClick={profileMenu=false;deleting=true})
+                        }
+                    }
                 }
-                IconButton(onClick={adding=true},modifier=Modifier.size(48.dp)){
-                    Icon(Icons.Outlined.Add,"Add detail")
-                }
-                if(person.id!="self")IconButton(onClick={deleting=true},modifier=Modifier.size(48.dp)){
-                    Icon(Icons.Outlined.DeleteOutline,"Remove person")
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                val actions=listOf(
+                    Triple("Copy all",Icons.Outlined.ContentCopy,{
+                        guarded(rows.any{it.entry.sensitive}){
+                            copyAndClearLater(context,person.name,ProfileLogic.asText(rows,true),
+                                rows.any{it.entry.sensitive})
+                        }
+                    }),
+                    Triple("From cards",Icons.Outlined.CreditCard,{choosingCard=true}),
+                    Triple("Add field",Icons.Outlined.Add,{adding=true})
+                )
+                actions.forEachIndexed{index,(title,icon,action)->
+                    Surface(onClick=action,shape=RoundedCornerShape(17.dp),
+                        color=if(index==0)p.accent else p.panelRaised,
+                        border=if(index==0)null else BorderStroke(1.dp,p.line),
+                        modifier=Modifier.weight(1f).heightIn(min=74.dp)){
+                        Column(Modifier.fillMaxWidth().padding(vertical=12.dp),
+                            horizontalAlignment=Alignment.CenterHorizontally,
+                            verticalArrangement=Arrangement.spacedBy(7.dp)){
+                            Icon(icon,title,modifier=Modifier.size(20.dp),
+                                tint=if(index==0)p.accentInk else p.ink)
+                            Text(title,fontSize=12.sp,fontWeight=FontWeight.SemiBold,
+                                color=if(index==0)p.accentInk else p.ink)
+                        }
+                    }
                 }
             }
         }
@@ -339,51 +398,57 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
                 val hidden=entry.sensitive&&entry.id !in revealed
                 val alternatives=ProfileLogic.alternatives(entry,cards)
                 var menu by remember{mutableStateOf(false)}
-                Surface(color=p.panelRaised,shape=RoundedCornerShape(16.dp),
+                Surface(color=p.panelRaised,shape=RoundedCornerShape(18.dp),
                     border=BorderStroke(1.dp,p.line)){
-                    Column(Modifier.fillMaxWidth().padding(start=14.dp,top=5.dp,end=6.dp,bottom=10.dp)){
-                        Row(verticalAlignment=Alignment.CenterVertically){
+                    Row(Modifier.fillMaxWidth().padding(start=12.dp,top=10.dp,end=5.dp,bottom=10.dp),
+                        verticalAlignment=Alignment.CenterVertically,
+                        horizontalArrangement=Arrangement.spacedBy(6.dp)){
+                        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)){
                             Text(entry.label.uppercase(java.util.Locale.ROOT),
-                                modifier=Modifier.weight(1f),color=p.inkFaint,fontSize=10.sp,
-                                letterSpacing=1.sp,fontWeight=FontWeight.Medium)
-                            if(entry.sensitive)IconButton(modifier=Modifier.size(48.dp),
-                                onClick={guarded {
-                                    if(entry.id in revealed)revealed=revealed-entry.id
-                                    else revealed=revealed+entry.id
-                                }}){
-                                Icon(if(hidden)Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
-                                    if(hidden)"Reveal "+entry.label else "Hide "+entry.label,
-                                    tint=p.inkMuted)
+                                color=p.inkFaint,fontSize=10.sp,letterSpacing=.8.sp,
+                                fontWeight=FontWeight.Medium,maxLines=1)
+                            Text(if(hidden)ProfileLogic.mask(record.value)
+                                else record.value.ifBlank{"—"},
+                                color=p.ink,fontSize=15.sp,fontWeight=FontWeight.SemiBold)
+                            if(record.sourceMissing)Text("Original field unavailable",color=p.danger,
+                                fontSize=11.sp)
+                            else if(record.sourceTitle.isNotBlank())Text(
+                                "From "+record.sourceTitle,
+                                modifier=Modifier.clickable{onOpenCard(entry.cardId)},
+                                color=p.accent,fontSize=11.sp,maxLines=1,
+                                overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            if(alternatives.isNotEmpty())Text(
+                                "Sources differ · Review",
+                                modifier=Modifier.clickable{conflict=entry},
+                                color=p.warning,fontSize=11.sp)
+                        }
+                        if(entry.sensitive)IconButton(modifier=Modifier.size(40.dp),
+                            onClick={guarded{
+                                revealed=if(entry.id in revealed)revealed-entry.id
+                                    else revealed+entry.id
+                            }}){
+                            Icon(if(hidden)Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                                if(hidden)"Reveal "+entry.label else "Hide "+entry.label,
+                                modifier=Modifier.size(20.dp),tint=p.inkMuted)
+                        }
+                        IconButton(modifier=Modifier.size(40.dp),
+                            onClick={guarded(entry.sensitive){
+                                copyAndClearLater(context,entry.label,record.value,entry.sensitive)
+                            }},enabled=record.value.isNotBlank()){
+                            Icon(Icons.Outlined.ContentCopy,"Copy "+entry.label,
+                                modifier=Modifier.size(20.dp),tint=p.inkMuted)
+                        }
+                        Box{
+                            IconButton(onClick={menu=true},modifier=Modifier.size(40.dp)){
+                                Icon(Icons.Outlined.MoreVert,"More "+entry.label,
+                                    modifier=Modifier.size(20.dp),tint=p.inkFaint)
                             }
-                            IconButton(modifier=Modifier.size(48.dp),
-                                onClick={guarded(entry.sensitive) {
-                                    copyAndClearLater(context,entry.label,record.value,entry.sensitive)
-                                }},enabled=record.value.isNotBlank()){
-                                Icon(Icons.Outlined.ContentCopy,"Copy "+entry.label,tint=p.inkMuted)
-                            }
-                            Box {
-                                IconButton(onClick={menu=true},modifier=Modifier.size(48.dp)){
-                                    Icon(Icons.Outlined.MoreVert,"More for "+entry.label,tint=p.inkMuted)
-                                }
-                                DropdownMenu(expanded=menu,onDismissRequest={menu=false}){
-                                    DropdownMenuItem(text={Text("Remove field",color=p.danger)},
-                                        onClick={menu=false;onRemoveEntry(entry)})
-                                }
+                            DropdownMenu(expanded=menu,onDismissRequest={menu=false}){
+                                DropdownMenuItem(text={Text("Remove field",color=p.danger)},
+                                    onClick={menu=false;onRemoveEntry(entry)})
                             }
                         }
-                        Text(if(hidden)ProfileLogic.mask(record.value)else record.value.ifBlank{"—"},
-                            color=p.ink,fontSize=16.sp,fontWeight=FontWeight.SemiBold)
-                        if(record.sourceMissing)Text("Original field unavailable",
-                            color=MaterialTheme.colorScheme.error,
-                            style=MaterialTheme.typography.bodySmall)
-                        else if(record.sourceTitle.isNotBlank())TextButton(
-                            onClick={onOpenCard(entry.cardId)}){
-                            Text("From "+record.sourceTitle)
-                        }
-                        if(alternatives.isNotEmpty())TextButton(onClick={conflict=entry}){
-                            Text("Sources differ · Review")
-                        }
-                     }
+                    }
                 }
             }
         }
@@ -391,13 +456,7 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
             Text("Add a detail or select information from a document.",
                 color=p.inkMuted,fontSize=14.sp)
         }
-        item{
-            OutlinedButton(onClick={guarded(rows.any{it.entry.sensitive}) {
-                copyAndClearLater(context,person.name,ProfileLogic.asText(rows,true),
-                    rows.any{it.entry.sensitive})
-            }},enabled=rows.isNotEmpty(),modifier=Modifier.fillMaxWidth()){
-                Icon(Icons.Outlined.ContentCopy,null);Text(" Copy profile")
-            }
-        }
+        item{MockupNote(Icons.Outlined.Shield,
+            "Sensitive values are masked. Your app PIN protects access, not backup files.")}
     }
 }

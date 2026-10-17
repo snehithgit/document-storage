@@ -584,7 +584,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     "tools"->"PDF Tools"
                                     "expiry"->"Expiry and renewal"
                                     "profiles"->"Family profiles"
-                                    "person"->repo.profiles.firstOrNull{it.id==selectedPersonId}?.name ?: "Person"
+                                    "person"->"Profile"
                                     "templates"->"Card templates"
                                     "backup"->"Backup and restore"
                                     "recovery"->"Recovery"
