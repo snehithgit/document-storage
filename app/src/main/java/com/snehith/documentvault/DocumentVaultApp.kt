@@ -487,8 +487,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 val uri=restoreUri
                 if(uri!=null){
                     operations.start("Restoring ZIP backup"){
-                        repo.restoreBackup(uri,backupPassword)
-                        VaultJobResult(note="Restore complete",destination="home")
+                        val warnings=repo.restoreBackup(uri,backupPassword)
+                        VaultJobResult(note=if(warnings.isEmpty())"Restore complete" else
+                            "Restore complete; ${warnings.size} damaged attachments were skipped",destination="home")
                     }
                 }
             }){Text("Replace and restore")}},
@@ -649,6 +650,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 {scope.launch{
                                     try{
                                         withContext(Dispatchers.IO){repo.removePerson(person.id)}
+                                        if(userProfile==person.id)userProfile="all"
                                         replaceRoute("people")
                                     }catch(cancelled:CancellationException){throw cancelled}
                                     catch(e:Exception){error=e.message?:"Cannot remove person"}
@@ -657,7 +659,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         }
                         "cards"->VaultNavCards(repo.cards.toList(),repo,
                             {openCard(it)},{navigate("scan")},categoryFilter,
-                            {navigateRoot("search")},repo.profiles.toList(),userProfile,
+                            {navigate("search")},repo.profiles.toList(),userProfile,
                             {userProfile=it},{categoryFilter=""},{navigateRoot("people")})
                         "search"->VaultNavSearch(repo.cards.toList(),repo,
                             {openCard(it)},repo.profiles.toList(),userProfile,{userProfile=it})

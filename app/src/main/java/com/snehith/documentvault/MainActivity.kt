@@ -127,6 +127,7 @@ class MainActivity : FragmentActivity() {
     }
     override fun onStart() {
         super.onStart()
+        clearClipboardIfExpired(this)
         if(::repo.isInitialized && repo.hasPin() && lastBackgroundAt>0L &&
             android.os.SystemClock.elapsedRealtime()-lastBackgroundAt>60_000L) unlocked.value=false
     }

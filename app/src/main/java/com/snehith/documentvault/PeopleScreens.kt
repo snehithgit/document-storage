@@ -33,6 +33,23 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /** Wipe only the clip written by us, not a newer clip copied in another app. */
+/** Remembers what we copied so the clear still happens if the timer was lost. */
+object PendingClipboardClear{ @Volatile var value:String="";@Volatile var deadline:Long=0L }
+/** Clears the clipboard if it still holds our copied value and the time is up. */
+fun clearClipboardIfExpired(context:Context){
+    val value=PendingClipboardClear.value
+    if(value.isEmpty()||System.currentTimeMillis()<PendingClipboardClear.deadline)return
+    val application=context.applicationContext
+    val clipboard=application.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    try{
+        val text=clipboard.primaryClip?.getItemAt(0)?.coerceToText(application)?.toString()
+        if(text==value){
+            if(Build.VERSION.SDK_INT>=28)clipboard.clearPrimaryClip()
+            else clipboard.setPrimaryClip(ClipData.newPlainText("",""))
+        }
+    }catch(_:SecurityException){}
+    PendingClipboardClear.value="";PendingClipboardClear.deadline=0L
+}
 fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolean=false){
     if(value.isBlank())return
     val application=context.applicationContext
@@ -43,17 +60,10 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
             putBoolean(ClipDescription.EXTRA_IS_SENSITIVE,true)
         }
     clipboard.setPrimaryClip(clip)
+    PendingClipboardClear.value=value
+    PendingClipboardClear.deadline=System.currentTimeMillis()+ProfileLogic.CLIPBOARD_CLEAR_MS
     val handler=Handler(Looper.getMainLooper())
-    handler.postDelayed({
-        try{
-            val active=clipboard.primaryClip
-            val text=active?.getItemAt(0)?.coerceToText(application)?.toString()
-            if(text==value){
-                if(Build.VERSION.SDK_INT>=28)clipboard.clearPrimaryClip()
-                else clipboard.setPrimaryClip(ClipData.newPlainText("",""))
-            }
-        }catch(_:SecurityException){}
-    },ProfileLogic.CLIPBOARD_CLEAR_MS)
+    handler.postDelayed({clearClipboardIfExpired(application)},ProfileLogic.CLIPBOARD_CLEAR_MS)
     if(Build.VERSION.SDK_INT<33)
         Toast.makeText(application,"Copied",Toast.LENGTH_SHORT).show()
 }
@@ -188,6 +198,17 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
     val gate=remember(person.id){RevealGate()}
     var revealed by remember(person.id){mutableStateOf(emptySet<String>())}
     var revealDeadline by remember(person.id){mutableLongStateOf(0L)}
+    // Leaving the app hides revealed values and closes the PIN window.
+    DisposableEffect(person.id){
+        val owner=context as? androidx.activity.ComponentActivity
+        val observer=androidx.lifecycle.LifecycleEventObserver{_,event->
+            if(event==androidx.lifecycle.Lifecycle.Event.ON_STOP){
+                revealed=emptySet();revealDeadline=0L;gate.close()
+            }
+        }
+        owner?.lifecycle?.addObserver(observer)
+        onDispose{owner?.lifecycle?.removeObserver(observer)}
+    }
     LaunchedEffect(revealDeadline,hasPin){
         if(hasPin && revealDeadline>0L){
             delay((revealDeadline-System.currentTimeMillis()).coerceAtLeast(0L))
@@ -203,8 +224,9 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
     var label by rememberSaveable(person.id){mutableStateOf("")}
     var value by rememberSaveable(person.id){mutableStateOf("")}
     val rows=entries.filter{it.personId==person.id}.map{ProfileLogic.resolve(it,cards)}
-    fun guarded(action:()->Unit){
-        if(!hasPin||gate.isOpen(System.currentTimeMillis()))action()
+    // The PIN protects sensitive values only; names, dates of birth etc. copy freely.
+    fun guarded(sensitive:Boolean=true,action:()->Unit){
+        if(!sensitive||!hasPin||gate.isOpen(System.currentTimeMillis()))action()
         else pending=action
     }
     pending?.let{
@@ -285,7 +307,7 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
                             Text(entry.label,modifier=Modifier.weight(1f),
                                 color=MaterialTheme.colorScheme.onSurfaceVariant,
                                 style=MaterialTheme.typography.bodySmall)
-                            IconButton(modifier=Modifier.size(48.dp),
+                            if(entry.sensitive)IconButton(modifier=Modifier.size(48.dp),
                                 onClick={guarded {
                                     if(entry.id in revealed)revealed=revealed-entry.id
                                     else revealed=revealed+entry.id
@@ -294,7 +316,7 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
                                     if(hidden)"Reveal "+entry.label else "Hide "+entry.label)
                             }
                             IconButton(modifier=Modifier.size(48.dp),
-                                onClick={guarded {
+                                onClick={guarded(entry.sensitive) {
                                     copyAndClearLater(context,entry.label,record.value,entry.sensitive)
                                 }},enabled=record.value.isNotBlank()){
                                 Icon(Icons.Outlined.ContentCopy,"Copy "+entry.label)
@@ -324,7 +346,7 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
                 color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
         item{
-            OutlinedButton(onClick={guarded {
+            OutlinedButton(onClick={guarded(rows.any{it.entry.sensitive}) {
                 copyAndClearLater(context,person.name,ProfileLogic.asText(rows,true),
                     rows.any{it.entry.sensitive})
             }},enabled=rows.isNotEmpty(),modifier=Modifier.fillMaxWidth()){

@@ -380,6 +380,8 @@ class VaultRepository(private val context: Context) {
         val kept=referencedIds()
         listOf(file.id,file.originalId).filter{it.isNotBlank() && it !in kept}.forEach{id->
             blob(id).delete();meta(id).delete()
+            // OCR text is document content: it must go with the document.
+            textFile(id).delete();persistedTextHashes.remove(id)
         }
     }
     /** A re-edit replaces the attachment at its original position, not a new page. */
@@ -429,10 +431,16 @@ class VaultRepository(private val context: Context) {
     }
     @Synchronized fun deleteCard(card:VaultCard) {
         val previous=cards.toList()
+        val previousEntries=entries.toList()
         androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
             cards.removeAll{it.id==card.id}
+            // Linked profile entries keep a last-known copy of the value. For sensitive
+            // fields that copy must not outlive the document it came from.
+            val scrubbed=ProfileLogic.scrubSensitive(entries.toList(),card.id)
+            entries.clear();entries.addAll(scrubbed)
             try{persist()}catch(e:Exception){
                 cards.clear();cards.addAll(previous)
+                entries.clear();entries.addAll(previousEntries)
                 throw e
             }
         }
@@ -454,12 +462,18 @@ class VaultRepository(private val context: Context) {
     }
     @Synchronized fun removePerson(personId:String){
         require(personId!="self"){"The default profile cannot be removed"}
-        val beforeProfiles=profiles.toList();val beforeEntries=entries.toList()
+        val beforeProfiles=profiles.toList();val beforeEntries=entries.toList();val beforeCards=cards.toList()
         androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
             profiles.removeAll{it.id==personId};entries.removeAll{it.personId==personId}
+            // Documents stay in the vault: hand them back to the default profile so
+            // they remain visible under every filter.
+            cards.indices.filter{cards[it].profile==personId}.forEach{i->
+                cards[i]=cards[i].copy(profile="self")
+            }
             try{persist()}catch(e:Exception){
                 profiles.clear();profiles.addAll(beforeProfiles)
                 entries.clear();entries.addAll(beforeEntries)
+                cards.clear();cards.addAll(beforeCards)
                 throw e
             }
         }
@@ -471,6 +485,9 @@ class VaultRepository(private val context: Context) {
         try{persist()}catch(e:Exception){customTemplates.clear();customTemplates.addAll(previous);throw e}
     }
     fun isDuplicate(sha:String)=cards.any { c->c.files.any{it.sha256==sha} }
+    /** The same file may legitimately belong to two people (shared address proof). */
+    fun isDuplicate(sha:String,profile:String)=
+        cards.any { c->c.profile==profile && c.files.any{it.sha256==sha} }
     fun importFile(uri:Uri):VaultFile {
         require(uri.scheme=="content"){"Import only from Android's file picker or share menu"}
         val name=VaultNames.importLabel(filename(uri),
@@ -520,7 +537,7 @@ class VaultRepository(private val context: Context) {
             .ifBlank{"document"}.take(150)
     }
     fun cleanupPreviews() {
-        listOf("preview","shared","camera").forEach {folder->
+        listOf("preview","shared","camera","view-only").forEach {folder->
             File(context.cacheDir,folder).listFiles()?.filter{
                 System.currentTimeMillis()-it.lastModified()>3600000
             }?.forEach{it.deleteRecursively()}
@@ -606,7 +623,8 @@ class VaultRepository(private val context: Context) {
         }
         return plan.warnings
     }
-    fun restoreBackup(uri:Uri,password:String) {
+    @Synchronized fun restoreBackup(uri:Uri,password:String):List<String> {
+        val restoreWarnings=mutableListOf<String>()
         val staged=File(context.cacheDir,"restore-"+uid()).apply{mkdirs()}
         try{
             var root:String?=null
@@ -669,9 +687,12 @@ class VaultRepository(private val context: Context) {
                     val recognized=importedTexts[file.id]?.readText(Charsets.UTF_8)
                     if(recognized!=null)file.copy(extractedText=recognized)else file
                 })}
-            val nextCards=BackupIntegrity.clearMissingOriginals(readCards){id->imported[id]?.isFile==true}
-            val required=nextCards.flatMap{it.files}.map{it.id}.toSet()
-            require(required.all{imported[it]?.isFile==true}){"Backup has missing primary attachments"}
+            val available:(String)->Boolean={id->imported[id]?.isFile==true}
+            val cleared=BackupIntegrity.clearMissingOriginals(readCards,available)
+            // One damaged attachment must not make the whole backup unrestorable.
+            val dropped=BackupIntegrity.missingPrimaries(cleared,available)
+            restoreWarnings.addAll(dropped.map{"Attachment missing in backup, skipped: "+it})
+            val nextCards=BackupIntegrity.dropMissingPrimaries(cleared,available)
             val ids=AttachmentReferences.referencedIds(nextCards)
             val nextProfiles=mutableListOf<VaultProfile>()
             val p=json.optJSONArray("profiles")?:JSONArray()
@@ -702,6 +723,7 @@ class VaultRepository(private val context: Context) {
             val oldProfiles=profiles.toList()
             val oldTemplates=customTemplates.toList()
             val oldEntries=entries.toList()
+            androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
             cards.clear();cards.addAll(nextCards)
             profiles.clear();profiles.addAll(nextProfiles)
             if(profiles.none{it.id=="self"})profiles.add(VaultProfile("self","Me"))
@@ -725,14 +747,16 @@ class VaultRepository(private val context: Context) {
                 }
                 throw e
             }
-            // Index is committed: only now may superseded blobs and metadata be deleted.
+            }
+            // Index is committed: only now may superseded blobs, metadata and OCR text be deleted.
             blobDir.listFiles()?.filter{f->
-                (f.name.endsWith(".dat")||f.name.endsWith(".meta")) &&
+                (f.name.endsWith(".dat")||f.name.endsWith(".meta")||f.name.endsWith(".txt")) &&
                     f.name.substringBeforeLast('.') !in ids
             }?.forEach{it.delete()}
             nextCards.flatMap{it.files}.distinctBy{it.id}.forEach{file->
                 try{writeMeta(file)}catch(_:IOException){}
             }
+            return restoreWarnings
         }finally{staged.deleteRecursively()}
     }
 }

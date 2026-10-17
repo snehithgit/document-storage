@@ -292,7 +292,7 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
                 if(!matches)null else {
                     val excerpt=if(query.isBlank())null else
                         card.fields.firstOrNull{it.name.contains(query,true)||it.value.contains(query,true)}
-                            ?.let{it.name+": "+it.value}
+                            ?.let{it.name+": "+if(ProfileLogic.isSensitive(it.name))ProfileLogic.mask(it.value) else it.value}
                             ?:card.files.firstNotNullOfOrNull{file->
                                 val pos=file.extractedText.indexOf(query,ignoreCase=true)
                                 if(pos<0)null else file.extractedText.substring(
@@ -500,7 +500,8 @@ private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
                             Text(field.name,color=MaterialTheme.colorScheme.onSurfaceVariant,
                                 style=MaterialTheme.typography.bodySmall)
                             Spacer(Modifier.height(4.dp))
-                            Text(field.value.ifBlank{"Not entered"},style=MaterialTheme.typography.bodyLarge)
+                            Text(if(ProfileLogic.isSensitive(field.name))ProfileLogic.mask(field.value)
+                                else field.value.ifBlank{"Not entered"},style=MaterialTheme.typography.bodyLarge)
                         }
                         IconButton(onClick={copyToClipboard(context,field.name,field.value)},
                             enabled=field.value.isNotBlank(),modifier=Modifier.size(48.dp)){

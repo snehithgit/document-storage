@@ -26,7 +26,7 @@ object VaultLongOperations {
             ImportTargetPolicy.requireAvailable(targetId,repo.cards.map{it.id}.toSet())
             val file=repo.importFile(uri)
             try {
-                if(repo.isDuplicate(file.sha256)) {
+                if(repo.isDuplicate(file.sha256,profile)) {
                     skipped++
                     repo.removeOrphan(file)
                     continue

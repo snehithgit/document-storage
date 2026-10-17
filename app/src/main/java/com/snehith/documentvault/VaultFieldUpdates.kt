@@ -14,7 +14,14 @@ object VaultFieldUpdates {
             .map{changed[it.id]?:it}.toMutableList()
         val currentIds=updated.map{it.id}.toSet()
         edited.filter{it.id !in currentIds}.forEach{updated.add(it)}
-        return updated
+        // The editor may have rearranged fields: honour that order, and keep fields that
+        // exist only in the latest copy (e.g. added by OCR meanwhile) after them.
+        val reordered=original.map{it.id}!=edited.map{it.id}
+        if(!reordered)return updated
+        val byId=updated.associateBy{it.id}
+        val ordered=edited.mapNotNull{byId[it.id]}
+        val orderedIds=ordered.map{it.id}.toSet()
+        return ordered+updated.filter{it.id !in orderedIds}
     }
 }
 

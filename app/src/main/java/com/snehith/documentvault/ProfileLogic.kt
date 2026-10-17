@@ -72,10 +72,15 @@ object ProfileLogic{
         return if(card==null||field==null)ResolvedEntry(e,e.value,card?.title.orEmpty(),true)
         else ResolvedEntry(e,field.value,card.title,false)
     }
+    /** Drops the stored last-known value of sensitive entries linked to a deleted card. */
+    fun scrubSensitive(list:List<ProfileEntry>,deletedCardId:String):List<ProfileEntry> =
+        list.map{e-> if(e.cardId==deletedCardId&&(e.sensitive||isSensitive(e.label))) e.copy(value="") else e}
     fun alternatives(e:ProfileEntry,cards:List<VaultCard>):List<SourceAlternative>{
         val current=normalize(resolve(e,cards).value)
         val group=keyGroup(e.label)
-        return cards.filter{it.profile==e.personId}.flatMap{c->
+        // Pool: the person's own documents plus the document this entry is linked to,
+        // so a card filed under another profile can still offer its alternatives.
+        return cards.filter{it.profile==e.personId||it.id==e.cardId}.flatMap{c->
             c.fields.filter{keyGroup(it.name)==group &&it.value.isNotBlank() &&
                 !(c.id==e.cardId&&it.id==e.fieldId)}.map{
                 SourceAlternative(c.id,it.id,c.title,it.value)

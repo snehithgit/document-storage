@@ -43,6 +43,11 @@ private val Corners=RoundedCornerShape(20.dp)
 
 fun copyToClipboard(context:Context,label:String,value:String) {
     if(value.isBlank())return
+    // Anything that looks private is copied through the auto-clearing path.
+    if(ProfileLogic.isSensitive(label)||label.contains("details",true)||
+        label.contains("information",true)||label.contains("selected",true)){
+        copyAndClearLater(context,label,value,true);return
+    }
     val clip=ClipData.newPlainText(label,value)
     if(android.os.Build.VERSION.SDK_INT>=33 &&
         (ProfileLogic.isSensitive(label) ||
