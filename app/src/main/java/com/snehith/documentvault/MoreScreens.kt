@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -201,46 +202,45 @@ import java.util.UUID
     val startIndex=fromPage.toIntOrNull()
     val endIndex=toPage.toIntOrNull()
     val validRange=startIndex!=null&&endIndex!=null&&startIndex>0&&endIndex>=startIndex
-    LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
-        contentPadding=PaddingValues(16.dp,16.dp,16.dp,28.dp),
-        verticalArrangement=Arrangement.spacedBy(14.dp)){
+    val p=mockupPalette
+    LazyColumn(Modifier.fillMaxSize().background(p.panel),
+        contentPadding=PaddingValues(18.dp,22.dp,18.dp,28.dp),
+        verticalArrangement=Arrangement.spacedBy(12.dp)){
         item {
-            VaultHeader("PDF Tools",VaultNames.title(card.title))
-            Spacer(Modifier.height(8.dp))
-            Text("Choose the files to include, then create a PDF.",
-                style=MaterialTheme.typography.bodyMedium,
-                color=MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(12.dp))
-            OutlinedButton(onClick=onAdd,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
+            Eyebrow("PDF Studio · "+VaultNames.title(card.title))
+            Spacer(Modifier.height(10.dp))
+            Text("Make one PDF",color=p.ink,fontSize=32.sp,lineHeight=34.sp,
+                fontWeight=FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            Text("Choose files and use the arrows to set the order. The original files stay unchanged.",
+                color=p.inkMuted,fontSize=14.sp)
+            Spacer(Modifier.height(14.dp))
+            OutlinedButton(onClick=onAdd,shape=RoundedCornerShape(16.dp),
+                border=BorderStroke(1.dp,p.line),
+                colors=ButtonDefaults.outlinedButtonColors(contentColor=p.ink),
+                modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
                 Icon(Icons.Outlined.Add,null)
                 Text(" Add photos or documents")
             }
         }
         item {
-            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
-                Text("Selected files",style=MaterialTheme.typography.titleLarge,
-                    modifier=Modifier.weight(1f))
-                Text(VaultCounts.format(selectedFiles.size,"file"),
-                    color=MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Text("Move files up or down to choose their order.",
-                style=MaterialTheme.typography.bodySmall,
-                color=MaterialTheme.colorScheme.onSurfaceVariant)
+            MockupSectionHeader("Selected files",
+                VaultCounts.format(selectedFiles.size,"of "+card.files.size+" file"))
         }
         items(selectedFiles,key={it.id}){file->
             val index=selected.indexOf(file.id)
-            Card(colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface),
-                shape=RoundedCornerShape(14.dp),
-                border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
+            Card(colors=CardDefaults.cardColors(containerColor=p.panelRaised),
+                shape=RoundedCornerShape(18.dp),
+                border=BorderStroke(1.dp,p.line)){
                 Row(Modifier.fillMaxWidth().padding(horizontal=8.dp,vertical=10.dp),
                     verticalAlignment=Alignment.CenterVertically){
                     VaultThumbnail(file,repo,Modifier.size(54.dp,70.dp))
                     Spacer(Modifier.width(9.dp))
                     Column(Modifier.weight(1f)){
-                        Text(VaultNames.label(file.name),style=MaterialTheme.typography.bodyMedium,
-                            maxLines=2)
-                        Text("File ${index+1}",style=MaterialTheme.typography.bodySmall,
-                            color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(VaultNames.label(file.name),color=p.ink,fontSize=14.sp,
+                            fontWeight=FontWeight.SemiBold,maxLines=2)
+                        Text("File ${(index+1).toString().padStart(2,'0')}",color=p.inkFaint,
+                            fontSize=12.sp)
                     }
                     IconButton(onClick={
                         if(index>0){
@@ -281,7 +281,9 @@ import java.util.UUID
         }
         item{
             Button(onClick={onExport("combine",selectedFiles,1,1)},
-                enabled=combining,modifier=Modifier.fillMaxWidth().heightIn(min=54.dp)){
+                enabled=combining,shape=RoundedCornerShape(16.dp),
+                colors=ButtonDefaults.buttonColors(containerColor=p.accent,contentColor=p.accentInk),
+                modifier=Modifier.fillMaxWidth().heightIn(min=54.dp)){
                 Icon(Icons.Outlined.PictureAsPdf,null)
                 Spacer(Modifier.width(9.dp))
                 Text("Save combined PDF to document",style=MaterialTheme.typography.titleMedium)
@@ -294,7 +296,7 @@ import java.util.UUID
             }
         }
         item{
-            Text("Other PDF tools",style=MaterialTheme.typography.titleLarge)
+            Text("Other PDF tools",color=p.ink,fontSize=17.sp,fontWeight=FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
                 OutlinedTextField(fromPage,{fromPage=it},label={Text("First page")},
@@ -358,66 +360,51 @@ import java.util.UUID
     }
 }
 @Composable fun BackupScreen(onBackup:(String)->Unit,onRestore:(String)->Unit) {
-    LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
-        contentPadding=PaddingValues(16.dp,18.dp,16.dp,30.dp),
-        verticalArrangement=Arrangement.spacedBy(18.dp)){
+    val p=mockupPalette
+    LazyColumn(Modifier.fillMaxSize().background(p.panel),
+        contentPadding=PaddingValues(18.dp,22.dp,18.dp,30.dp),
+        verticalArrangement=Arrangement.spacedBy(14.dp)){
         item{
-            VaultHeader("Backup & Recovery","Keep a separate copy of your documents")
+            Eyebrow("Backup & Recovery")
+            Spacer(Modifier.height(10.dp))
+            Text("ZIP backup",color=p.ink,fontSize=32.sp,lineHeight=34.sp,fontWeight=FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            Text("Keep a separate copy of your documents.",color=p.inkMuted,fontSize=14.sp)
         }
         item{
-            HubCard(Modifier.fillMaxWidth()){
-                Row(verticalAlignment=Alignment.CenterVertically){
-                    HubIcon(Icons.Outlined.FileUpload)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)){
-                        Text("Export backup",style=MaterialTheme.typography.titleLarge)
-                        Text("Save documents, information, profiles and templates in one backup file.",
-                            style=MaterialTheme.typography.bodySmall,
-                            color=MaterialTheme.colorScheme.onSurfaceVariant)
+            MockupNote(Icons.Outlined.WarningAmber,
+                "The ZIP is not encrypted. Anyone who has the file may read its contents. "+
+                "Keep it somewhere private.",warning=true)
+        }
+        item{
+            MockupGroup{
+                Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+                    Text("Export backup",color=p.ink,fontSize=17.sp,fontWeight=FontWeight.Bold)
+                    Text("Save documents, information, profiles and templates in one backup file.",
+                        color=p.inkMuted,fontSize=13.sp)
+                    Button(onClick={onBackup("")},shape=RoundedCornerShape(16.dp),
+                        colors=ButtonDefaults.buttonColors(containerColor=p.accent,
+                            contentColor=p.accentInk),
+                        modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)){
+                        Icon(Icons.Outlined.FileUpload,null,Modifier.size(19.dp))
+                        Text(" Create backup")
                     }
-                }
-                Button(onClick={onBackup("")},modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)){
-                    Icon(Icons.Outlined.FileUpload,null,Modifier.size(19.dp))
-                    Text(" Export Backup")
                 }
             }
         }
         item{
-            HubCard(Modifier.fillMaxWidth()){
-                Row(verticalAlignment=Alignment.CenterVertically){
-                    HubIcon(Icons.Outlined.Restore)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)){
-                        Text("Restore backup",style=MaterialTheme.typography.titleLarge)
-                        Text("Replace your current documents using a saved backup.",
-                            style=MaterialTheme.typography.bodySmall,
-                            color=MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                OutlinedButton(onClick={onRestore("")},
-                    modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)){
-                    Icon(Icons.Outlined.Restore,null,Modifier.size(19.dp))
-                    Text(" Choose Backup to Restore")
-                }
-                Text("You will be asked to confirm before existing documents are replaced.",
-                    color=MaterialTheme.colorScheme.onSurfaceVariant,
-                    style=MaterialTheme.typography.bodySmall)
-            }
-        }
-        item{
-            Surface(shape=RoundedCornerShape(14.dp),
-                color=MaterialTheme.colorScheme.surface,
-                border=BorderStroke(1.dp,VaultColors.expiring)){
-                Row(Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment=Alignment.Top){
-                    Icon(Icons.Outlined.Info,null,tint=VaultColors.expiring)
-                    Spacer(Modifier.width(12.dp))
-                    Column{
-                        Text("Backups are not encrypted",style=MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(5.dp))
-                        Text("Anyone who has the backup file may read its contents. Store it in a safe place.",
-                            color=MaterialTheme.colorScheme.onSurfaceVariant,
-                            style=MaterialTheme.typography.bodySmall)
+            MockupGroup{
+                Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+                    Text("Restore from ZIP",color=p.ink,fontSize=17.sp,fontWeight=FontWeight.Bold)
+                    Text("Replaces the card index on this device. Back up first if you have new cards. "+
+                        "You will be asked to confirm before existing documents are replaced.",
+                        color=p.inkMuted,fontSize=13.sp)
+                    OutlinedButton(onClick={onRestore("")},shape=RoundedCornerShape(16.dp),
+                        border=BorderStroke(1.dp,p.line),
+                        colors=ButtonDefaults.outlinedButtonColors(contentColor=p.ink),
+                        modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)){
+                        Icon(Icons.Outlined.Restore,null,Modifier.size(19.dp))
+                        Text(" Choose backup to restore")
                     }
                 }
             }

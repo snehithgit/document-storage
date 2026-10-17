@@ -46,4 +46,13 @@ class DesignLogicTest {
         assertEquals(0xFFC9DDECL,DesignLogic.facePalette(pan).first)
         assertEquals(0xFFE8D4A6L,DesignLogic.facePalette(transport).first)
     }
+    @Test fun humanSpanIsShortAndReadable(){
+        assertEquals("0 days",DesignLogic.humanSpan(0))
+        assertEquals("1 day",DesignLogic.humanSpan(1))
+        assertEquals("45 days",DesignLogic.humanSpan(45))
+        assertEquals("3 mo",DesignLogic.humanSpan(90))
+        assertEquals("1 yr",DesignLogic.humanSpan(365))
+        assertEquals("1 yr 1 mo",DesignLogic.humanSpan(400))
+        assertEquals("0 days",DesignLogic.humanSpan(-5))
+    }
 }

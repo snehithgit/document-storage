@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 @Composable fun AttachmentManagerScreen(card:VaultCard,repo:VaultRepository,onView:(VaultFile)->Unit,
     onRename:(VaultFile,String)->Unit,onDelete:(VaultFile)->Unit,onReorder:(List<String>)->Unit){
@@ -79,23 +80,32 @@ import androidx.compose.ui.unit.dp
 @Composable fun VaultAboutScreen(onLicenses:()->Unit={}){
     val context=androidx.compose.ui.platform.LocalContext.current
     val pkg=context.packageManager.getPackageInfo(context.packageName,0)
-    LazyColumn(Modifier.fillMaxSize().background(vaultWarmBrush(MaterialTheme.colorScheme.background==VaultColors.darkBg)),
-        contentPadding=PaddingValues(16.dp,12.dp,16.dp,80.dp),
+    val p=mockupPalette
+    LazyColumn(Modifier.fillMaxSize().background(p.panel),
+        contentPadding=PaddingValues(18.dp,22.dp,18.dp,80.dp),
         verticalArrangement=Arrangement.spacedBy(14.dp)){
         item{
+            Eyebrow("About")
+            Spacer(Modifier.height(10.dp))
+            Text("Document Vault",color=p.ink,fontSize=32.sp,lineHeight=34.sp,fontWeight=FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            Text("Version "+(pkg.versionName?:"unknown")+" · offline document wallet",
+                color=p.inkMuted,fontSize=14.sp)
+        }
+        item{
+            MockupGroup{
+                MockupSettingRow(Icons.Outlined.Shield,"No internet permission",
+                    "The app has no way to send anything online.",divider=false)
+                MockupSettingRow(Icons.Outlined.WarningAmber,"Not encrypted",
+                    "Files and ZIP backups are stored as plain files.")
+                MockupSettingRow(Icons.Outlined.Lock,"PIN locks the app only",
+                    "It does not encrypt documents or the index.")
+                MockupSettingRow(Icons.Outlined.Info,"Suggestions only",
+                    "Read values need your review. They do not verify identity.")
+            }
+        }
+        item{
             HubCard(Modifier.fillMaxWidth()){
-                Row(verticalAlignment=Alignment.CenterVertically){
-                    HubIcon(Icons.Outlined.Inventory2);Spacer(Modifier.width(12.dp))
-                    Column{
-                        Text("Document Vault",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.SemiBold)
-                        Text("Version "+(pkg.versionName?:"unknown"),
-                            color=MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-                Text("Offline document wallet with local-only OCR and PDF tools.")
-                Text("Documents and ZIP backups are not encrypted. Your optional PIN protects the interface only.",
-                    color=MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("Open-source components and applicable licenses:",
                     style=MaterialTheme.typography.titleMedium)
                 Text("OpenCV — Apache License 2.0; ONNX Runtime — MIT License; "+

@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
@@ -214,15 +215,19 @@ object DocumentCropEngine {
             onSave(quarterTurns*90,corners,settings,addAnother)
         }
     }
-    val scheme=MaterialTheme.colorScheme
+    val palette=mockupPalette
     val tint=if(auto)VaultColors.valid else VaultColors.syntax
-    Column(Modifier.fillMaxSize().background(scheme.background)
-        .padding(horizontal=12.dp,vertical=8.dp),
+    Column(Modifier.fillMaxSize().background(palette.panel)
+        .padding(horizontal=18.dp,vertical=10.dp),
         verticalArrangement=Arrangement.spacedBy(8.dp)){
-        Text("Adjust your document",style=MaterialTheme.typography.titleLarge,
-            color=scheme.onBackground)
-        Text("Drag any corner. Hold it to see a magnified view.",
-            color=scheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
+        Column{
+            Eyebrow("Scan review")
+            Spacer(Modifier.height(4.dp))
+            Text("Check your page",color=palette.ink,fontSize=24.sp,
+                fontWeight=androidx.compose.ui.text.font.FontWeight.Bold)
+            Text("Drag any corner. Hold it to see a magnified view.",
+                color=palette.inkMuted,fontSize=13.sp)
+        }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(),
             contentAlignment=Alignment.Center){
             if(showResult){
@@ -347,17 +352,10 @@ object DocumentCropEngine {
             Text(validationMessage,color=MaterialTheme.colorScheme.error,
                 style=MaterialTheme.typography.bodySmall)
         ScanEnhanceControls(settings,{updateSettings(it)})
-        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
-            OutlinedButton(onClick={showResult=!showResult},enabled=!busy,
-                modifier=Modifier.weight(1f).heightIn(min=48.dp)){
-                Text(if(showResult)"Adjust corners" else "Preview")
-            }
-            OutlinedButton(onClick={redetect()},enabled=!busy,
-                modifier=Modifier.weight(1f).heightIn(min=48.dp)){
-                Icon(Icons.Outlined.AutoFixHigh,null,Modifier.size(18.dp))
-                Text(" Detect")
-            }
-            OutlinedButton(onClick={
+        MockupActionRow(buildList{
+            add(MockupAction(Icons.Outlined.AutoFixHigh,"Auto edges",enabled=!busy,
+                onClick={redetect()}))
+            add(MockupAction(Icons.Outlined.RotateRight,"Rotate",enabled=!busy,onClick={
                 if(!busy){
                     val transformed=CropGeometry.rotateClockwise(points.map{it.x to it.y})
                     points.clear()
@@ -367,21 +365,29 @@ object DocumentCropEngine {
                     showResult=false
                     auto=false
                 }
-            },enabled=!busy,modifier=Modifier.weight(1f).heightIn(min=48.dp)){
-                Icon(Icons.Outlined.RotateRight,null,Modifier.size(18.dp))
-                Text(" Rotate")
-            }
-            if(canRetake)OutlinedButton(onClick=onRetake,enabled=!busy,
-                modifier=Modifier.weight(1f).heightIn(min=48.dp)){Text("Retake")}
-        }
-        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            }))
+            add(MockupAction(if(showResult)Icons.Outlined.Crop else Icons.Outlined.Visibility,
+                if(showResult)"Corners" else "Preview",primary=showResult,enabled=!busy,
+                onClick={showResult=!showResult}))
+            if(canRetake)add(MockupAction(Icons.Outlined.CameraAlt,"Retake",enabled=!busy,
+                onClick=onRetake))
+        },tileHeight=64.dp)
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
             if(canRetake)OutlinedButton(onClick={save(true)},
-                enabled=!busy,modifier=Modifier.weight(1f).heightIn(min=50.dp)){
+                enabled=!busy,shape=RoundedCornerShape(16.dp),
+                border=BorderStroke(1.dp,palette.line),
+                colors=ButtonDefaults.outlinedButtonColors(contentColor=palette.ink),
+                modifier=Modifier.weight(1f).heightIn(min=52.dp)){
                 Text("Add Page")
             }
             Button(onClick={save(false)},
-                enabled=!busy,modifier=Modifier.weight(1f).heightIn(min=50.dp)){
-                Text(if(canRetake)"Save" else "Save changes")
+                enabled=!busy,shape=RoundedCornerShape(16.dp),
+                colors=ButtonDefaults.buttonColors(containerColor=palette.accent,
+                    contentColor=palette.accentInk),
+                modifier=Modifier.weight(1.4f).heightIn(min=52.dp)){
+                Icon(Icons.Outlined.Check,null,Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if(canRetake)"Save to vault" else "Save changes")
             }
         }
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){

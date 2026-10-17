@@ -12,6 +12,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -87,12 +89,23 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
         },enabled=fieldName.isNotBlank()){Text("Save")}},
         dismissButton={TextButton(onClick={editId=""}){Text("Cancel")}}
     )
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)){
-        Column(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=12.dp),
+    val p=mockupPalette
+    Column(Modifier.fillMaxSize().background(p.panel)){
+        Column(Modifier.fillMaxWidth().padding(horizontal=18.dp,vertical=12.dp),
             verticalArrangement=Arrangement.spacedBy(12.dp)){
-            Text(VaultNames.title(card.title),style=MaterialTheme.typography.titleLarge)
-            Text("Tap the copy icon next to any detail.",
-                color=dMuted,style=MaterialTheme.typography.bodySmall)
+            Column{
+                Eyebrow("Full details")
+                Spacer(Modifier.height(4.dp))
+                Text(VaultNames.title(card.title),color=p.ink,fontSize=22.sp,
+                    fontWeight=FontWeight.Bold)
+            }
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(p.warningSoft)
+                .padding(12.dp),verticalAlignment=Alignment.Top){
+                Icon(Icons.Outlined.WarningAmber,null,modifier=Modifier.size(18.dp),tint=p.warning)
+                Spacer(Modifier.width(10.dp))
+                Text("Values read from pages are suggestions. Check them against the document. "+
+                    "They do not verify identity.",color=p.ink,fontSize=12.sp,lineHeight=17.sp)
+            }
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
                 Button(onClick=onFetchDetails,
                     enabled=!fetchingDetails&&card.files.any{DetailFetchPlan.supported(it)},
@@ -135,7 +148,7 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                 }
             }
         }
-        LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(start=16.dp,end=16.dp,bottom=16.dp),
+        LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(start=18.dp,end=18.dp,bottom=16.dp),
             verticalArrangement=Arrangement.spacedBy(10.dp)){
             if(rows.isEmpty())item{
                 Surface(shape=RoundedCornerShape(14.dp),color=dPanel,
@@ -150,9 +163,11 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                 }
             }
             items(rows,key={it.id}){field->
-                Card(colors=CardDefaults.cardColors(containerColor=dPanel),
-                    shape=RoundedCornerShape(14.dp),
-                    border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
+                val isSelected=field.id in selected
+                Card(colors=CardDefaults.cardColors(containerColor=p.panelRaised),
+                    shape=RoundedCornerShape(18.dp),
+                    border=BorderStroke(if(isSelected)1.5.dp else 1.dp,
+                        if(isSelected)p.accent else p.line)){
                     Column(Modifier.fillMaxWidth().padding(start=12.dp,end=6.dp,top=12.dp,bottom=10.dp)){
                         Row(verticalAlignment=Alignment.CenterVertically){
                             if(selectMode)Checkbox(checked=field.id in selected,
@@ -162,19 +177,30 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                             Column(Modifier.weight(1f).clickable{edit(field)}
                                 .padding(start=if(selectMode)0.dp else 4.dp),
                                 verticalArrangement=Arrangement.spacedBy(5.dp)){
-                                Text(field.name,color=dMuted,style=MaterialTheme.typography.bodySmall)
-                                SelectionContainer{
-                                    Text(field.value.ifBlank{"Not entered"},color=MaterialTheme.colorScheme.onSurface,
-                                        style=MaterialTheme.typography.bodyLarge)
+                                Row(verticalAlignment=Alignment.CenterVertically,
+                                    horizontalArrangement=Arrangement.spacedBy(7.dp)){
+                                    Text(field.name.uppercase(java.util.Locale.ROOT),color=p.inkFaint,
+                                        fontSize=10.sp,letterSpacing=1.2.sp,fontWeight=FontWeight.Medium,
+                                        maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        modifier=Modifier.weight(1f,fill=false))
+                                    if(field.confidence>0f&&field.confidence<.75f)
+                                        MockupTag("Review",p.warning,p.warningSoft)
+                                    else if(field.source=="manual")
+                                        MockupTag("Manual",p.inkMuted,p.line.copy(alpha=.5f))
                                 }
-                                if(field.confidence>0f&&field.confidence<.75f)
-                                    Text("Please check this suggested value",color=VaultColors.expiring,
-                                        style=MaterialTheme.typography.labelSmall)
+                                SelectionContainer{
+                                    Text(field.value.ifBlank{"Not entered"},color=p.ink,
+                                        fontSize=15.sp,fontWeight=FontWeight.SemiBold)
+                                }
                             }
                             IconButton(onClick={copyToClipboard(context,field.name,field.value)},
                                 enabled=field.value.isNotBlank(),modifier=Modifier.size(48.dp)){
                                 Icon(Icons.Outlined.ContentCopy,"Copy "+field.name,
-                                    modifier=Modifier.size(20.dp))
+                                    modifier=Modifier.size(20.dp),tint=p.accent)
+                            }
+                            IconButton(onClick={edit(field)},modifier=Modifier.size(48.dp)){
+                                Icon(Icons.Outlined.Edit,"Edit "+field.name,
+                                    modifier=Modifier.size(20.dp),tint=p.inkMuted)
                             }
                         }
                         if(arranging){
@@ -210,8 +236,8 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                 }
             }
         }
-        HorizontalDivider(color=MaterialTheme.colorScheme.outline)
-        Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=10.dp),
+        HorizontalDivider(color=p.line)
+        Row(Modifier.fillMaxWidth().padding(horizontal=18.dp,vertical=10.dp),
             horizontalArrangement=Arrangement.spacedBy(10.dp)){
             OutlinedButton(onClick={copyToClipboard(context,"Selected information",copyText(selected))},
                 enabled=fields.any{it.id in selected&&it.value.isNotBlank()},
@@ -226,7 +252,7 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                     Icon(Icons.Outlined.PersonAdd,"Add selected details to person",
                         Modifier.size(19.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Add to Person")
+                    Text("Add to profile · "+fields.count{it.id in selected&&it.value.isNotBlank()})
                 }
             }else{
                 Button(onClick={copyToClipboard(context,"Document information",

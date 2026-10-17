@@ -7,6 +7,13 @@ import android.os.Build
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -605,8 +612,26 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 }
             ){ padding ->
                 Box(Modifier.fillMaxSize().padding(padding)) {
-                    savedScreens.SaveableStateProvider(route) {
-                    when(route){
+                    AnimatedContent(targetState=route,modifier=Modifier.fillMaxSize(),
+                        transitionSpec={
+                            val roots=setOf("home","cards","people","more")
+                            val ease=tween<Float>(220)
+                            when {
+                                // Switching tabs: a quick cross-fade, no travel.
+                                initialState in roots&&targetState in roots->
+                                    fadeIn(ease) togetherWith fadeOut(tween(120))
+                                // Opening a screen: it arrives from the right.
+                                backStack.lastOrNull()==initialState->
+                                    (slideInHorizontally(tween(260)){it/10}+fadeIn(ease)) togetherWith
+                                        (slideOutHorizontally(tween(260)){-it/10}+fadeOut(tween(160)))
+                                // Going back: the previous screen returns from the left.
+                                else->
+                                    (slideInHorizontally(tween(260)){-it/10}+fadeIn(ease)) togetherWith
+                                        (slideOutHorizontally(tween(260)){it/10}+fadeOut(tween(160)))
+                            }
+                        },label="screen"){screenRoute->
+                    savedScreens.SaveableStateProvider(screenRoute) {
+                    when(screenRoute){
                         "home"->MockupHome(repo.cards.toList(),repo.profiles.toList(),
                             userProfile,options.getInt("remindDays",30),
                             {userProfile=it},{openCard(it)},
@@ -696,7 +721,12 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             operationState.sequence,biometricEnabled,{
                                 enabled->biometricEnabled=enabled
                                 options.edit().putBoolean("biometricUnlock",enabled).apply()
-                            })
+                            },
+                            profileName=repo.profiles.firstOrNull{it.id==userProfile}?.name?:"My vault",
+                            cardCount=VaultPersonFilter.filter(repo.cards.toList(),userProfile).size,
+                            pageCount=VaultPersonFilter.filter(repo.cards.toList(),userProfile)
+                                .sumOf{it.files.size},
+                            peopleCount=repo.profiles.size)
                         "detail"->current?.let{c->VaultNavDetail(c,repo,
                             {f->viewingId=f.id;navigate("viewer")},
                             {f->startOcr(c.id,f)},{f->activity.share(f)},{activity.shareAll(c.files)},
@@ -925,6 +955,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             },
                             {navigate("backup")})
                         }
+                    }
                     }
                     }
                     if(runningOcr!=null && busy.isBlank()) {

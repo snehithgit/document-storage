@@ -74,6 +74,16 @@ object DesignLogic{
             else->Triple(0xFF1F3A40L,0xFF3C7480L,0xFFE8F1F3L)
         }
     }
+    /** "1 yr 3 mo", "5 mo", "12 days": a short human span for expiry rows. */
+    fun humanSpan(days:Long):String{
+        val d=days.coerceAtLeast(0L)
+        return when {
+            d>=365->{val y=d/365;val m=(d%365)/30;if(m>0)"$y yr $m mo" else "$y yr"}
+            d>=60->"${d/30} mo"
+            d==1L->"1 day"
+            else->"$d days"
+        }
+    }
     fun maskedNumber(card:VaultCard)=number(card).let{if(it.isBlank())"" else ProfileLogic.mask(it)}
     fun daysLeft(card:VaultCard,today:LocalDate=LocalDate.now()):Long?=
         runCatching{ChronoUnit.DAYS.between(today,LocalDate.parse(card.expiry))}.getOrNull()

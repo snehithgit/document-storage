@@ -12,12 +12,11 @@ import kotlin.math.roundToInt
 
 @Composable fun ScanEnhanceControls(settings:ScanSettings,onChange:(ScanSettings)->Unit){
     Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
-        Text("Filters",style=MaterialTheme.typography.titleSmall)
+        Text("Filters",color=mockupPalette.ink,style=MaterialTheme.typography.titleSmall)
         Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){
             ScanEnhance.presets.forEach{preset->
-                FilterChip(selected=settings.preset==preset,
-                    onClick={onChange(settings.copy(preset=preset))},
-                    label={Text(if(preset=="B&W")"Black & White" else preset)},shape=CircleShape)
+                MockupChip(if(preset=="B&W")"Black & White" else preset,
+                    settings.preset==preset){onChange(settings.copy(preset=preset))}
             }
         }
         var showAdjust by remember{mutableStateOf(false)}
