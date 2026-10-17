@@ -46,11 +46,9 @@ import java.time.LocalTime
     val alert=(VaultExpiryRules.needsAttention(displayed,reminderDays)+
         displayed.filter{card->card.fields.any{f->f.confidence>0f&&f.confidence<.75f} ||
             DesignLogic.hasHolderConflict(card)}).distinctBy{it.id}.take(5)
-    val pages=rememberVaultPageTotal(repo,displayed)
-    val categories=displayed.groupBy{it.category.ifBlank{"Other"}}
-        .mapValues{(_,list)->list.sumOf{it.files.size}}
-        .filterValues{it>0}
-        .toList().sortedByDescending{it.second}
+    val categories=rememberVaultCategoryPageCounts(repo,displayed)
+        .filter{it.second>0}
+    val pages=categories.sumOf{it.second}
     val first=profiles.firstOrNull{it.id==profile}?.name
         ?.substringBefore(' ')?.takeIf{it.isNotBlank()}
         ?:if(profile=="all")"everyone" else "there"
@@ -227,7 +225,7 @@ import java.time.LocalTime
 private fun mockupCategoryColor(category:String,colors:MockupPalette):Color =
     when(category.lowercase()){
         "identity"->colors.accent
-        "personal"->colors.good
+        "personal"->Color(0xFFD99A2B)
         "transport"->Color(0xFFD99A2B)
         "work"->Color(0xFF4B8FB0)
         "notes"->colors.inkFaint

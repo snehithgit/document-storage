@@ -98,7 +98,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var error by remember{mutableStateOf("")}
     var pdfJob by remember{mutableStateOf<PdfJob?>(null)}
     var backupPassword by remember{mutableStateOf("")}
-    var themeMode by rememberSaveable { mutableStateOf(options.getString("displayTheme","dark") ?: "dark") }
+    var themeMode by rememberSaveable { mutableStateOf(options.getString("displayTheme","system") ?: "system") }
     var documentStyle by rememberSaveable {
         mutableStateOf(options.getString("documentStyle","pages") ?: "pages")
     }

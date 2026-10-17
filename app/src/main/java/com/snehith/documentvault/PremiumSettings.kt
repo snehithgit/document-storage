@@ -175,8 +175,8 @@ import kotlinx.coroutines.withContext
             MockupGroup(Modifier.padding(0.dp)){
                 Column(Modifier.padding(14.dp),
                     verticalArrangement=Arrangement.spacedBy(12.dp)){
-                    MockupSegment(listOf("system" to "System","light" to "Graphite",
-                        "dark" to "OLED black"),themeMode,onThemeModeChanged)
+                    MockupSegment(listOf("system" to "System","light" to "Light",
+                        "dark" to "Dark"),themeMode,onThemeModeChanged)
                     Eyebrow("Document style")
                     MockupSegment(listOf("pages" to "Pages",
                         "wallet" to "Wallet cards"),documentStyle,onDocumentStyleChanged)

@@ -14,7 +14,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -404,6 +403,27 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
                     Text(VaultCounts.format(pages.size,"page")+" · "+
                         VaultCounts.format(card.files.size,"attachment"),
                         color=palette.inkFaint,fontSize=12.sp)
+                }
+            }
+        }
+        if(documentStyle!="wallet")item{
+            Row(Modifier.fillMaxWidth(),
+                horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                listOf("Holder" to DesignLogic.holder(card).ifBlank{"Not added"},
+                    "Document number" to DesignLogic.maskedNumber(card).ifBlank{"Not added"}
+                ).forEach{(label,value)->
+                    Surface(color=palette.panelRaised,shape=RoundedCornerShape(16.dp),
+                        border=BorderStroke(1.dp,palette.line),
+                        modifier=Modifier.weight(1f)){
+                        Column(Modifier.padding(12.dp),
+                            verticalArrangement=Arrangement.spacedBy(6.dp)){
+                            Text(label.uppercase(),color=palette.inkFaint,
+                                fontSize=10.sp,letterSpacing=.8.sp)
+                            Text(value,color=palette.ink,fontSize=14.sp,
+                                fontWeight=FontWeight.SemiBold,maxLines=1,
+                                overflow=TextOverflow.Ellipsis)
+                        }
+                    }
                 }
             }
         }
