@@ -210,7 +210,8 @@ import java.time.LocalTime
 }
 private fun mockupCategoryColor(category:String,colors:MockupPalette):Color =
     when(category.lowercase()){
-        "identity","personal"->colors.accent
+        "identity"->colors.accent
+        "personal"->colors.good
         "transport"->Color(0xFFD99A2B)
         "work"->Color(0xFF4B8FB0)
         "notes"->colors.inkFaint

@@ -126,7 +126,14 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
             Text(VaultNames.title(card.title),Modifier.weight(1f),
                 color=palette.ink,fontSize=13.sp,fontWeight=FontWeight.SemiBold,
                 maxLines=1)
-            ExpiryTag(card)
+            val needsReview=card.fields.count{it.confidence>0f&&it.confidence<.75f}+
+                (if(DesignLogic.hasHolderConflict(card))1 else 0)
+            if(needsReview>0)Surface(shape=RoundedCornerShape(8.dp),
+                color=palette.warningSoft){
+                Text("$needsReview TO REVIEW",modifier=Modifier.padding(
+                    horizontal=8.dp,vertical=5.dp),
+                    color=palette.warning,fontSize=10.sp,fontWeight=FontWeight.SemiBold)
+            }else ExpiryTag(card)
         }
      }
 }

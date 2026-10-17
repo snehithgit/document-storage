@@ -43,7 +43,8 @@ import kotlin.math.absoluteValue
         else->MaterialTheme.colorScheme.onSurfaceVariant
     }
     Surface(shape=RoundedCornerShape(8.dp),color=tint.copy(alpha=.13f)){
-        Text(DesignLogic.expiryLabel(card).uppercase(Locale.ROOT),
+        Text(if(card.expiry.isBlank())"NO DATE SET" else
+            DesignLogic.expiryLabel(card).uppercase(Locale.ROOT),
             modifier=Modifier.padding(horizontal=8.dp,vertical=5.dp),
             color=tint,style=MaterialTheme.typography.labelSmall,maxLines=1)
     }

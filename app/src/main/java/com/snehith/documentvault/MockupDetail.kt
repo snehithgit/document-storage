@@ -193,7 +193,7 @@ data class MockupAction(val icon:ImageVector,val label:String,val primary:Boolea
     val shape=RoundedCornerShape(20.dp)
     Column(Modifier.fillMaxWidth().clip(shape).background(p.panelRaised)
         .border(1.dp,p.line,shape).padding(horizontal=14.dp)){
-        if(fields.isEmpty())Text("No fields yet. Read the pages or add one.",
+        if(fields.isEmpty())Text("No fields yet. Choose Get Details or add a field.",
             color=p.inkMuted,fontSize=14.sp,modifier=Modifier.padding(vertical=16.dp))
         fields.forEachIndexed{i,f->
             if(i>0)HorizontalDivider(color=p.line)
