@@ -39,12 +39,11 @@ object VaultDocumentPages {
 
 @Composable fun rememberVaultDocumentPages(repo:VaultRepository,files:List<VaultFile>):List<VaultDocumentPage>{
     val identity=VaultDocumentPages.identity(files)
-    val pages by produceState(
-        initialValue=files.map{VaultDocumentPage(it,0,1)},
-        key1=repo,key2=identity
-    ){
-        val expanded=withContext(Dispatchers.IO){VaultDocumentPages.expand(repo,files)}
-        value=expanded
+    var pages by remember(repo,identity){
+        mutableStateOf(files.map{VaultDocumentPage(it,0,1)})
+    }
+    LaunchedEffect(repo,identity){
+        pages=withContext(Dispatchers.IO){VaultDocumentPages.expand(repo,files)}
     }
     return pages
 }
@@ -53,28 +52,29 @@ object VaultDocumentPages {
     repo:VaultRepository,cards:List<VaultCard>
 ):List<Pair<String,Int>>{
     val signature=cards.joinToString("|"){it.id+":"+VaultDocumentPages.identity(it.files)}
-    val initial=cards.groupBy{it.category.ifBlank{"Other"}}
-        .map{(category,group)->category to group.sumOf{it.files.size}}
-        .sortedByDescending{it.second}
-    val result by produceState(initialValue=initial,key1=repo,key2=signature){
-        val measured=withContext(Dispatchers.IO){
+    var results by remember(repo,signature){
+        mutableStateOf(cards.groupBy{it.category.ifBlank{"Other"}}
+            .map{(category,group)->category to group.sumOf{it.files.size}}
+            .sortedByDescending{it.second})
+    }
+    LaunchedEffect(repo,signature){
+        results=withContext(Dispatchers.IO){
             cards.groupBy{it.category.ifBlank{"Other"}}
                 .map{(category,group)->
                     category to group.sumOf{VaultDocumentPages.expand(repo,it.files).size}
                 }.sortedByDescending{it.second}
         }
-        value=measured
     }
-    return result
+    return results
 }
 
 @Composable fun rememberVaultPageTotal(repo:VaultRepository,cards:List<VaultCard>):Int{
     val signature=cards.joinToString("|"){it.id+":"+VaultDocumentPages.identity(it.files)}
-    val total by produceState(initialValue=cards.sumOf{it.files.size},key1=repo,key2=signature){
-        val measured=withContext(Dispatchers.IO){
+    var total by remember(repo,signature){mutableIntStateOf(cards.sumOf{it.files.size})}
+    LaunchedEffect(repo,signature){
+        total=withContext(Dispatchers.IO){
             cards.sumOf{VaultDocumentPages.expand(repo,it.files).size}
         }
-        value=measured
     }
     return total
 }
