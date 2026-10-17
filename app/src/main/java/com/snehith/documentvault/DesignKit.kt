@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
@@ -55,6 +56,23 @@ object DesignLogic{
         return names.firstNotNullOfOrNull{n->
             card.fields.firstOrNull{it.name.trim().equals(n,true)&&it.value.isNotBlank()}?.value
         }.orEmpty()
+    }
+    /** Match the mockup's theme per document kind without using its demo documents. */
+    fun facePalette(card:VaultCard):Triple<Long,Long,Long>{
+        val value=(card.title+" "+card.kind+" "+card.category).lowercase(Locale.ROOT)
+        return when {
+            "passport" in value->Triple(0xFF12263FL,0xFF2A5079L,0xFFE8F1F7L)
+            "aadhaar" in value->Triple(0xFFF2EBDAL,0xFFDCCFAEL,0xFF2A2418L)
+            "pan card" in value||card.kind.equals("PAN",true)->
+                Triple(0xFFC9DDECL,0xFF8EB3D3L,0xFF0E2236L)
+            "licence" in value||"license" in value||"transport" in value->
+                Triple(0xFFE8D4A6L,0xFFC9A262L,0xFF2B1F08L)
+            "cdc" in value||"seafarer" in value||"work" in value->
+                Triple(0xFF143331L,0xFF2F6A60L,0xFFE4F2EFL)
+            "notes" in value||"emergency" in value->
+                Triple(0xFF262D30L,0xFF4A565BL,0xFFE8F1F3L)
+            else->Triple(0xFF1F3A40L,0xFF3C7480L,0xFFE8F1F3L)
+        }
     }
     fun maskedNumber(card:VaultCard)=number(card).let{if(it.isBlank())"" else ProfileLogic.mask(it)}
     fun daysLeft(card:VaultCard,today:LocalDate=LocalDate.now()):Long?=
@@ -93,32 +111,77 @@ object DesignLogic{
             color=tint,style=MaterialTheme.typography.labelSmall,maxLines=1)
     }
 }
+/** Document Vault.html .cf: 1.586 wallet ratio, chip, top title/type,
+ * subdued number and cardholder, concentric-radial surface texture. */
 @Composable fun CardFace(card:VaultCard,modifier:Modifier=Modifier,onClick:(()->Unit)?=null){
-    val hues=DesignLogic.faceHues[DesignLogic.hueIndex(card.kind)]
-    val frame=modifier.fillMaxWidth().aspectRatio(1.586f)
-        .clip(RoundedCornerShape(22.dp))
-        .background(Brush.linearGradient(listOf(Color(hues.first),Color(hues.second))))
-    Box((if(onClick!=null)frame.clickable(onClick=onClick)else frame).padding(18.dp)){
-        Row(Modifier.fillMaxWidth().align(Alignment.TopStart),verticalAlignment=Alignment.CenterVertically){
-            Text(card.kind.uppercase(Locale.ROOT),maxLines=1,
-                color=Color.White.copy(alpha=.75f),
-                modifier=Modifier.weight(1f),style=MaterialTheme.typography.labelSmall)
-            Surface(shape=RoundedCornerShape(8.dp),color=Color.Black.copy(alpha=.25f)){
-                Text(DesignLogic.expiryLabel(card),color=Color.White,
-                    modifier=Modifier.padding(horizontal=8.dp,vertical=5.dp),
-                    style=MaterialTheme.typography.labelSmall)
-            }
+    val (a,b,ink)=DesignLogic.facePalette(card)
+    val foreground=Color(ink)
+    val shape=RoundedCornerShape(22.dp)
+    val surface=modifier.fillMaxWidth().aspectRatio(1.586f)
+        .clip(shape)
+        .background(Brush.linearGradient(listOf(Color(a),Color(b))))
+    BoxWithConstraints(
+        if(onClick!=null)surface.clickable(onClick=onClick)else surface
+    ){
+        val cardWidth=maxWidth
+        val cardHeight=maxHeight
+        val inset=cardWidth*.054f
+        val titleSize=(cardWidth.value*.056f).coerceIn(13f,24f).sp
+        val numberSize=(cardWidth.value*.04f).coerceIn(11f,17f).sp
+        Canvas(Modifier.matchParentSize()){
+            val center=Offset(size.width*1.08f,size.height*(-.25f))
+            val step=size.width*.027f
+            for(i in 1..36)drawCircle(foreground.copy(alpha=.08f),
+                radius=step*i,center=center,style=Stroke(width=1.1.dp.toPx()))
         }
-        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth(),
-            verticalArrangement=Arrangement.spacedBy(3.dp)){
-            val number=DesignLogic.maskedNumber(card)
-            if(number.isNotBlank())Text(number,color=Color.White.copy(alpha=.8f),
-                style=MaterialTheme.typography.labelMedium)
-            Text(VaultNames.title(card.title),style=MaterialTheme.typography.titleLarge,
-                maxLines=1,overflow=TextOverflow.Ellipsis,color=Color.White)
+        // Hardware-like gold contact chip at 36% height, as in the HTML card.
+        Box(Modifier.offset(x=inset,y=cardHeight*.36f)
+            .size(width=cardWidth*.09f,height=cardWidth*.066f)
+            .clip(RoundedCornerShape(4.dp))
+            .background(Brush.linearGradient(listOf(
+                Color(0xFFEBD58E),Color(0xFFB9964A)))))
+        Row(Modifier.fillMaxWidth().align(Alignment.TopStart)
+            .padding(horizontal=inset,vertical=inset),
+            horizontalArrangement=Arrangement.SpaceBetween,
+            verticalAlignment=Alignment.Top){
+            Text(VaultNames.title(card.title),
+                modifier=Modifier.weight(1f),
+                fontSize=titleSize,lineHeight=titleSize*1.12f,
+                fontWeight=FontWeight.Bold,color=foreground,
+                maxLines=2,overflow=TextOverflow.Ellipsis)
+            Spacer(Modifier.width(10.dp))
+            Text(card.category.ifBlank{card.kind}.uppercase(Locale.ROOT),
+                fontSize=(cardWidth.value*.027f).coerceIn(9f,12f).sp,
+                letterSpacing=1.1f.sp,
+                color=foreground.copy(alpha=.7f),
+                maxLines=1)
+        }
+        Row(Modifier.fillMaxWidth().align(Alignment.BottomStart)
+            .padding(horizontal=inset,vertical=inset),
+            horizontalArrangement=Arrangement.SpaceBetween,
+            verticalAlignment=Alignment.Bottom){
+            Column(Modifier.weight(1f)){
+                Text("NO.",fontSize=(cardWidth.value*.024f).coerceIn(9f,11f).sp,
+                    letterSpacing=1.2f.sp,color=foreground.copy(alpha=.6f))
+                Spacer(Modifier.height(4.dp))
+                Text(DesignLogic.maskedNumber(card).ifBlank{
+                    VaultCounts.format(card.files.size,"page")
+                },fontSize=numberSize,fontWeight=FontWeight.Medium,
+                    letterSpacing=.5.sp,color=foreground,maxLines=1,
+                    overflow=TextOverflow.Ellipsis)
+            }
             val holder=DesignLogic.holder(card)
-            if(holder.isNotBlank())Text(holder,color=Color.White.copy(alpha=.8f),
-                maxLines=1,style=MaterialTheme.typography.bodySmall)
+            if(holder.isNotBlank()){
+                Spacer(Modifier.width(12.dp))
+                Column(horizontalAlignment=Alignment.End){
+                    Text("CARDHOLDER",fontSize=9.sp,letterSpacing=.9.sp,
+                        color=foreground.copy(alpha=.65f))
+                    Spacer(Modifier.height(4.dp))
+                    Text(holder,fontSize=(cardWidth.value*.032f).coerceIn(10f,14f).sp,
+                        color=foreground,fontWeight=FontWeight.SemiBold,
+                        maxLines=1,overflow=TextOverflow.Ellipsis)
+                }
+            }
         }
     }
 }
@@ -150,45 +213,56 @@ object DesignLogic{
     }
 }
 data class DockItem(val route:String,val icon:ImageVector,val label:String)
+
+/** Document Vault.html: exact five equal dock slots, central 50dp scan tile,
+ * animated 52dp indicator, 68dp floating rounded container. */
 @Composable fun VaultDock(items:List<DockItem>,active:String,
-    onNavigate:(String)->Unit,onScan:()->Unit){
-    val current=items.indexOfFirst{it.route==active}.coerceAtLeast(0)
-    Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=7.dp),
-        verticalAlignment=Alignment.CenterVertically){
-        BoxWithConstraints(Modifier.weight(1f).height(64.dp)
-            .shadow(12.dp,RoundedCornerShape(32.dp))
-            .clip(RoundedCornerShape(32.dp))
-            .background(MaterialTheme.colorScheme.inverseSurface)){
-            val cell=maxWidth/items.size
-            val offset by animateDpAsState(cell*current,tween(160),label="dock")
-            Box(Modifier.offset(x=offset).width(cell).fillMaxHeight().padding(6.dp)
-                .clip(RoundedCornerShape(27.dp))
-                .background(MaterialTheme.colorScheme.inverseOnSurface.copy(alpha=.17f)))
-            Row(Modifier.fillMaxSize()){
-                items.forEach{item->
-                    val selected=item.route==active
-                    val color by animateColorAsState(if(selected)
-                        MaterialTheme.colorScheme.inverseOnSurface else
-                        MaterialTheme.colorScheme.inverseOnSurface.copy(alpha=.60f),
-                        tween(160),label="tab")
-                    Column(Modifier.weight(1f).fillMaxHeight()
-                        .clickable{onNavigate(item.route)},
-                        horizontalAlignment=Alignment.CenterHorizontally,
-                        verticalArrangement=Arrangement.Center){
-                        Icon(item.icon,item.label,Modifier.size(22.dp),tint=color)
-                        Spacer(Modifier.height(3.dp))
-                        Text(item.label,color=color,style=MaterialTheme.typography.labelSmall)
+    onNavigate:(String)->Unit,onScan:()->Unit) {
+    val palette=mockupPalette
+    val selected=items.indexOfFirst{it.route==active}.coerceAtLeast(0)
+    BoxWithConstraints(
+        Modifier.fillMaxWidth().padding(start=14.dp,end=14.dp,bottom=14.dp,top=6.dp)
+            .height(68.dp)
+            .shadow(16.dp,RoundedCornerShape(26.dp))
+            .clip(RoundedCornerShape(26.dp))
+            .background(palette.dock)
+    ){
+        val cell=maxWidth/items.size.coerceAtLeast(1)
+        val indicator by animateDpAsState(cell*selected,
+            animationSpec=tween(500),label="mockup-dock-indicator")
+        val visible by animateFloatAsState(if(active=="scan")0f else 1f,
+            animationSpec=tween(180),label="mockup-dock-indicator-opacity")
+        if(visible>0.001f)Box(
+            Modifier.offset(x=indicator,y=8.dp).width(cell).height(52.dp)
+                .padding(horizontal=4.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(palette.dockDim.copy(alpha=.22f*visible))
+        )
+        Row(Modifier.fillMaxSize(),verticalAlignment=Alignment.CenterVertically) {
+            items.forEach{item->
+                val isScan=item.route=="scan"
+                val chosen=item.route==active
+                val tint=if(chosen)palette.dockInk else palette.dockDim
+                Column(
+                    Modifier.weight(1f).fillMaxHeight()
+                        .clickable{if(isScan)onScan() else onNavigate(item.route)},
+                    verticalArrangement=Arrangement.Center,
+                    horizontalAlignment=Alignment.CenterHorizontally
+                ){
+                    if(isScan){
+                        Box(Modifier.size(50.dp).clip(RoundedCornerShape(18.dp))
+                            .background(palette.accent),contentAlignment=Alignment.Center){
+                            Icon(Icons.Outlined.Add,"Scan document",
+                                tint=palette.accentInk,modifier=Modifier.size(24.dp))
+                        }
+                    }else{
+                        Icon(item.icon,item.label,modifier=Modifier.size(22.dp),tint=tint)
+                        Spacer(Modifier.height(4.dp))
+                        Text(item.label.uppercase(java.util.Locale.ROOT),
+                            color=tint,fontSize=10.sp,letterSpacing=.6.sp,
+                            fontWeight=FontWeight.Medium,maxLines=1)
                     }
                 }
-            }
-        }
-        Spacer(Modifier.width(12.dp))
-        Surface(onClick=onScan,modifier=Modifier.size(64.dp),
-            shape=CircleShape,color=MaterialTheme.colorScheme.primary,
-            shadowElevation=9.dp){
-            Box(contentAlignment=Alignment.Center){
-                Icon(Icons.Outlined.Add,"Add Document",modifier=Modifier.size(29.dp),
-                    tint=MaterialTheme.colorScheme.onPrimary)
             }
         }
     }

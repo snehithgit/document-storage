@@ -22,7 +22,7 @@ object VaultColors{
     val lightLine=Color(0xFFD3DCDE)
     val lightAccent=Color(0xFF07687C)
     val lightAccentSoft=Color(0xFFCFE6EB)
-    val darkBg=Color(0xFF000000)
+    val darkBg=Color(0xFF040809)
     val darkPanel=Color(0xFF0C1316)
     val darkSurface=Color(0xFF131C20)
     val darkInk=Color(0xFFE8F1F3)
@@ -58,7 +58,7 @@ val VaultLightScheme=lightColorScheme(
     secondary=VaultColors.lightAccent,onSecondary=Color.White,
     secondaryContainer=VaultColors.lightAccentSoft,onSecondaryContainer=VaultColors.lightInk,
     tertiaryContainer=VaultColors.lightAccentSoft,onTertiaryContainer=VaultColors.lightInk,
-    background=VaultColors.lightBg,onBackground=VaultColors.lightInk,
+    background=VaultColors.lightPanel,onBackground=VaultColors.lightInk,
     surface=VaultColors.lightPanel2,onSurface=VaultColors.lightInk,
     surfaceVariant=VaultColors.lightPanel,onSurfaceVariant=VaultColors.lightInk2,
     surfaceContainer=VaultColors.lightPanel2,surfaceContainerLow=VaultColors.lightPanel,
@@ -75,7 +75,7 @@ val VaultDarkScheme=darkColorScheme(
     secondary=VaultColors.darkAccent,onSecondary=Color(0xFF031418),
     secondaryContainer=VaultColors.darkAccentSoft,onSecondaryContainer=VaultColors.darkInk,
     tertiaryContainer=VaultColors.darkAccentSoft,onTertiaryContainer=VaultColors.darkInk,
-    background=VaultColors.darkBg,onBackground=VaultColors.darkInk,
+    background=VaultColors.darkPanel,onBackground=VaultColors.darkInk,
     surface=VaultColors.darkSurface,onSurface=VaultColors.darkInk,
     surfaceVariant=VaultColors.darkPanel,onSurfaceVariant=VaultColors.darkInk2,
     surfaceContainer=VaultColors.darkSurface,surfaceContainerLow=VaultColors.darkPanel,
@@ -112,5 +112,5 @@ val VaultTypography=Typography(
         shapes=VaultShapes,typography=VaultTypography,content=content)
 }
 @Composable fun vaultWarmBrush(dark:Boolean):Brush =
-    Brush.verticalGradient(if(dark)listOf(VaultColors.darkBg,VaultColors.darkBg)
-        else listOf(VaultColors.lightBg,VaultColors.lightBg))
+    Brush.verticalGradient(if(dark)listOf(VaultColors.darkPanel,VaultColors.darkPanel)
+        else listOf(VaultColors.lightPanel,VaultColors.lightPanel))

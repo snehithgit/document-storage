@@ -34,4 +34,16 @@ class DesignLogicTest {
         assertEquals(2,DesignLogic.trackedExpiryCount(cards))
         assertEquals(.5f,DesignLogic.healthyShare(cards,today),.0001f)
     }
+
+    @Test fun cardFacesFollowTheProvidedMockupPalette(){
+        val passport=VaultCard(title="Passport",kind="Passport",category="Identity")
+        val aadhaar=VaultCard(title="Aadhaar",kind="Aadhaar",category="Identity")
+        val pan=VaultCard(title="PAN Card",kind="PAN",category="Identity")
+        val transport=VaultCard(title="Driving Licence",kind="Driving Licence",
+            category="Transport")
+        assertEquals(0xFF12263FL,DesignLogic.facePalette(passport).first)
+        assertEquals(0xFFF2EBDAL,DesignLogic.facePalette(aadhaar).first)
+        assertEquals(0xFFC9DDECL,DesignLogic.facePalette(pan).first)
+        assertEquals(0xFFE8D4A6L,DesignLogic.facePalette(transport).first)
+    }
 }

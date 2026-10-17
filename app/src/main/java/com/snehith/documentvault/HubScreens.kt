@@ -198,12 +198,13 @@ private fun readableBytes(bytes:Long):String=when{
     }
 }
 @Composable fun HubBottomBar(active:String,onNavigate:(String)->Unit,onScan:()->Unit){
-    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)
+    Box(Modifier.fillMaxWidth().background(mockupPalette.panel)
         .navigationBarsPadding()){
-        // Search stays accessible from Home and Documents; People is a true root tab.
+        // HTML mockup: HOME / CARDS / (+) / PEOPLE / SETTINGS.
         VaultDock(listOf(
             DockItem("home",Icons.Outlined.Home,"Home"),
-            DockItem("cards",Icons.Outlined.FolderOpen,"Documents"),
+            DockItem("cards",Icons.Outlined.CreditCard,"Cards"),
+            DockItem("scan",Icons.Outlined.Add,"Scan"),
             DockItem("people",Icons.Outlined.People,"People"),
             DockItem("more",Icons.Outlined.Settings,"Settings")
         ),active,onNavigate,onScan)

@@ -96,7 +96,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     }
     val dark=when(themeMode){"dark"->true;"light"->false;else->isSystemInDarkTheme()}
     val current=repo.cards.firstOrNull{it.id==selectedCardId}
-    val regular=route in setOf("home","cards","people","more")
+    val regular=route in setOf("home","cards","scan","people","more")
     // A saved, ordered history replaces route-specific guesses in Back handling.
     // Root tab changes clear the history; nested screens push their actual caller.
     fun navigate(destination:String) {
@@ -606,12 +606,11 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 Box(Modifier.fillMaxSize().padding(padding)) {
                     savedScreens.SaveableStateProvider(route) {
                     when(route){
-                        "home"->HubHome(repo.cards.toList(),repo,repo.profiles.toList(),userProfile,
-                            {userProfile=it},{openCard(it)},{navigate("search")},{navigate("scan")},
-                            {importTarget=null;importPicker.launch(arrayOf("*/*"))},
-                            {startEdit(repo.newCard(profile=if(userProfile=="all")"self" else userProfile))},
-                            {navigate("cards");activity.notify("Open any card and tap PDF to merge its attachments")},{navigate("expiry")},
-                            {categoryFilter=it;navigate("cards")})
+                        "home"->MockupHome(repo.cards.toList(),repo.profiles.toList(),
+                            userProfile,options.getInt("remindDays",30),
+                            {userProfile=it},{openCard(it)},
+                            {navigateRoot("cards")},{navigateRoot("more")},
+                            {navigate("expiry")})
                         "people"->PeopleScreen(repo.profiles.toList(),repo.entries.toList(),
                             repo.cards.toList(),
                             {person->selectedPersonId=person.id;navigate("person")},
@@ -659,7 +658,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         "cards"->VaultNavCards(repo.cards.toList(),repo,
                             {openCard(it)},{navigate("scan")},categoryFilter,
                             {navigateRoot("search")},repo.profiles.toList(),userProfile,
-                            {userProfile=it},{categoryFilter=""})
+                            {userProfile=it},{categoryFilter=""},{navigateRoot("people")})
                         "search"->VaultNavSearch(repo.cards.toList(),repo,
                             {openCard(it)},repo.profiles.toList(),userProfile,{userProfile=it})
                         "scan"->NavyScanScreen(

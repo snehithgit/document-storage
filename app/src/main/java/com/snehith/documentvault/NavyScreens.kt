@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
@@ -115,27 +116,19 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
             modifier=Modifier.padding(horizontal=8.dp,vertical=4.dp),maxLines=1)
     }
 }
+/** Document Vault.html .grid2 .tile + .cap: real repo cards, mockup wallet face. */
 @Composable fun VaultTile(card:VaultCard,repo:VaultRepository,personName:String="",onClick:()->Unit){
-    Card(onClick=onClick,
-        colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface),
-        shape=RoundedCornerShape(18.dp),
-        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
-        Column(Modifier.fillMaxWidth().padding(9.dp),
-            verticalArrangement=Arrangement.spacedBy(7.dp)){
-            VaultThumbnail(card.files.firstOrNull(),repo,
-                Modifier.fillMaxWidth().height(138.dp),maxEdge=560)
-            Text(VaultNames.title(card.title),style=MaterialTheme.typography.titleMedium,
-                color=MaterialTheme.colorScheme.onSurface,
-                maxLines=2,minLines=2,overflow=TextOverflow.Ellipsis)
-            Text(card.category.ifBlank{"Other"}+" · "+
-                VaultCounts.format(card.files.size,"file"),
-                style=MaterialTheme.typography.bodySmall,color=VaultMuted,
-                maxLines=1,overflow=TextOverflow.Ellipsis)
-            if(personName.isNotBlank())Text(personName,
-                color=MaterialTheme.colorScheme.onSurfaceVariant,
-                style=MaterialTheme.typography.labelSmall,maxLines=1)
+    val palette=mockupPalette
+    Column(Modifier.fillMaxWidth().clickable(onClick=onClick)) {
+        CardFace(card)
+        Row(Modifier.fillMaxWidth().padding(top=9.dp),verticalAlignment=Alignment.CenterVertically){
+            Text(VaultCounts.format(card.files.size,"page"),Modifier.weight(1f),
+                color=palette.ink,fontSize=13.sp,fontWeight=FontWeight.SemiBold,
+                maxLines=1)
             ExpiryTag(card)
         }
+        if(personName.isNotBlank())Text(personName,color=palette.inkFaint,
+            fontSize=11.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
     }
 }
 @Composable fun VaultRow(card:VaultCard,repo:VaultRepository,personName:String="",onClick:()->Unit){
@@ -160,92 +153,105 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
         }
     }
 }
+/** Document Vault.html / VIEWS.library. Search opens the existing full OCR search. */
 @Composable fun VaultNavCards(cards:List<VaultCard>,repo:VaultRepository,
     onOpen:(VaultCard)->Unit,onNew:()->Unit,selectedCategory:String="",onSearch:()->Unit={},
     profiles:List<VaultProfile> = emptyList(),selectedPerson:String="all",
-    onPerson:(String)->Unit={},onCategoryConsumed:()->Unit={}){
+    onPerson:(String)->Unit={},onCategoryConsumed:()->Unit={},
+    onPeople:()->Unit={}){
+    val colors=mockupPalette
     var filter by rememberSaveable{mutableStateOf("All")}
-    var sort by rememberSaveable{mutableStateOf("Recent")}
-    var listView by rememberSaveable{mutableStateOf(false)}
-    var showSort by remember{mutableStateOf(false)}
     LaunchedEffect(selectedCategory){
-        if(selectedCategory.isNotBlank()){filter=selectedCategory;onCategoryConsumed()}
+        if(selectedCategory.isNotBlank()){
+            filter=selectedCategory
+            onCategoryConsumed()
+        }
     }
-    val personCards=remember(cards,selectedPerson){VaultPersonFilter.filter(cards,selectedPerson)}
-    val categories=remember(personCards){listOf("All")+
-        personCards.map{it.category.ifBlank{"Other"}}.distinct().sorted()}
-    val visible=remember(personCards,filter,sort){DocumentBrowseLogic.browse(personCards,filter,sort)}
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)){
-        Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=14.dp),
-            verticalAlignment=Alignment.CenterVertically){
+    val personCards=VaultPersonFilter.filter(cards,selectedPerson)
+    val categories=listOf("All")+
+        personCards.map{it.category.ifBlank{"Other"}}.distinct().sorted()
+    val visible=DocumentBrowseLogic.browse(personCards,filter,"Recent")
+    val name=profiles.firstOrNull{it.id==selectedPerson}?.name?:"My vault"
+    Column(Modifier.fillMaxSize().background(colors.panel)){
+        Row(Modifier.fillMaxWidth().padding(start=18.dp,end=18.dp,top=22.dp,bottom=18.dp),
+            verticalAlignment=Alignment.Top){
             Column(Modifier.weight(1f)){
-                VaultHeader("Documents",VaultCounts.format(visible.size,"document"))
+                Text(name.uppercase(),color=colors.inkFaint,
+                    letterSpacing=1.3f.sp,fontSize=10.sp)
+                Spacer(Modifier.height(12.dp))
+                Text("Cards",fontWeight=FontWeight.Bold,
+                    fontSize=32.sp,lineHeight=34.sp,color=colors.ink)
+                Spacer(Modifier.height(8.dp))
+                Text("${personCards.size} documents · ${personCards.sumOf{it.files.size}} pages",
+                    color=colors.inkMuted,fontSize=14.sp)
             }
-            IconButton(onClick=onSearch,modifier=Modifier.size(48.dp)){
-                Icon(Icons.Outlined.Search,"Search documents")
-            }
-            IconButton(onClick={listView=!listView},modifier=Modifier.size(48.dp)){
-                Icon(if(listView)Icons.Outlined.GridView else Icons.Outlined.ViewList,
-                    if(listView)"Grid view" else "List view")
+            Box(Modifier.size(42.dp).background(colors.ink,
+                androidx.compose.foundation.shape.CircleShape)
+                .clickable(onClick=onPeople),contentAlignment=Alignment.Center){
+                Text(DesignLogic.initials(name),color=colors.panel,
+                    fontSize=14.sp,fontWeight=FontWeight.Bold)
             }
         }
-        if(profiles.isNotEmpty())Row(
-            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal=16.dp),
+        Row(Modifier.fillMaxWidth().padding(horizontal=18.dp)
+            .height(54.dp).background(colors.panelRaised,RoundedCornerShape(18.dp))
+            .border(1.dp,colors.line,RoundedCornerShape(18.dp))
+            .clickable(onClick=onSearch).padding(horizontal=16.dp),
+            verticalAlignment=Alignment.CenterVertically,
+            horizontalArrangement=Arrangement.spacedBy(10.dp)){
+            Icon(Icons.Outlined.Search,null,Modifier.size(20.dp),tint=colors.inkFaint)
+            Text("Search names, numbers, text on pages",
+                color=colors.inkFaint,fontSize=14.sp,maxLines=1,
+                overflow=TextOverflow.Ellipsis)
+        }
+        if(profiles.size>1)Row(Modifier.horizontalScroll(rememberScrollState())
+            .padding(horizontal=18.dp,vertical=12.dp),
             horizontalArrangement=Arrangement.spacedBy(8.dp)){
-            FilterChip(selected=selectedPerson=="all",onClick={onPerson("all")},
-                label={Text("Everyone")})
-            profiles.forEach{person->
-                FilterChip(selected=selectedPerson==person.id,onClick={onPerson(person.id)},
-                    label={Text(person.name)})
+            (listOf(VaultProfile("all","Everyone"))+profiles).forEach{person->
+                val picked=person.id==selectedPerson
+                Surface(onClick={onPerson(person.id)},
+                    color=if(picked)colors.ink else colors.panelRaised,
+                    shape=androidx.compose.foundation.shape.CircleShape,
+                    border=if(picked)null else BorderStroke(1.dp,colors.line)){
+                    Text(person.name,Modifier.padding(horizontal=14.dp,vertical=9.dp),
+                        color=if(picked)colors.panel else colors.inkMuted,
+                        fontSize=13.sp)
+                }
             }
         }
-        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal=16.dp),
+        Row(Modifier.horizontalScroll(rememberScrollState())
+            .padding(horizontal=18.dp,vertical=16.dp),
             horizontalArrangement=Arrangement.spacedBy(8.dp)){
             categories.forEach{category->
-                FilterChip(selected=category==filter,onClick={filter=category},
-                    label={Text(category)})
-            }
-        }
-        Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=6.dp),
-            verticalAlignment=Alignment.CenterVertically){
-            Box{
-                TextButton(onClick={showSort=true}){
-                    Icon(Icons.Outlined.Sort,null,Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Sort: "+sort)
-                    Icon(Icons.Outlined.ArrowDropDown,null)
-                }
-                DropdownMenu(expanded=showSort,onDismissRequest={showSort=false}){
-                    listOf("Recent","Name","Category","Expiry").forEach{choice->
-                        DropdownMenuItem(text={Text(choice)},onClick={sort=choice;showSort=false})
+                val chosen=category==filter
+                val count=if(category=="All")personCards.size else
+                    personCards.count{it.category.ifBlank{"Other"}==category}
+                Surface(onClick={filter=category},
+                    color=if(chosen)colors.ink else colors.panelRaised,
+                    shape=androidx.compose.foundation.shape.CircleShape,
+                    border=if(chosen)null else BorderStroke(1.dp,colors.line)){
+                    Row(Modifier.padding(horizontal=14.dp,vertical=9.dp),
+                        horizontalArrangement=Arrangement.spacedBy(7.dp),
+                        verticalAlignment=Alignment.CenterVertically){
+                        Text(category,color=if(chosen)colors.panel else colors.inkMuted,
+                            fontWeight=FontWeight.SemiBold,fontSize=13.sp)
+                        Text(count.toString(),
+                            color=if(chosen)colors.panel.copy(alpha=.7f) else colors.inkFaint,
+                            fontSize=11.sp)
                     }
                 }
-            }
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick=onNew){
-                Icon(Icons.Outlined.Add,null,Modifier.size(18.dp))
-                Text(" Add")
             }
         }
         if(visible.isEmpty()){
-            Box(Modifier.weight(1f).fillMaxWidth(),contentAlignment=Alignment.Center){
-                Text("No documents in this category.",color=MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }else if(listView){
-            LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(16.dp,8.dp,16.dp,24.dp),
-                verticalArrangement=Arrangement.spacedBy(12.dp)){
-                items(visible,key={it.id}){card->
-                    VaultRow(card,repo,profiles.firstOrNull{it.id==card.profile}?.name.orEmpty()){
-                        onOpen(card)
-                    }
-                }
+            Box(Modifier.fillMaxSize().padding(18.dp),contentAlignment=Alignment.Center){
+                Text("No cards in this category.",color=colors.inkMuted,
+                    fontSize=14.sp)
             }
         }else{
-            BoxWithConstraints(Modifier.weight(1f)){
+            BoxWithConstraints(Modifier.fillMaxSize()){
                 val columns=if(maxWidth>=600.dp)3 else 2
                 LazyVerticalGrid(columns=GridCells.Fixed(columns),
-                    contentPadding=PaddingValues(16.dp,8.dp,16.dp,24.dp),
-                    verticalArrangement=Arrangement.spacedBy(12.dp),
+                    contentPadding=PaddingValues(start=18.dp,end=18.dp,top=0.dp,bottom=30.dp),
+                    verticalArrangement=Arrangement.spacedBy(16.dp),
                     horizontalArrangement=Arrangement.spacedBy(12.dp)){
                     items(visible,key={it.id}){card->
                         VaultTile(card,repo,profiles.firstOrNull{it.id==card.profile}?.name.orEmpty()){
