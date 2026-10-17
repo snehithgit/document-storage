@@ -175,7 +175,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 }
                 scanTarget=card.id;cropFromAttachment=true
                 enhancingFileId=file.id;enhancingPdfPage=page
-                cameraUri=null;cameraPath=source
+                // The crop route uses cameraPath directly for imported PDF pages.
+                cameraPath=source
                 cropBitmap=scan.preview;cropResult=scan.corners
                 cropSessionId=UUID.randomUUID().toString()
                 pendingCropCorners=CropGeometry.encode(scan.corners.corners.map{it.x to it.y})
