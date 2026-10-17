@@ -39,6 +39,15 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
     var selectMode by rememberSaveable(card.id){mutableStateOf(false)}
     var selected by rememberSaveable(card.id){mutableStateOf(emptySet<String>())}
     var choosingPerson by rememberSaveable(card.id){mutableStateOf(false)}
+    var revealedFields by rememberSaveable(card.id){mutableStateOf(emptySet<String>())}
+    val activity=LocalContext.current as? androidx.activity.ComponentActivity
+    DisposableEffect(activity,card.id){
+        val observer=androidx.lifecycle.LifecycleEventObserver{_,event->
+            if(event==androidx.lifecycle.Lifecycle.Event.ON_STOP)revealedFields=emptySet()
+        }
+        activity?.lifecycle?.addObserver(observer)
+        onDispose{activity?.lifecycle?.removeObserver(observer)}
+    }
     val fields=card.fields
     val rows=fields.filter { f ->
         when(tab) {
@@ -144,11 +153,11 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
             Row(Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 listOf("All","Picked","Scanned","Added").forEach{option->
-                    FilterChip(selected=tab==option,onClick={tab=option},label={Text(option)})
+                    MockupChip(option,tab==option){tab=option}
                 }
             }
         }
-        LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(start=18.dp,end=18.dp,bottom=16.dp),
+        LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(start=18.dp,end=18.dp,top=6.dp,bottom=16.dp),
             verticalArrangement=Arrangement.spacedBy(10.dp)){
             if(rows.isEmpty())item{
                 Surface(shape=RoundedCornerShape(14.dp),color=dPanel,
@@ -189,9 +198,21 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                                         MockupTag("Manual",p.inkMuted,p.line.copy(alpha=.5f))
                                 }
                                 SelectionContainer{
-                                    Text(field.value.ifBlank{"Not entered"},color=p.ink,
+                                    Text(if(field.value.isBlank())"Not entered" else
+                                        if(ProfileLogic.isSensitive(field.name)&&field.id !in revealedFields)
+                                            ProfileLogic.mask(field.value)
+                                        else field.value,color=p.ink,
                                         fontSize=15.sp,fontWeight=FontWeight.SemiBold)
                                 }
+                            }
+                            if(ProfileLogic.isSensitive(field.name))IconButton(
+                                onClick={revealedFields=if(field.id in revealedFields)
+                                    revealedFields-field.id else revealedFields+field.id},
+                                modifier=Modifier.size(48.dp)){
+                                Icon(if(field.id in revealedFields)Icons.Outlined.VisibilityOff
+                                    else Icons.Outlined.Visibility,
+                                    if(field.id in revealedFields)"Hide "+field.name else "Reveal "+field.name,
+                                    modifier=Modifier.size(20.dp),tint=p.inkMuted)
                             }
                             IconButton(onClick={copyToClipboard(context,field.name,field.value)},
                                 enabled=field.value.isNotBlank(),modifier=Modifier.size(48.dp)){
@@ -309,8 +330,8 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
         if(file==null)Text("Attach a document first.",color=dMuted)
         else if(file.extractedText.isBlank()){
             Spacer(Modifier.height(15.dp))
-            Text("Read this document to select text from it.",color=dMuted)
-            Button(onClick={onRunOcr(file)}){Text("Read this page")}
+            Text("Extract details to select text from this document.",color=dMuted)
+            Button(onClick={onRunOcr(file)}){Text("Get Details")}
         }else{
             OutlinedTextField(query,{query=it},modifier=Modifier.fillMaxWidth(),
                 label={Text("Find text")},singleLine=true,leadingIcon={Icon(Icons.Outlined.Search,null)})

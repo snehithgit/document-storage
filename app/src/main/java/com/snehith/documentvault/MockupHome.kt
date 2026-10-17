@@ -266,7 +266,7 @@ private fun mockupCategoryColor(category:String,colors:MockupPalette):Color =
         Column(horizontalAlignment=Alignment.CenterHorizontally){
             Text(pages.toString(),color=colors.ink,fontWeight=FontWeight.Bold,
                 fontSize=26.sp,lineHeight=27.sp)
-            MockupEyebrow("PAGES",colors.inkFaint)
+            MockupEyebrow("ATTACHMENTS",colors.inkFaint)
         }
     }
 }

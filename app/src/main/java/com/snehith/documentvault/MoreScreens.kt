@@ -32,7 +32,7 @@ import java.io.File
 import java.util.UUID
 
 @Composable fun DocumentViewerScreen(file:VaultFile,repo:VaultRepository,
-    engine:DocumentEngine,onShare:()->Unit,onOcr:()->Unit,sourceOverride:File?=null) {
+    engine:DocumentEngine,onShare:()->Unit,sourceOverride:File?=null) {
     val pdf=file.mime=="application/pdf"||file.name.endsWith(".pdf",true)
     val isImage=file.mime.startsWith("image/")
     val context=LocalContext.current
@@ -120,10 +120,10 @@ import java.util.UUID
                 maxLines=1,modifier=Modifier.weight(1f))
             IconButton(onClick={
                 showText=!showText
-                if(showText&&text.isBlank()&&sourceOverride==null)onOcr()
+                // Reading saved text never starts another OCR job; use Get Details on the card.
             },modifier=Modifier.size(48.dp)){
                 Icon(if(showText)Icons.Outlined.Image else Icons.Outlined.TextSnippet,
-                    if(showText)"Show document" else "Read text")
+                    if(showText)"Show document" else "View saved text")
             }
             IconButton(onClick={
                 rotation=(rotation+90)%360
@@ -131,10 +131,7 @@ import java.util.UUID
             },modifier=Modifier.size(48.dp)){
                 Icon(Icons.Outlined.RotateRight,"Rotate viewed page")
             }
-            IconButton(onClick=onOcr,modifier=Modifier.size(48.dp)){
-                Icon(Icons.Outlined.DocumentScanner,"Read page")
-            }
-            IconButton(onClick=onShare,modifier=Modifier.size(48.dp)){
+             IconButton(onClick=onShare,modifier=Modifier.size(48.dp)){
                 Icon(Icons.Outlined.Share,"Share document")
             }
         }
@@ -144,7 +141,7 @@ import java.util.UUID
             contentAlignment=Alignment.Center){
             if(showText){
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)){
-                    if(text.isBlank()&&!loading)Text("Text extraction queued or unavailable. Use Read page to retry.",
+                    if(text.isBlank()&&!loading)Text("No saved text yet. Return to the document and choose Get Details.",
                         color=MaterialTheme.colorScheme.onSurfaceVariant)
                     else SelectionContainer{Text(text,style=MaterialTheme.typography.bodyLarge)}
                 }

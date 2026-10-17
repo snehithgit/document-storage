@@ -722,14 +722,14 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 enabled->biometricEnabled=enabled
                                 options.edit().putBoolean("biometricUnlock",enabled).apply()
                             },
-                            profileName=repo.profiles.firstOrNull{it.id==userProfile}?.name?:"My vault",
+                            profileName=repo.profiles.firstOrNull{it.id==(if(userProfile=="all")"self" else userProfile)}?.name?:"Me",
                             cardCount=VaultPersonFilter.filter(repo.cards.toList(),userProfile).size,
                             pageCount=VaultPersonFilter.filter(repo.cards.toList(),userProfile)
                                 .sumOf{it.files.size},
                             peopleCount=repo.profiles.size)
                         "detail"->current?.let{c->VaultNavDetail(c,repo,
                             {f->viewingId=f.id;navigate("viewer")},
-                            {f->startOcr(c.id,f)},{f->activity.share(f)},{activity.shareAll(c.files)},
+                            {f->activity.share(f)},{f->activity.shareAsPdf(f)},{activity.shareAll(c.files)},
                             {addToCardId=c.id},
                             {navigate("fulldetails")},{navigate("tools")},
                             {startEdit(c)},{navigate("attachments")},
@@ -815,7 +815,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 catch(cancelled:CancellationException){throw cancelled}
                                 catch(e:Exception){error="Cannot save selected field: "+(e.message?:"Error")}
                             }},
-                            {f->startOcr(c.id,f)})}
+                            {_->fetchDetailsForCard(c)})}
                         "crop"->{
                             val image=cropBitmap;val result=cropResult
                             if(image!=null&&result!=null)CropReviewScreen(image,result,
@@ -894,12 +894,10 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             if(externalPdfPath.isNotBlank())
                                 DocumentViewerScreen(VaultFile("shared-view",external.name,
                                     "application/pdf",external.length(),""),repo,engine,
-                                    {activity.notify("Save to vault before sharing")},
-                                    {activity.notify("Save to vault to read text")},sourceOverride=external)
+                                    {activity.notify("Save to vault before sharing")},sourceOverride=external)
                         }
                         "viewer"->current?.files?.firstOrNull{it.id==viewingId}?.let{f->
-                            DocumentViewerScreen(f,repo,engine,{activity.share(f)},
-                                {startOcr(selectedCardId,f)})
+                            DocumentViewerScreen(f,repo,engine,{activity.share(f)})
                         }
                         "tools"->current?.let{c->PdfToolsScreen(c,repo,
                             {addToCardId=c.id},

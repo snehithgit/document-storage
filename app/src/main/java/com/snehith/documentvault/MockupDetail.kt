@@ -108,8 +108,8 @@ private data class ExpiryLook(val title:String,val sub:String,val tag:String,
     val date=runCatching{LocalDate.parse(card.expiry)
         .format(DateTimeFormatter.ofPattern("d MMM yyyy",Locale.ENGLISH))}.getOrDefault(card.expiry)
     val look=when{
-        card.expiry.isBlank()->ExpiryLook("No expiry date","This document stays valid",
-            "Open-ended",p.inkMuted,p.line.copy(alpha=.5f),Icons.Outlined.Shield)
+        card.expiry.isBlank()->ExpiryLook("No expiry date recorded","Validity not recorded",
+            "Unknown",p.inkMuted,p.line.copy(alpha=.5f),Icons.Outlined.Shield)
         days==null->ExpiryLook("Check expiry date",card.expiry,"Check",
             p.warning,p.warningSoft,Icons.Outlined.Schedule)
         days<0->ExpiryLook(date,DesignLogic.humanSpan(-days)+" ago","Renew now",

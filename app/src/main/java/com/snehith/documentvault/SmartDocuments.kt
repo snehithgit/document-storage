@@ -108,8 +108,28 @@ object SmartDocuments {
         }
         return null
     }
-    private fun nameValue(text:String)=labelValue(text,"full\\s*name","name\\s*of\\s*(?:holder|bearer)","name")
-        ?.replace(Regex("[^\\p{L}\\s.'-]"),"")?.trim()?.takeIf{it.length in 3..55}
+    /** Extract only the applicant's name, never a father/mother/spouse OCR line. */
+    private fun nameValue(text:String):String? {
+        val relatives=Regex("(?i)(?:father|mother|spouse|husband|wife|guardian|parent|nominee)")
+        val labels=Regex("(?i)^(?:नाम\\s*[/|]\\s*)?(?:full\\s*name|name\\s*of\\s*applicant|applicant\\s*name|name\\s*of\\s*(?:holder|bearer)|name)\\s*[:\\-]?\\s*(.*)$")
+        val lines=text.lines().map{it.trim()}.filter{it.isNotBlank()}
+        fun usable(raw:String):String? {
+            val value=raw.replace(Regex("[^\\p{L}\\s.'-]"),"").trim()
+            return value.takeIf{it.length in 3..55 && it.split(Regex("\\s+")).size in 1..5 &&
+                !relatives.containsMatchIn(it) &&
+                !Regex("(?i)(?:government|department|income tax|india|aadhaar|birth|number|gender)").containsMatchIn(it)}
+        }
+        for(i in lines.indices){
+            val line=lines[i]
+            if(relatives.containsMatchIn(line))continue
+            val match=labels.matchEntire(line)?:continue
+            val inline=usable(match.groupValues[1])
+            if(inline!=null)return inline
+            val after=lines.getOrNull(i+1)?.let(::usable)
+            if(after!=null)return after
+        }
+        return null
+    }
 
     private fun dateValue(text:String,vararg labels:String):String?{
         val dates=Regex("\\d{1,2}[/\\-.]\\d{1,2}[/\\-.]\\d{4}|\\d{4}-\\d{1,2}-\\d{1,2}|\\d{1,2}[ -][A-Za-z]{3}[ -]\\d{4}")
@@ -159,14 +179,21 @@ object SmartDocuments {
         val detectedName=nameValue(text)
         val inferredName=if(detectedName==null) {
             val originals=text.lines().map{it.trim()}
+            val relatives=Regex("(?i)(?:father|mother|spouse|husband|wife|guardian|parent)")
             val near=originals.indexOfFirst{
                 Regex("(?i)(?:DOB|date of birth|birth|male|female)").containsMatchIn(it)
             }
             if(near>0)originals.subList((near-3).coerceAtLeast(0),near)
-                .asReversed().firstOrNull{candidate->
-                    candidate.length in 4..55 && !candidate.any(Char::isDigit) &&
-                        candidate.split(Regex("\\s+")).size in 2..5 &&
-                        !Regex("(?i)(?:government|india|uidai|aadhaar|address|father|enrolment)").containsMatchIn(candidate)
+                .indices.reversed().firstNotNullOfOrNull{index->
+                    val absolute=(near-3).coerceAtLeast(0)+index
+                    val candidate=originals[absolute]
+                    val before=originals.getOrNull(absolute-1).orEmpty()
+                    candidate.takeIf{
+                        it.length in 4..55&&!it.any(Char::isDigit)&&
+                        it.split(Regex("\\s+")).size in 2..5 &&
+                        !relatives.containsMatchIn(it) && !relatives.containsMatchIn(before) &&
+                        !Regex("(?i)(?:government|india|uidai|aadhaar|address|enrolment)").containsMatchIn(it)
+                    }
                 } else null
         }else null
         val name=detectedName?:inferredName

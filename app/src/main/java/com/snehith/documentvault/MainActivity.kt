@@ -216,6 +216,38 @@ class MainActivity : FragmentActivity() {
     // Shared exports get real filenames and MIME types, unlike internal UUID.dat blobs.
     // File preparation is streamed on IO; no image/PDF decoding or copying on the UI thread.
     private var lastShareAt=0L
+    /** Make a one-page PDF from an image and share it without altering the vault. */
+    fun shareAsPdf(file:VaultFile) {
+        if(!file.mime.startsWith("image/")){share(file);return}
+        lifecycleScope.launch {
+            var temporary:File?=null
+            try {
+                val uri=withContext(Dispatchers.IO){
+                    val folder=File(cacheDir,"shared/"+java.util.UUID.randomUUID())
+                    if(!folder.mkdirs())throw java.io.IOException("Unable to prepare PDF folder")
+                    val target=File(folder,"document.pdf")
+                    target.createNewFile()
+                    temporary=target
+                    val writable=FileProvider.getUriForFile(applicationContext,
+                        packageName+".provider",target)
+                    engine.imagesToPdf(listOf(file),writable)
+                    if(target.length()==0L)throw java.io.IOException("Generated PDF is empty")
+                    writable
+                }
+                val send=Intent(Intent.ACTION_SEND).apply{
+                    type="application/pdf"
+                    putExtra(Intent.EXTRA_STREAM,uri)
+                    clipData=ClipData.newUri(contentResolver,"PDF document",uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(Intent.createChooser(send,"Share as PDF"))
+            }catch(cancelled:CancellationException){temporary?.parentFile?.deleteRecursively();throw cancelled}
+            catch(e:Exception){
+                temporary?.parentFile?.deleteRecursively()
+                notify(e.message?:"Could not create PDF")
+            }
+        }
+    }
     fun share(file:VaultFile)=shareAll(listOf(file))
     fun shareAll(files:List<VaultFile>) {
         if(files.isEmpty())return

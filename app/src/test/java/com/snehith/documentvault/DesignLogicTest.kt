@@ -55,4 +55,25 @@ class DesignLogicTest {
         assertEquals("1 yr 1 mo",DesignLogic.humanSpan(400))
         assertEquals("0 days",DesignLogic.humanSpan(-5))
     }
+
+    @Test fun applicantWinsOverParentAndIncorrectStoredFullName() {
+        val card=VaultCard(title="PAN",kind="PAN",fields=listOf(
+            DataField("Name Of Applicant","ASHA RAO"),
+            DataField("PAN Number","ABCDE1234F"),
+            DataField("Father Name","MOHAN RAO"),
+            DataField("Full Name","MOHAN RAO")))
+        assertEquals("ASHA RAO",DesignLogic.holder(card))
+        assertEquals("ABCDE1234F",DesignLogic.number(card))
+        assertTrue(DesignLogic.hasHolderConflict(card))
+        assertEquals("•••• 234F",DesignLogic.maskedNumber(card))
+        assertEquals("",DesignLogic.holder(VaultCard(fields=listOf(
+            DataField("Father Name","MOHAN RAO"),DataField("Full Name","MOHAN RAO")))))
+    }
+    @Test fun documentNumberNeverUsesAttachmentCount() {
+        assertEquals("",DesignLogic.number(VaultCard(files=listOf(
+            VaultFile("id","capture.jpg","image/jpeg",100,"checksum")))))
+        assertEquals("P-77",DesignLogic.number(VaultCard(fields=listOf(
+            DataField("Policy Number","P-77")))))
+        assertEquals("No expiry recorded",DesignLogic.expiryLabel(VaultCard(expiry="")))
+    }
 }

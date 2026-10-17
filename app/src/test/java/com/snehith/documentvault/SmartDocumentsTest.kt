@@ -84,4 +84,18 @@ class SmartDocumentsTest {
             "GOVERNMENT OF INDIA\nAADHAAR\nKavita Sharma\nDOB: 5/2/1990 Female\n"+number)
         assertEquals("Kavita Sharma",detected?.fullName)
     }
+
+    @Test fun panNameHeaderSelectsApplicantInsteadOfFather(){
+        val found=SmartDocuments.parse("INCOME TAX DEPARTMENT\nGOVT OF INDIA\nनाम / Name\nASHA RAO\n"+
+            "Father's Name\nMOHAN RAO\n01/02/1990\nDate of Birth\n"+
+            "Permanent Account Number Card\nABCDE1234F")
+        assertEquals("PAN",found?.kind)
+        assertEquals("ASHA RAO",found?.fields?.firstOrNull{it.name=="Full Name"}?.value)
+    }
+    @Test fun fatherMustNeverBeGuessedAsHolder(){
+        val found=SmartDocuments.parse("INCOME TAX DEPARTMENT\nFather's Name\nMOHAN RAO\n"+
+            "01/02/1990\nDate of Birth\nABCDE1234F")
+        assertEquals("PAN",found?.kind)
+        assertTrue(found?.fields?.none{it.name=="Full Name"&&it.value=="MOHAN RAO"}==true)
+    }
 }

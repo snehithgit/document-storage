@@ -65,12 +65,13 @@ private object VaultThumbnailCache {
     val context=LocalContext.current
     val cache=remember(context){VaultThumbnailCache.get(context)}
     var measuredPx by remember(file?.id){mutableIntStateOf(0)}
-    val targetEdge=if(measuredPx>0)minOf(maxEdge,
-        (measuredPx*1.25f).toInt().coerceAtLeast(160)) else maxEdge
-    var bitmap by remember(file?.id,targetEdge){mutableStateOf<Bitmap?>(null)}
+    // Stable size buckets avoid new decodes after every measurement or re-layout.
+    val wanted=if(measuredPx>0)(measuredPx*1.25f).toInt() else maxEdge
+    val targetEdge=listOf(160,240,360,540,800).firstOrNull{it>=wanted&&it<=maxEdge}
+        ?:minOf(maxEdge,wanted).coerceAtLeast(160)
+    var bitmap by remember(file?.id){mutableStateOf<Bitmap?>(null)}
     var loading by remember(file?.id,targetEdge){mutableStateOf(file!=null)}
     LaunchedEffect(file?.id,targetEdge) {
-        bitmap=null
         loading=file!=null
         if(file==null)return@LaunchedEffect
         try {
@@ -87,7 +88,7 @@ private object VaultThumbnailCache {
                     thumbnail
                 }
             }
-            bitmap=image
+            if(image!=null)bitmap=image
         }catch(cancelled:kotlinx.coroutines.CancellationException){throw cancelled}
         catch(e:Exception){
             android.util.Log.w("VaultThumbnail","Cannot preview attachment",e)
@@ -182,13 +183,14 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
                 Text("Cards",fontWeight=FontWeight.Bold,
                     fontSize=32.sp,lineHeight=34.sp,color=colors.ink)
                 Spacer(Modifier.height(8.dp))
-                Text("${personCards.size} documents · ${personCards.sumOf{it.files.size}} pages",
+                Text("${personCards.size} documents · ${personCards.sumOf{it.files.size}} attachments",
                     color=colors.inkMuted,fontSize=14.sp)
             }
             Box(Modifier.size(42.dp).background(colors.ink,
                 androidx.compose.foundation.shape.CircleShape)
                 .clickable(onClick=onPeople),contentAlignment=Alignment.Center){
-                Text(DesignLogic.initials(name),color=colors.panel,
+                Text(DesignLogic.initials(profiles.firstOrNull{
+                    it.id==(if(selectedPerson=="all")"self" else selectedPerson)}?.name?:"Me"),color=colors.panel,
                     fontSize=14.sp,fontWeight=FontWeight.Bold)
             }
         }
@@ -204,7 +206,7 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
                 overflow=TextOverflow.Ellipsis)
         }
         if(profiles.size>1)Row(Modifier.horizontalScroll(rememberScrollState())
-            .padding(horizontal=18.dp,vertical=12.dp),
+            .padding(horizontal=18.dp,vertical=10.dp),
             horizontalArrangement=Arrangement.spacedBy(8.dp)){
             (listOf(VaultProfile("all","Everyone"))+profiles).forEach{person->
                 val picked=person.id==selectedPerson
@@ -219,7 +221,7 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
             }
         }
         Row(Modifier.horizontalScroll(rememberScrollState())
-            .padding(horizontal=18.dp,vertical=16.dp),
+            .padding(horizontal=18.dp,vertical=6.dp),
             horizontalArrangement=Arrangement.spacedBy(8.dp)){
             categories.forEach{category->
                 val chosen=category==filter
@@ -263,8 +265,8 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
         }
     }
 }
-@Composable fun VaultNavDetail(card:VaultCard,repo:VaultRepository,onFile:(VaultFile)->Unit,onOcr:(VaultFile)->Unit,
-    onShare:(VaultFile)->Unit,onShareAll:()->Unit,onAdd:()->Unit,
+@Composable fun VaultNavDetail(card:VaultCard,repo:VaultRepository,onFile:(VaultFile)->Unit,
+    onShare:(VaultFile)->Unit,onSharePdf:(VaultFile)->Unit,onShareAll:()->Unit,onAdd:()->Unit,
     onFull:()->Unit,onTools:()->Unit,onEdit:()->Unit,onManage:()->Unit,onDelete:()->Unit,
     onFetchDetails:()->Unit,fetchingDetails:Boolean,onEnhance:(VaultFile)->Unit){
     var selectedId by rememberSaveable(card.id){mutableStateOf("")}
@@ -315,15 +317,21 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
             }
         }
         item{ MockupExpiryRow(card) }
+        if(DesignLogic.hasHolderConflict(card))item{
+            MockupNote(Icons.Outlined.WarningAmber,
+                "The saved Full Name matches a parent's name. Please check and correct it in Full details.",
+                warning=true)
+        }
         item{
             MockupActionRow(listOf(
                 MockupAction(Icons.Outlined.Visibility,"View",primary=true,enabled=selected!=null,
                     onClick={selected?.let(onFile)}),
-                MockupAction(Icons.Outlined.TextFields,"Read",enabled=selected!=null,
-                    onClick={selected?.let(onOcr)}),
                 MockupAction(Icons.Outlined.Share,"Share",enabled=selected!=null,
                     onClick={selected?.let(onShare)}),
-                MockupAction(Icons.Outlined.PictureAsPdf,"PDF",onClick=onTools)
+                if(selected?.mime?.startsWith("image/")==true)
+                    MockupAction(Icons.Outlined.PictureAsPdf,"Share PDF",
+                        onClick={selected?.let{onSharePdf(it)}})
+                else MockupAction(Icons.Outlined.PictureAsPdf,"PDF tools",onClick=onTools)
             ))
         }
         item{
@@ -341,7 +349,7 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
         }
         item{
             Column{
-                MockupSectionHeader("Pages",VaultCounts.format(card.files.size,"page"))
+                MockupSectionHeader("Attachments",VaultCounts.format(card.files.size,"attachment"))
                 Spacer(Modifier.height(12.dp))
                 MockupPagesStrip(card.files,repo,selected?.id,
                     onOpen={file->
@@ -411,7 +419,9 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
                         DropdownMenu(expanded=fileMenuId==file.id,
                             onDismissRequest={fileMenuId=null}){
                             DropdownMenuItem(text={Text("Share")},onClick={fileMenuId=null;onShare(file)})
-                            DropdownMenuItem(text={Text("Read page")},onClick={fileMenuId=null;onOcr(file)})
+                            if(file.mime.startsWith("image/"))
+                                DropdownMenuItem(text={Text("Share as PDF")},
+                                    onClick={fileMenuId=null;onSharePdf(file)})
                             if(file.mime.startsWith("image/"))
                                 DropdownMenuItem(text={Text("Enhance or crop")},
                                     onClick={fileMenuId=null;onEnhance(file)})

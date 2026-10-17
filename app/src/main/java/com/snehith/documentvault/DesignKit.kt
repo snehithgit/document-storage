@@ -34,79 +34,6 @@ import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.absoluteValue
 
-object DesignLogic{
-    val faceHues=listOf(
-        0xFF0B5E70L to 0xFF0A3440L,
-        0xFF3C4AA8L to 0xFF222B66L,
-        0xFF8A5A14L to 0xFF4A2F0AL,
-        0xFF1F7A57L to 0xFF0F4533L,
-        0xFF4A5A60L to 0xFF222B2EL
-    )
-    fun hueIndex(kind:String):Int=(kind.lowercase(Locale.ROOT).hashCode().toLong().absoluteValue%
-        faceHues.size).toInt()
-    fun holder(card:VaultCard):String{
-        val names=listOf("full name","name","account holder","holder name","certificate name")
-        return names.firstNotNullOfOrNull{n->
-            card.fields.firstOrNull{it.name.trim().equals(n,true)&&it.value.isNotBlank()}?.value
-        }.orEmpty()
-    }
-    fun number(card:VaultCard):String{
-        val names=listOf("passport number","cdc number","account number",
-            "identification number","certificate number","document number","number")
-        return names.firstNotNullOfOrNull{n->
-            card.fields.firstOrNull{it.name.trim().equals(n,true)&&it.value.isNotBlank()}?.value
-        }.orEmpty()
-    }
-    /** Match the mockup's theme per document kind without using its demo documents. */
-    fun facePalette(card:VaultCard):Triple<Long,Long,Long>{
-        val value=(card.title+" "+card.kind+" "+card.category).lowercase(Locale.ROOT)
-        return when {
-            "passport" in value->Triple(0xFF12263FL,0xFF2A5079L,0xFFE8F1F7L)
-            "aadhaar" in value->Triple(0xFFF2EBDAL,0xFFDCCFAEL,0xFF2A2418L)
-            "pan card" in value||card.kind.equals("PAN",true)->
-                Triple(0xFFC9DDECL,0xFF8EB3D3L,0xFF0E2236L)
-            "licence" in value||"license" in value||"transport" in value->
-                Triple(0xFFE8D4A6L,0xFFC9A262L,0xFF2B1F08L)
-            "cdc" in value||"seafarer" in value||"work" in value->
-                Triple(0xFF143331L,0xFF2F6A60L,0xFFE4F2EFL)
-            "notes" in value||"emergency" in value->
-                Triple(0xFF262D30L,0xFF4A565BL,0xFFE8F1F3L)
-            else->Triple(0xFF1F3A40L,0xFF3C7480L,0xFFE8F1F3L)
-        }
-    }
-    /** "1 yr 3 mo", "5 mo", "12 days": a short human span for expiry rows. */
-    fun humanSpan(days:Long):String{
-        val d=days.coerceAtLeast(0L)
-        return when {
-            d>=365->{val y=d/365;val m=(d%365)/30;if(m>0)"$y yr $m mo" else "$y yr"}
-            d>=60->"${d/30} mo"
-            d==1L->"1 day"
-            else->"$d days"
-        }
-    }
-    fun maskedNumber(card:VaultCard)=number(card).let{if(it.isBlank())"" else ProfileLogic.mask(it)}
-    fun daysLeft(card:VaultCard,today:LocalDate=LocalDate.now()):Long?=
-        runCatching{ChronoUnit.DAYS.between(today,LocalDate.parse(card.expiry))}.getOrNull()
-    fun expiryLabel(card:VaultCard,today:LocalDate=LocalDate.now()):String{
-        val days=daysLeft(card,today)?:return if(card.expiry.isBlank())"No expiry" else "Check date"
-        return when {
-            days<0->"Expired "+(-days)+"d ago"
-            days==0L->"Expires today"
-            days<=90->"In $days days"
-            else->LocalDate.parse(card.expiry)
-                .format(DateTimeFormatter.ofPattern("MMM yyyy",Locale.ENGLISH))
-        }
-    }
-    /** Only cards with valid expiry dates contribute to the percentage. */
-    fun trackedExpiryCount(cards:List<VaultCard>):Int =
-        VaultExpiryRules.trackedCount(cards)
-    fun healthyShare(cards:List<VaultCard>,today:LocalDate=LocalDate.now(),
-        remindDays:Int=30):Float =
-        VaultExpiryRules.healthyShare(cards,remindDays,today)
-    fun initials(name:String)=name.trim().split(Regex("\\s+"))
-        .filter{it.isNotBlank()}.take(2).joinToString(""){it.take(1).uppercase(Locale.ROOT)}
-        .ifBlank{"?"}
-}
 @Composable fun ExpiryTag(card:VaultCard){
     val (status,_)=vaultValidity(card)
     val tint=when(status){
@@ -174,9 +101,8 @@ object DesignLogic{
                 Text("NO.",fontSize=(cardWidth.value*.024f).coerceIn(9f,11f).sp,
                     letterSpacing=1.2f.sp,color=foreground.copy(alpha=.6f))
                 Spacer(Modifier.height(4.dp))
-                Text(DesignLogic.maskedNumber(card).ifBlank{
-                    VaultCounts.format(card.files.size,"page")
-                },fontSize=numberSize,fontWeight=FontWeight.Medium,
+                Text(DesignLogic.maskedNumber(card).ifBlank{"Not added"},
+                    fontSize=numberSize,fontWeight=FontWeight.Medium,
                     letterSpacing=.5.sp,color=foreground,maxLines=1,
                     overflow=TextOverflow.Ellipsis)
             }

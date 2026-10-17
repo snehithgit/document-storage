@@ -48,7 +48,8 @@ object ProfileLogic{
         }
     }
     private val privateWords=setOf("number","no","account","ifsc","swift","iban","passport",
-        "aadhaar","aadhar","pan","ssn","cdc","license","licence","cvv","password","pin")
+        "aadhaar","aadhar","pan","ssn","cdc","license","licence","cvv","password","pin",
+        "address","phone","mobile","email","dob","birth","residence")
     fun isSensitive(label:String)=tokens(label).any{it in privateWords}
     fun mask(value:String):String{
         if(value.isBlank())return "—"

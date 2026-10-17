@@ -25,6 +25,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -68,13 +70,14 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
         Toast.makeText(application,"Copied",Toast.LENGTH_SHORT).show()
 }
 
-@Composable private fun PersonAvatar(name:String){
+@Composable private fun PersonAvatar(name:String,size:androidx.compose.ui.unit.Dp=46.dp){
     val initials=name.trim().split(Regex("\\s+")).filter{it.isNotBlank()}.take(2)
         .joinToString(""){it.take(1).uppercase()}.ifBlank{"?"}
-    Box(Modifier.size(48.dp).background(MaterialTheme.colorScheme.surfaceContainerHigh,CircleShape),
+    val p=mockupPalette
+    Box(Modifier.size(size).background(p.dock,CircleShape),
         contentAlignment=Alignment.Center){
-        Text(initials,color=MaterialTheme.colorScheme.primary,
-            style=MaterialTheme.typography.titleMedium)
+        Text(initials,color=p.dockInk,fontSize=(size.value*.34f).sp,
+            fontWeight=FontWeight.Bold)
     }
 }
 
@@ -89,45 +92,42 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
             onAdd(name.trim());name="";creating=false
         }){Text("Create")}},
         dismissButton={TextButton(onClick={creating=false}){Text("Cancel")}})
-    LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+    val p=mockupPalette
+    LazyColumn(Modifier.fillMaxSize().background(p.panel),
         contentPadding=PaddingValues(16.dp,18.dp,16.dp,24.dp),
-        verticalArrangement=Arrangement.spacedBy(12.dp)){
+        verticalArrangement=Arrangement.spacedBy(10.dp)){
         item{
             Row(verticalAlignment=Alignment.CenterVertically){
                 Column(Modifier.weight(1f)){
-                    Text("People",style=MaterialTheme.typography.headlineSmall)
-                    Text("Keep important details together",
-                        color=MaterialTheme.colorScheme.onSurfaceVariant,
-                        style=MaterialTheme.typography.bodyMedium)
+                    Eyebrow("Household")
+                    Text("People",color=p.ink,fontSize=32.sp,fontWeight=FontWeight.Bold)
+                    Text("Keep important details together",color=p.inkMuted,fontSize=14.sp)
                 }
                 IconButton(onClick={creating=true},modifier=Modifier.size(48.dp)){
-                    Icon(Icons.Outlined.PersonAdd,"Add person")
+                    Icon(Icons.Outlined.PersonAdd,"Add person",tint=p.ink)
                 }
             }
         }
         items(profiles,key={it.id}){person->
             val count=entries.count{it.personId==person.id}
             val documents=cards.count{it.profile==person.id}
-            Surface(onClick={onOpen(person)},shape=RoundedCornerShape(16.dp),
-                color=MaterialTheme.colorScheme.surface,
-                border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
+            Surface(onClick={onOpen(person)},shape=RoundedCornerShape(18.dp),
+                color=p.panelRaised,border=BorderStroke(1.dp,p.line)){
                 Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically){
                     PersonAvatar(person.name)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)){
-                        Text(person.name,style=MaterialTheme.typography.titleMedium)
+                        Text(person.name,color=p.ink,fontSize=16.sp,fontWeight=FontWeight.SemiBold)
                         Text(VaultCounts.format(count,"detail")+" · "+
                             VaultCounts.format(documents,"document"),
-                            color=MaterialTheme.colorScheme.onSurfaceVariant,
-                            style=MaterialTheme.typography.bodySmall)
+                            color=p.inkMuted,fontSize=12.sp)
                     }
-                    Icon(Icons.Outlined.ChevronRight,null)
+                    Icon(Icons.Outlined.ChevronRight,null,tint=p.inkFaint)
                 }
             }
         }
         item{Text("Profile information is saved offline. The app PIN does not encrypt it.",
-            color=MaterialTheme.colorScheme.onSurfaceVariant,
-            style=MaterialTheme.typography.bodySmall)}
+            color=p.inkFaint,fontSize=12.sp)}
     }
 }
 @Composable private fun PersonPinDialog(onVerify:suspend(String)->Boolean,
@@ -272,14 +272,17 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
             }},
             confirmButton={},dismissButton={TextButton(onClick={conflict=null}){Text("Close")}})
     }
-    LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+    val p=mockupPalette
+    LazyColumn(Modifier.fillMaxSize().background(p.panel),
         contentPadding=PaddingValues(16.dp,14.dp,16.dp,32.dp),
-        verticalArrangement=Arrangement.spacedBy(11.dp)){
+        verticalArrangement=Arrangement.spacedBy(10.dp)){
         item{
             Row(verticalAlignment=Alignment.CenterVertically){
-                PersonAvatar(person.name);Spacer(Modifier.width(12.dp))
-                Text(person.name,style=MaterialTheme.typography.headlineSmall,
-                    modifier=Modifier.weight(1f))
+                PersonAvatar(person.name,56.dp);Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)){
+                    Eyebrow("Profile")
+                    Text(person.name,color=p.ink,fontSize=26.sp,fontWeight=FontWeight.Bold)
+                }
                 IconButton(onClick={adding=true},modifier=Modifier.size(48.dp)){
                     Icon(Icons.Outlined.Add,"Add detail")
                 }
@@ -292,38 +295,47 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
             val sectionRows=rows.filter{it.entry.section==section}
             if(sectionRows.isEmpty())continue
             item(key="section-$section"){
-                Text(section,style=MaterialTheme.typography.titleLarge,
-                    modifier=Modifier.padding(top=12.dp))
+                MockupSectionHeader(section,VaultCounts.format(sectionRows.size,"detail"))
             }
             items(sectionRows,key={it.entry.id}){record->
                 val entry=record.entry
                 val hidden=entry.sensitive&&entry.id !in revealed
                 val alternatives=ProfileLogic.alternatives(entry,cards)
-                Surface(color=MaterialTheme.colorScheme.surface,
-                    shape=RoundedCornerShape(14.dp),
-                    border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
-                    Column(Modifier.fillMaxWidth().padding(14.dp)){
+                var menu by remember{mutableStateOf(false)}
+                Surface(color=p.panelRaised,shape=RoundedCornerShape(16.dp),
+                    border=BorderStroke(1.dp,p.line)){
+                    Column(Modifier.fillMaxWidth().padding(start=14.dp,top=5.dp,end=6.dp,bottom=10.dp)){
                         Row(verticalAlignment=Alignment.CenterVertically){
-                            Text(entry.label,modifier=Modifier.weight(1f),
-                                color=MaterialTheme.colorScheme.onSurfaceVariant,
-                                style=MaterialTheme.typography.bodySmall)
+                            Text(entry.label.uppercase(java.util.Locale.ROOT),
+                                modifier=Modifier.weight(1f),color=p.inkFaint,fontSize=10.sp,
+                                letterSpacing=1.sp,fontWeight=FontWeight.Medium)
                             if(entry.sensitive)IconButton(modifier=Modifier.size(48.dp),
                                 onClick={guarded {
                                     if(entry.id in revealed)revealed=revealed-entry.id
                                     else revealed=revealed+entry.id
                                 }}){
                                 Icon(if(hidden)Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
-                                    if(hidden)"Reveal "+entry.label else "Hide "+entry.label)
+                                    if(hidden)"Reveal "+entry.label else "Hide "+entry.label,
+                                    tint=p.inkMuted)
                             }
                             IconButton(modifier=Modifier.size(48.dp),
                                 onClick={guarded(entry.sensitive) {
                                     copyAndClearLater(context,entry.label,record.value,entry.sensitive)
                                 }},enabled=record.value.isNotBlank()){
-                                Icon(Icons.Outlined.ContentCopy,"Copy "+entry.label)
+                                Icon(Icons.Outlined.ContentCopy,"Copy "+entry.label,tint=p.inkMuted)
+                            }
+                            Box {
+                                IconButton(onClick={menu=true},modifier=Modifier.size(48.dp)){
+                                    Icon(Icons.Outlined.MoreVert,"More for "+entry.label,tint=p.inkMuted)
+                                }
+                                DropdownMenu(expanded=menu,onDismissRequest={menu=false}){
+                                    DropdownMenuItem(text={Text("Remove field",color=p.danger)},
+                                        onClick={menu=false;onRemoveEntry(entry)})
+                                }
                             }
                         }
                         Text(if(hidden)ProfileLogic.mask(record.value)else record.value.ifBlank{"—"},
-                            style=MaterialTheme.typography.bodyLarge)
+                            color=p.ink,fontSize=16.sp,fontWeight=FontWeight.SemiBold)
                         if(record.sourceMissing)Text("Original field unavailable",
                             color=MaterialTheme.colorScheme.error,
                             style=MaterialTheme.typography.bodySmall)
@@ -334,16 +346,13 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
                         if(alternatives.isNotEmpty())TextButton(onClick={conflict=entry}){
                             Text("Sources differ · Review")
                         }
-                        TextButton(onClick={onRemoveEntry(entry)}){
-                            Text("Remove field",color=MaterialTheme.colorScheme.error)
-                        }
-                    }
+                     }
                 }
             }
         }
         if(rows.isEmpty())item{
             Text("Add a detail or select information from a document.",
-                color=MaterialTheme.colorScheme.onSurfaceVariant)
+                color=p.inkMuted,fontSize=14.sp)
         }
         item{
             OutlinedButton(onClick={guarded(rows.any{it.entry.sensitive}) {
