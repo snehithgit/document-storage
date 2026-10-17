@@ -9,7 +9,7 @@ import java.io.IOException
 
 /** The single EXIF-aware path for thumbnails, viewer, OCR, PDF and scanner. */
 object ImageDecode {
-    fun decode(file:File,maxEdge:Int,fullResolution:Boolean=false):Bitmap {
+    fun decode(file:File,maxEdge:Int,fullResolution:Boolean=false,highQuality:Boolean=false):Bitmap {
         val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
         BitmapFactory.decodeFile(file.absolutePath,bounds)
         if(bounds.outWidth<=0||bounds.outHeight<=0)throw IOException("Unable to decode image: "+file.name)
@@ -19,7 +19,7 @@ object ImageDecode {
         val sample=if(fullResolution)1 else ImageSampling.sample(bounds.outWidth,bounds.outHeight,maxEdge)
         val decoded=BitmapFactory.decodeFile(file.absolutePath,BitmapFactory.Options().apply {
             inSampleSize=sample
-            inPreferredConfig=Bitmap.Config.RGB_565
+            inPreferredConfig=if(highQuality)Bitmap.Config.ARGB_8888 else Bitmap.Config.RGB_565
         })?:throw IOException("Could not load image: "+file.name)
         val orientation=try { ExifInterface(file).getAttributeInt(
             ExifInterface.TAG_ORIENTATION,ExifInterface.ORIENTATION_NORMAL)

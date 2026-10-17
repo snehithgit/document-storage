@@ -6,10 +6,11 @@ object VaultCounts {
         "$count ${if(count==1)singular else plural}"
 }
 object VaultNames {
-    private val uuid=Regex("(?i)(scan|capture|img)[-_]?[a-f0-9]{8}[-a-f0-9]{12,}")
+    private val uuid=Regex("(?i)(scan|capture|img)[-_]?[a-f0-9-]{16,}")
+    private val scanTimestamp=Regex("(?i)scan[-_][0-9]{9,}")
     fun title(filename:String):String {
         val cleaned=filename.substringAfterLast('/').substringBeforeLast('.',filename)
-        return if(uuid.matches(cleaned))"Scanned document" else cleaned.ifBlank{"Document"}
+        return if(uuid.matches(cleaned)||scanTimestamp.matches(cleaned))"Scanned document" else cleaned.ifBlank{"Document"}
     }
     fun label(filename:String):String {
         val suffix=filename.substringAfterLast('.', "").takeIf{it.length in 2..5}?.let{"."+it}?:""

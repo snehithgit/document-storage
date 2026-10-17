@@ -14,14 +14,17 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
@@ -34,7 +37,7 @@ val VaultRaised:Color @Composable get()=MaterialTheme.colorScheme.surface
 val VaultBlue=VaultColors.primaryText
 val VaultSky:Color @Composable get()=MaterialTheme.colorScheme.primary
 val VaultMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVariant
-val bgBrush:Brush @Composable get()=vaultWarmBrush(MaterialTheme.colorScheme.background==VaultColors.darkBg)
+val bgBrush:Brush @Composable get()=vaultWarmBrush(MaterialTheme.colorScheme.primary==VaultColors.darkAccent)
 private val rounded=RoundedCornerShape(14.dp)
 
 @Composable fun VaultHeader(title:String,subtitle:String?=null) {
@@ -43,45 +46,71 @@ private val rounded=RoundedCornerShape(14.dp)
         if(subtitle!=null)Text(subtitle,color=VaultMuted,style=MaterialTheme.typography.bodySmall)
     }
 }
-/** Size-bounded cache, owned by the process; bitmaps are not recycled while Compose may render them. */
-private val thumbnailCache=object:LruCache<String,Bitmap>(16*1024*1024){
-    override fun sizeOf(key:String,value:Bitmap):Int=value.byteCount
+/** Byte-bounded LRU sized to 1/8 of the device's Android memoryClass. */
+private object VaultThumbnailCache {
+    @Volatile private var shared:LruCache<String,Bitmap>?=null
+    fun get(context:android.content.Context):LruCache<String,Bitmap> =
+        shared?:synchronized(this){
+            shared?:run {
+                val manager=context.getSystemService(android.content.Context.ACTIVITY_SERVICE)
+                    as android.app.ActivityManager
+                val size=(manager.memoryClass.toLong()*1024*1024/8)
+                    .coerceIn(4L*1024*1024,128L*1024*1024).toInt()
+                object:LruCache<String,Bitmap>(size){
+                    override fun sizeOf(key:String,value:Bitmap):Int=value.byteCount
+                }.also{shared=it}
+            }
+        }
 }
-@Composable fun VaultThumbnail(file:VaultFile?,repo:VaultRepository,modifier:Modifier=Modifier) {
-    var bitmap by remember(file?.id){mutableStateOf<Bitmap?>(null)}
-    LaunchedEffect(file?.id) {
-        bitmap=null
+@Composable fun VaultThumbnail(file:VaultFile?,repo:VaultRepository,modifier:Modifier=Modifier,
+    maxEdge:Int=360,pageIndex:Int=0) {
+    val context=LocalContext.current
+    val cache=remember(context){VaultThumbnailCache.get(context)}
+    var measuredPx by remember(file?.id){mutableIntStateOf(0)}
+    // Stable size buckets avoid new decodes after every measurement or re-layout.
+    val wanted=if(measuredPx>0)(measuredPx*1.25f).toInt() else maxEdge
+    val targetEdge=listOf(160,240,360,540,800).firstOrNull{it>=wanted&&it<=maxEdge}
+        ?:minOf(maxEdge,wanted).coerceAtLeast(160)
+    var bitmap by remember(file?.id,pageIndex){mutableStateOf<Bitmap?>(null)}
+    var loading by remember(file?.id,targetEdge){mutableStateOf(file!=null)}
+    LaunchedEffect(file?.id,targetEdge,pageIndex) {
+        loading=file!=null
         if(file==null)return@LaunchedEffect
         try {
-            val cacheKey=file.id+"-"+repo.documentFile(file).lastModified()
             val image=withContext(Dispatchers.IO) {
-                synchronized(thumbnailCache){thumbnailCache.get(cacheKey)} ?: run {
-                    val raw=repo.documentFile(file)
+                val raw=repo.documentFile(file)
+                val cacheKey=file.id+"-"+pageIndex+"-"+targetEdge+"-"+raw.lastModified()
+                synchronized(cache){cache.get(cacheKey)} ?: run {
                     val thumbnail=if(file.mime=="application/pdf"||file.name.endsWith(".pdf",true)){
-                        PdfPageSession(raw).use{it.render(0,340)}
+                        PdfPageSession(raw).use{it.render(pageIndex.coerceIn(0,(it.pageCount-1).coerceAtLeast(0)),targetEdge)}
                     }else if(file.mime.startsWith("image/")){
-                        ImageDecode.decode(raw,440)
+                        ImageDecode.decode(raw,targetEdge,highQuality=targetEdge>800)
                     }else null
-                    if(thumbnail!=null)synchronized(thumbnailCache){thumbnailCache.put(cacheKey,thumbnail)}
+                    if(thumbnail!=null)synchronized(cache){cache.put(cacheKey,thumbnail)}
                     thumbnail
                 }
             }
-            bitmap=image
-        }catch(_:Exception){ /* Invalid attachment falls back to the document icon. */ }
+            if(image!=null)bitmap=image
+        }catch(cancelled:kotlinx.coroutines.CancellationException){throw cancelled}
+        catch(e:Exception){
+            android.util.Log.w("VaultThumbnail","Cannot preview attachment",e)
+        }finally{loading=false}
     }
-    Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant,rounded),contentAlignment=Alignment.Center){
-        if(bitmap!=null)Image(bitmap!!.asImageBitmap(),"Document",Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
-        else Icon(Icons.Outlined.Description,null,tint=VaultSky,modifier=Modifier.size(37.dp))
+    Box(modifier.onSizeChanged{measuredPx=maxOf(it.width,it.height)}
+        .background(MaterialTheme.colorScheme.surfaceVariant,rounded),
+        contentAlignment=Alignment.Center){
+        if(bitmap!=null)Image(bitmap!!.asImageBitmap(),"Document",Modifier.fillMaxSize(),contentScale=ContentScale.Fit)
+        else if(loading)CircularProgressIndicator(Modifier.size(22.dp),strokeWidth=2.dp)
+        else Icon(Icons.Outlined.Description,"Preview unavailable",tint=VaultSky,modifier=Modifier.size(37.dp))
     }
 }
-fun vaultValidity(card:VaultCard):Pair<String,Color> {
-    val days=try{ChronoUnit.DAYS.between(LocalDate.now(),LocalDate.parse(card.expiry))}catch(_:Exception){null}
-    return when {
-        days==null && card.expiry.isNotBlank()->"Check expiry" to VaultColors.expiring
-        days==null->"Saved" to Color(0xFF64748B)
-        days<0->"Expired" to VaultColors.expired
-        days<=30->"Expiring" to VaultColors.expiring
-        else->"Valid" to VaultColors.valid
+fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
+    val status=VaultExpiryRules.status(card,remindDays)
+    return status to when(status) {
+        "Expired"->VaultColors.expired
+        "Expiring","Check expiry"->VaultColors.expiring
+        "Valid"->VaultColors.valid
+        else->Color(0xFF64748B)
     }
 }
 @Composable fun VaultPill(text:String,color:Color=VaultBlue){
@@ -90,439 +119,382 @@ fun vaultValidity(card:VaultCard):Pair<String,Color> {
             modifier=Modifier.padding(horizontal=8.dp,vertical=4.dp),maxLines=1)
     }
 }
-@Composable fun VaultTile(card:VaultCard,repo:VaultRepository,onClick:()->Unit){
-    Card(onClick=onClick,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=rounded,
-        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline),
-        elevation=CardDefaults.cardElevation(defaultElevation=0.dp)){
-        Column(Modifier.fillMaxWidth().padding(9.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
-            Box {
-                VaultThumbnail(card.files.firstOrNull(),repo,Modifier.fillMaxWidth().height(140.dp))
-                Box(Modifier.align(Alignment.TopEnd).padding(5.dp)){VaultPill(card.kind.take(12))}
-            }
-            Text(VaultNames.title(card.title),color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold,
-                style=MaterialTheme.typography.bodyMedium,maxLines=2,minLines=2,overflow=TextOverflow.Ellipsis)
-            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){
-                val(v,c)=vaultValidity(card)
-                VaultPill(v,c)
-                Text(VaultCounts.format(card.files.size,"file"),color=VaultMuted,style=MaterialTheme.typography.labelSmall)
-            }
+/** Document Vault.html .grid2 .tile + .cap: real repo cards, mockup wallet face. */
+@Composable fun VaultTile(card:VaultCard,repo:VaultRepository,personName:String="",onClick:()->Unit){
+    val palette=mockupPalette
+    Column(Modifier.fillMaxWidth().clickable(onClick=onClick)) {
+        CardFace(card)
+        Row(Modifier.fillMaxWidth().padding(top=9.dp),verticalAlignment=Alignment.CenterVertically){
+            Text(VaultNames.title(card.title),Modifier.weight(1f),
+                color=palette.ink,fontSize=13.sp,fontWeight=FontWeight.SemiBold,
+                maxLines=1)
+            val needsReview=card.fields.count{it.confidence>0f&&it.confidence<.75f}+
+                (if(DesignLogic.hasHolderConflict(card))1 else 0)
+            if(needsReview>0)Surface(shape=RoundedCornerShape(8.dp),
+                color=palette.warningSoft){
+                Text("$needsReview TO REVIEW",modifier=Modifier.padding(
+                    horizontal=8.dp,vertical=5.dp),
+                    color=palette.warning,fontSize=10.sp,fontWeight=FontWeight.SemiBold)
+            }else if(card.expiry.isNotBlank())ExpiryTag(card)
         }
-    }
+     }
 }
-@Composable fun VaultRow(card:VaultCard,repo:VaultRepository,onClick:()->Unit){
-    val(v,c)=vaultValidity(card)
+@Composable fun VaultRow(card:VaultCard,repo:VaultRepository,personName:String="",onClick:()->Unit){
+    val context=androidx.compose.ui.platform.LocalContext.current
+    val remind=context.getSharedPreferences("vault_options",android.content.Context.MODE_PRIVATE)
+        .getInt("remindDays",30)
+    val(v,c)=vaultValidity(card,remind)
     Card(onClick=onClick,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=rounded,
         border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline),
         elevation=CardDefaults.cardElevation(defaultElevation=0.dp)){
         Row(Modifier.padding(9.dp).fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
-            VaultThumbnail(card.files.firstOrNull(),repo,Modifier.size(65.dp,72.dp))
+            VaultThumbnail(card.files.firstOrNull(),repo,Modifier.size(65.dp,72.dp),maxEdge=280)
             Spacer(Modifier.width(11.dp))
             Column(Modifier.weight(1f)){
                 Text(VaultNames.title(card.title),color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
-                Text(card.kind+" · "+card.category,color=VaultMuted,style=MaterialTheme.typography.labelSmall)
-                Text(VaultCounts.format(card.files.size,"attachment"),color=VaultColors.syntax,style=MaterialTheme.typography.labelSmall)
+                Text(card.category.ifBlank{"Other"},color=VaultMuted,style=MaterialTheme.typography.labelSmall)
+                Text(VaultCounts.format(card.files.size,"attachment")+
+                    if(personName.isNotBlank())" · "+personName else "",
+                    color=VaultColors.syntax,style=MaterialTheme.typography.labelSmall)
             }
             VaultPill(v,c)
         }
     }
 }
-@Composable fun VaultNavHome(cards:List<VaultCard>,repo:VaultRepository,profiles:List<VaultProfile>,profile:String,
-    onProfile:(String)->Unit,onOpen:(VaultCard)->Unit,onSearch:()->Unit,onScan:()->Unit,
-    onImport:()->Unit,onNew:()->Unit,onPdf:()->Unit,onExpiries:()->Unit) {
-    val visible=cards.filter{profile=="all"||it.profile==profile}
-    LazyColumn(Modifier.fillMaxSize().background(bgBrush),contentPadding=PaddingValues(15.dp,12.dp,15.dp,95.dp),
-        verticalArrangement=Arrangement.spacedBy(15.dp)){
-        item {
-            Column(Modifier.fillMaxWidth().background(VaultPanel,rounded)
-                .border(1.dp,MaterialTheme.colorScheme.outlineVariant,rounded).padding(17.dp)){
-                Text("MY DOCUMENT SPACE",color=VaultSky,style=MaterialTheme.typography.labelSmall)
-                Text("Your essentials, organized.",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.height(12.dp))
-                OutlinedButton(onClick=onSearch,modifier=Modifier.fillMaxWidth()){
-                    Icon(Icons.Outlined.Search,null);Text(" Search documents and details")
-                }
-            }
-        }
-        item {
-            Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(7.dp)){
-                (listOf(VaultProfile("all","Everyone"))+profiles).forEach{p->
-                    FilterChip(selected=profile==p.id,onClick={onProfile(p.id)},label={Text(p.name)})
-                }
-            }
-        }
-        item {
-            Row(horizontalArrangement=Arrangement.spacedBy(9.dp)){
-                VaultMetric(visible.size.toString(),"Cards",Modifier.weight(1f))
-                VaultMetric(visible.sumOf{it.files.size}.toString(),"Files",Modifier.weight(1f))
-                VaultMetric(visible.count{vaultValidity(it).first in listOf("Expired","Expiring","Check expiry")}.toString(),
-                    "Expiring",Modifier.weight(1f),onExpiries)
-            }
-        }
-        item {
-            Text("Quick actions",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold)
-            Spacer(Modifier.height(9.dp))
-            Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
-                VaultQuick("Scan",Icons.Outlined.DocumentScanner,Modifier.weight(1f),onScan)
-                VaultQuick("Import",Icons.Outlined.FileUpload,Modifier.weight(1f),onImport)
-                VaultQuick("New Card",Icons.Outlined.AddCard,Modifier.weight(1f),onNew)
-                VaultQuick("PDF",Icons.Outlined.PictureAsPdf,Modifier.weight(1f),onPdf)
-            }
-        }
-        item {VaultHeader("Recent documents",VaultCounts.format(visible.size,"card")+" in your vault")}
-        items(visible.sortedByDescending{it.created}.take(10),key={it.id}){c->VaultRow(c,repo){onOpen(c)}}
-        if(visible.isEmpty())item{
-            Text("Import a document or scan a new one to get started.",color=VaultMuted)
-        }
-    }
-}
-@Composable fun VaultMetric(n:String,label:String,modifier:Modifier,onClick:()->Unit={}){
-    Card(onClick=onClick,modifier=modifier,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=rounded,
-        elevation=CardDefaults.cardElevation(defaultElevation=3.dp)){
-        Column(Modifier.padding(11.dp)){
-            Text(n,color=VaultSky,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.headlineSmall)
-            Text(label,color=VaultMuted,style=MaterialTheme.typography.labelSmall)
-        }
-    }
-}
-@Composable fun VaultQuick(label:String,icon:androidx.compose.ui.graphics.vector.ImageVector,modifier:Modifier,onClick:()->Unit){
-    Card(onClick=onClick,modifier=modifier,colors=CardDefaults.cardColors(containerColor=VaultPanel),
-         border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),shape=RoundedCornerShape(12.dp)){
-        Column(Modifier.padding(vertical=12.dp,horizontal=2.dp),horizontalAlignment=Alignment.CenterHorizontally){
-            Icon(icon,null,tint=MaterialTheme.colorScheme.onSurface)
-            Text(label,color=MaterialTheme.colorScheme.onSurface,style=MaterialTheme.typography.labelSmall)
-        }
-    }
-}
-@Composable fun VaultNavCards(cards:List<VaultCard>,repo:VaultRepository,onOpen:(VaultCard)->Unit,onNew:()->Unit,selectedCategory:String="All"){
+/** Document Vault.html / VIEWS.library. Search opens the existing full OCR search. */
+@Composable fun VaultNavCards(cards:List<VaultCard>,repo:VaultRepository,
+    onOpen:(VaultCard)->Unit,onNew:()->Unit,selectedCategory:String="",onSearch:()->Unit={},
+    profiles:List<VaultProfile> = emptyList(),selectedPerson:String="all",
+    onPerson:(String)->Unit={},onCategoryConsumed:()->Unit={},
+    onPeople:()->Unit={},documentStyle:String="pages"){
+    val colors=mockupPalette
     var filter by rememberSaveable{mutableStateOf("All")}
-    LaunchedEffect(selectedCategory){ if(selectedCategory!="All")filter=selectedCategory }
-    Column(Modifier.fillMaxSize().background(bgBrush)){
-        Row(Modifier.padding(16.dp),verticalAlignment=Alignment.CenterVertically){
-            Column(Modifier.weight(1f)){VaultHeader("Document cards",VaultCounts.format(cards.size,"card")+" saved")}
-            IconButton(onClick=onNew){Icon(Icons.Outlined.AddCircle,null,tint=VaultSky)}
-        }
-        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal=15.dp),
-            horizontalArrangement=Arrangement.spacedBy(7.dp)){
-            (listOf("All")+cards.map{it.kind}.distinct()+cards.map{it.category}.distinct()).distinct().forEach{t->
-                FilterChip(selected=t==filter,onClick={filter=t},label={Text(t)})
-            }
-        }
-        LazyVerticalGrid(columns=GridCells.Fixed(2),
-            contentPadding=PaddingValues(15.dp,10.dp,15.dp,95.dp),
-            verticalArrangement=Arrangement.spacedBy(11.dp),horizontalArrangement=Arrangement.spacedBy(11.dp)){
-            items(cards.filter{filter=="All"||it.kind==filter||it.category==filter},key={it.id}){c->VaultTile(c,repo){onOpen(c)}}
+    var listView by rememberSaveable{mutableStateOf(false)}
+    LaunchedEffect(selectedCategory){
+        if(selectedCategory.isNotBlank()){
+            filter=selectedCategory
+            onCategoryConsumed()
         }
     }
-}
-private data class VaultSearchHit(val card:VaultCard,val snippet:String?)
-
-@Composable fun VaultNavSearch(cards:List<VaultCard>,repo:VaultRepository,onOpen:(VaultCard)->Unit){
-    var query by rememberSaveable{mutableStateOf("")}
-    var mode by rememberSaveable{mutableStateOf("All")}
-    var hits by remember(cards){mutableStateOf(cards.map{VaultSearchHit(it,null)})}
-    LaunchedEffect(query,mode,cards){
-        delay(250)
-        val snapshot=cards.toList()
-        hits=withContext(Dispatchers.Default){
-            snapshot.mapNotNull{card->
-                val text=card.title+" "+card.category+" "+card.kind+" "+
-                    card.fields.joinToString(" "){it.name+" "+it.value}+" "+
-                    card.files.joinToString(" "){it.name+" "+it.extractedText}
-                val matches=(query.isBlank()||text.contains(query,true))&&
-                    (mode=="All"||(mode=="Fields"&&card.fields.any{it.value.contains(query,true)})||
-                        (mode=="OCR"&&card.files.any{it.extractedText.contains(query,true)}))
-                if(!matches)null else{
-                    val snippet=if(query.isBlank())null else
-                        card.fields.firstOrNull{it.value.contains(query,true)}?.let{"${it.name}: ${it.value}"}
-                            ?:card.files.firstNotNullOfOrNull{f->
-                                val start=f.extractedText.indexOf(query,ignoreCase=true)
-                                if(start<0)null else f.extractedText.substring(
-                                    (start-25).coerceAtLeast(0),
-                                    (start+query.length+55).coerceAtMost(f.extractedText.length))
+    val personCards=VaultPersonFilter.filter(cards,selectedPerson)
+    val totalPages=rememberVaultPageTotal(repo,personCards)
+    val categories=listOf("All")+
+        personCards.map{it.category.ifBlank{"Other"}}.distinct().sorted()
+    val visible=DocumentBrowseLogic.browse(personCards,filter,"Recent")
+    val name=profiles.firstOrNull{it.id==selectedPerson}?.name?:if(selectedPerson=="all")"My vault" else "Me"
+    var chooseProfile by remember{mutableStateOf(false)}
+    if(chooseProfile)AlertDialog(onDismissRequest={chooseProfile=false},
+        title={Text("Show cards for")},
+        text={Column{
+            (listOf(VaultProfile("all","Everyone"))+profiles).forEach{person->
+                TextButton(onClick={chooseProfile=false;onPerson(person.id)},
+                    modifier=Modifier.fillMaxWidth()){
+                    Text(person.name,modifier=Modifier.weight(1f))
+                    if(selectedPerson==person.id)Icon(Icons.Outlined.Check,null)
+                }
+            }
+        }},
+        confirmButton={TextButton(onClick={chooseProfile=false}){Text("Close")}})
+    Column(Modifier.fillMaxSize().background(colors.panel)){
+        Row(Modifier.fillMaxWidth().padding(start=18.dp,end=18.dp,top=22.dp,bottom=18.dp),
+            verticalAlignment=Alignment.Top){
+            Column(Modifier.weight(1f)){
+                Text(name.uppercase(),color=colors.inkFaint,
+                    letterSpacing=1.3f.sp,fontSize=10.sp)
+                Spacer(Modifier.height(12.dp))
+                Text("Cards",fontWeight=FontWeight.Bold,
+                    fontSize=32.sp,lineHeight=34.sp,color=colors.ink)
+                Spacer(Modifier.height(8.dp))
+                Text("${personCards.size} documents · $totalPages pages",
+                    color=colors.inkMuted,fontSize=14.sp)
+            }
+            Box(Modifier.size(42.dp).background(colors.ink,
+                androidx.compose.foundation.shape.CircleShape)
+                .clickable(onClick={chooseProfile=true}),contentAlignment=Alignment.Center){
+                Text(DesignLogic.initials(profiles.firstOrNull{
+                    it.id==(if(selectedPerson=="all")"self" else selectedPerson)}?.name?:"Me"),color=colors.panel,
+                    fontSize=14.sp,fontWeight=FontWeight.Bold)
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal=18.dp),
+            verticalAlignment=Alignment.CenterVertically,
+            horizontalArrangement=Arrangement.spacedBy(10.dp)){
+            Row(Modifier.weight(1f).height(54.dp)
+                .background(colors.panelRaised,RoundedCornerShape(18.dp))
+                .border(1.dp,colors.line,RoundedCornerShape(18.dp))
+                .clickable(onClick=onSearch).padding(horizontal=16.dp),
+                verticalAlignment=Alignment.CenterVertically,
+                horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                Icon(Icons.Outlined.Search,null,Modifier.size(20.dp),tint=colors.inkFaint)
+                Text("Search names, numbers, text on pages",
+                    color=colors.inkFaint,fontSize=14.sp,maxLines=1,
+                    overflow=TextOverflow.Ellipsis)
+            }
+            if(documentStyle!="wallet"){
+                Row(Modifier.clip(RoundedCornerShape(12.dp))
+                    .background(colors.panelRaised).border(1.dp,colors.line,RoundedCornerShape(12.dp))
+                    .padding(3.dp)){
+                    listOf(false,true).forEach{list->
+                        Box(Modifier.size(34.dp,32.dp)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(if(listView==list)colors.ink else colors.panelRaised)
+                            .clickable{listView=list},contentAlignment=Alignment.Center){
+                            Icon(if(list)Icons.Outlined.ViewList else Icons.Outlined.GridView,
+                                if(list)"List view" else "Grid view",
+                                Modifier.size(17.dp),
+                                tint=if(listView==list)colors.panel else colors.inkFaint)
+                        }
+                    }
+                }
+            }
+        }
+        Row(Modifier.horizontalScroll(rememberScrollState())
+            .padding(horizontal=18.dp,vertical=6.dp),
+            horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            categories.forEach{category->
+                val chosen=category==filter
+                val count=if(category=="All")personCards.size else
+                    personCards.count{it.category.ifBlank{"Other"}==category}
+                Surface(onClick={filter=category},
+                    color=if(chosen)colors.ink else colors.panelRaised,
+                    shape=androidx.compose.foundation.shape.CircleShape,
+                    border=if(chosen)null else BorderStroke(1.dp,colors.line)){
+                    Row(Modifier.padding(horizontal=14.dp,vertical=9.dp),
+                        horizontalArrangement=Arrangement.spacedBy(7.dp),
+                        verticalAlignment=Alignment.CenterVertically){
+                        Text(category,color=if(chosen)colors.panel else colors.inkMuted,
+                            fontWeight=FontWeight.SemiBold,fontSize=13.sp)
+                        Text(count.toString(),
+                            color=if(chosen)colors.panel.copy(alpha=.7f) else colors.inkFaint,
+                            fontSize=11.sp)
+                    }
+                }
+            }
+        }
+        if(visible.isEmpty()){
+            Box(Modifier.fillMaxSize().padding(18.dp),contentAlignment=Alignment.Center){
+                Text("No cards in this category.",color=colors.inkMuted,
+                    fontSize=14.sp)
+            }
+        }else if(documentStyle!="wallet"&&listView){
+            LazyColumn(Modifier.fillMaxSize(),
+                contentPadding=PaddingValues(18.dp,4.dp,18.dp,24.dp),
+                verticalArrangement=Arrangement.spacedBy(10.dp)){
+                items(visible,key={it.id}){card->
+                    val pages=rememberVaultDocumentPages(repo,card.files)
+                    Surface(onClick={onOpen(card)},shape=RoundedCornerShape(18.dp),
+                        color=colors.panelRaised,border=BorderStroke(1.dp,colors.line)){
+                        Row(Modifier.fillMaxWidth().padding(11.dp),
+                            verticalAlignment=Alignment.CenterVertically,
+                            horizontalArrangement=Arrangement.spacedBy(14.dp)){
+                            VaultDocumentPaper(pages.firstOrNull(),repo,Modifier.width(54.dp),
+                                maxEdge=220,numberOfPages=pages.size)
+                            Column(Modifier.weight(1f)){
+                                Text(VaultNames.title(card.title),color=colors.ink,
+                                    fontSize=14.sp,fontWeight=FontWeight.SemiBold,maxLines=1,
+                                    overflow=TextOverflow.Ellipsis)
+                                Text(VaultCounts.format(pages.size,"page"),
+                                    color=colors.inkFaint,fontSize=11.sp)
                             }
-                    VaultSearchHit(card,snippet)
+                            ExpiryTag(card)
+                        }
+                    }
                 }
             }
-        }
-    }
-    Column(Modifier.fillMaxSize().background(bgBrush).padding(horizontal=15.dp)){
-        Spacer(Modifier.height(14.dp))
-        VaultHeader("Smart search","Search cards, scanned text, and copyable fields")
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(query,{query=it},modifier=Modifier.fillMaxWidth(),singleLine=true,
-            leadingIcon={Icon(Icons.Outlined.Search,null)},placeholder={Text("Search anything…")})
-        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-            listOf("All","Fields","OCR").forEach{m->
-                FilterChip(selected=mode==m,onClick={mode=m},label={Text(m)})
-            }
-        }
-        Text(VaultCounts.format(hits.size,"matching record"),color=VaultMuted,modifier=Modifier.padding(vertical=12.dp))
-        LazyColumn(verticalArrangement=Arrangement.spacedBy(10.dp),contentPadding=PaddingValues(bottom=85.dp)){
-            items(hits,key={it.card.id}){hit->
-                VaultRow(hit.card,repo){onOpen(hit.card)}
-                hit.snippet?.let{value->
-                    Text(value,color=VaultSky,style=MaterialTheme.typography.bodySmall,
-                        modifier=Modifier.padding(horizontal=8.dp))
+        }else{
+            BoxWithConstraints(Modifier.fillMaxSize()){
+                val columns=if(maxWidth>=600.dp)3 else 2
+                LazyVerticalGrid(columns=GridCells.Fixed(columns),
+                    contentPadding=PaddingValues(start=18.dp,end=18.dp,top=0.dp,bottom=30.dp),
+                    verticalArrangement=Arrangement.spacedBy(22.dp),
+                    horizontalArrangement=Arrangement.spacedBy(16.dp)){
+                    items(visible,key={it.id}){card->
+                        if(documentStyle=="wallet")
+                            VaultTile(card,repo,profiles.firstOrNull{
+                                it.id==card.profile}?.name.orEmpty()){onOpen(card)}
+                        else VaultDocumentTile(card,repo){onOpen(card)}
+                    }
                 }
             }
         }
     }
 }
-@Composable fun VaultNavDetail(card:VaultCard,repo:VaultRepository,onFile:(VaultFile)->Unit,onOcr:(VaultFile)->Unit,
-    onShare:(VaultFile)->Unit,onShareAll:()->Unit,onAdd:()->Unit,
+@Composable fun VaultNavDetail(card:VaultCard,repo:VaultRepository,onFile:(VaultFile,Int)->Unit,
+    onShare:(VaultFile)->Unit,onSharePdf:(VaultFile)->Unit,onShareAll:()->Unit,onAdd:()->Unit,
     onFull:()->Unit,onTools:()->Unit,onEdit:()->Unit,onManage:()->Unit,onDelete:()->Unit,
-    onFetchDetails:()->Unit,fetchingDetails:Boolean,onEnhance:(VaultFile)->Unit){
-    var selected by rememberSaveable(card.id){mutableIntStateOf(0)}
+    onFetchDetails:()->Unit,fetchingDetails:Boolean,onEnhance:(VaultFile,Int)->Unit,
+    documentStyle:String="pages"){
+    var selectedId by rememberSaveable(card.id){mutableStateOf("")}
+    var selectedIndex by rememberSaveable(card.id){mutableIntStateOf(0)}
+    val pages=rememberVaultDocumentPages(repo,card.files)
+    var activePage by rememberSaveable(card.id){mutableIntStateOf(0)}
+    val chosenPage=pages.getOrNull(activePage.coerceIn(0,(pages.size-1).coerceAtLeast(0)))
+    val selected=if(documentStyle=="wallet")
+        AttachmentSelection.select(card.files,selectedId,selectedIndex)
+        else chosenPage?.file
+    fun viewSelected(){
+        if(documentStyle=="wallet")selected?.let{onFile(it,0)}
+        else chosenPage?.let{onFile(it.file,it.index)}
+    }
     val context=LocalContext.current
-    val(status,color)=vaultValidity(card)
-    var confirm by rememberSaveable(card.id){mutableStateOf(false)}
-    if(confirm)AlertDialog(onDismissRequest={confirm=false},title={Text("Delete card?")},
-        text={Text("The associated documents will also be removed.")},
-        confirmButton={TextButton(onClick={confirm=false;onDelete()}){Text("Delete")}},
-        dismissButton={TextButton(onClick={confirm=false}){Text("Cancel")}})
-    LazyColumn(Modifier.fillMaxSize().background(bgBrush),contentPadding=PaddingValues(15.dp,10.dp,15.dp,95.dp),
-        verticalArrangement=Arrangement.spacedBy(12.dp)){
-        item {
-            VaultThumbnail(card.files.getOrNull(selected),repo,Modifier.fillMaxWidth().height(254.dp))
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                card.files.forEachIndexed{i,f->
-                    Box(Modifier.border(if(i==selected)2.dp else 1.dp,
-                        if(i==selected)VaultBlue else VaultSky,rounded).clickable{selected=i}.padding(3.dp)){
-                        VaultThumbnail(f,repo,Modifier.size(66.dp,69.dp))
-                    }
-                }
-                Card(onClick=onAdd,colors=CardDefaults.cardColors(containerColor=VaultPanel),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
-                    Column(Modifier.size(66.dp,75.dp),horizontalAlignment=Alignment.CenterHorizontally,
-                        verticalArrangement=Arrangement.Center){
-                        Icon(Icons.Outlined.Add,null,tint=VaultSky)
-                        Text("Add",color=VaultSky)
-                    }
-                }
-            }
-        }
-        item {
+    var showMore by remember{mutableStateOf(false)}
+    var confirmDelete by rememberSaveable(card.id){mutableStateOf(false)}
+    if(confirmDelete)AlertDialog(onDismissRequest={confirmDelete=false},
+        title={Text("Delete document?")},
+        text={Text("The document and its unshared attachments will be removed. This cannot be undone.")},
+        confirmButton={TextButton(onClick={confirmDelete=false;onDelete()}){Text("Delete",color=MaterialTheme.colorScheme.error)}},
+        dismissButton={TextButton(onClick={confirmDelete=false}){Text("Cancel")}})
+    val palette=mockupPalette
+    val reviewCount=card.fields.count{it.confidence>0f&&it.confidence<.75f}
+    LazyColumn(Modifier.fillMaxSize().background(palette.panel),
+        contentPadding=PaddingValues(horizontal=18.dp,vertical=16.dp),
+        verticalArrangement=Arrangement.spacedBy(16.dp)){
+        item{
             Row(verticalAlignment=Alignment.CenterVertically){
-                Column(Modifier.weight(1f)){VaultHeader(VaultNames.title(card.title),"${card.kind} · ${card.category}")}
-                VaultPill(status,color)
-                IconButton(onClick=onEdit){Icon(Icons.Outlined.Edit,null,tint=VaultSky)}
+                Column(Modifier.weight(1f)){
+                    Eyebrow(card.category.ifBlank{"Personal"})
+                    Text(VaultCounts.format(card.files.size,"attachment"),
+                        color=palette.inkMuted,fontSize=13.sp)
+                }
+                Box{
+                    IconButton(onClick={showMore=true},modifier=Modifier.size(48.dp)){
+                        Icon(Icons.Outlined.MoreHoriz,"More document options",tint=palette.ink)
+                    }
+                    DropdownMenu(expanded=showMore,onDismissRequest={showMore=false}){
+                        DropdownMenuItem(text={Text("Edit details")},onClick={showMore=false;onEdit()})
+                        DropdownMenuItem(text={Text("Manage attachments")},onClick={showMore=false;onManage()})
+                        DropdownMenuItem(text={Text("Share all files")},enabled=card.files.isNotEmpty(),
+                            onClick={showMore=false;onShareAll()})
+                        if(selected!=null&&(selected.mime.startsWith("image/") ||
+                            selected.mime=="application/pdf"||selected.name.endsWith(".pdf",true))){
+                            DropdownMenuItem(text={Text(if(selected.mime.startsWith("image/"))
+                                "Enhance or crop image" else "Enhance selected PDF page")},
+                                onClick={showMore=false;onEnhance(selected,
+                                    if(documentStyle=="wallet")0 else (chosenPage?.index?:0))})
+                        }
+                        DropdownMenuItem(text={Text("Delete document")},onClick={showMore=false;confirmDelete=true})
+                    }
+                }
             }
         }
-        item {
-            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                VaultQuick("View",Icons.Outlined.Visibility,Modifier.weight(1f),
-                    {card.files.getOrNull(selected)?.let(onFile)})
-                VaultQuick("OCR page",Icons.Outlined.DocumentScanner,Modifier.weight(1f),
-                    {card.files.getOrNull(selected)?.let(onOcr)})
-                VaultQuick("Share",Icons.Outlined.Share,Modifier.weight(1f),
-                    {card.files.getOrNull(selected)?.let(onShare)})
-                VaultQuick("PDF",Icons.Outlined.PictureAsPdf,Modifier.weight(1f),onTools)
+        item{
+            if(documentStyle=="wallet"){
+                TiltBox{CardFace(card,onClick={selected?.let{file->onFile(file,0)};Unit})}
+            }else{
+                Column(Modifier.fillMaxWidth().padding(vertical=6.dp),
+                    horizontalAlignment=Alignment.CenterHorizontally){
+                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
+                        .background(palette.accentSoft).padding(vertical=18.dp),
+                        contentAlignment=Alignment.Center){
+                        VaultDocumentPaper(chosenPage,repo,
+                            Modifier.fillMaxWidth(
+                                VaultPageLayout.widthFraction(chosenPage?.aspect?:.75f)),
+                            maxEdge=1050,onClick={viewSelected()})
+                    }
+                    if(pages.size>1){
+                        Spacer(Modifier.height(12.dp))
+                        Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){
+                            pages.take(25).forEachIndexed{index,_->
+                                Box(Modifier
+                                    .width(if(index==activePage)18.dp else 6.dp)
+                                    .height(6.dp).clip(RoundedCornerShape(4.dp))
+                                    .background(if(index==activePage)palette.accent else palette.line))
+                            }
+                            if(pages.size>25)Text("+"+(pages.size-25),
+                                color=palette.inkMuted,fontSize=10.sp)
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(VaultCounts.format(pages.size,"page")+" · "+
+                        VaultCounts.format(card.files.size,"attachment")+
+                        " · "+VaultPageLayout.kind(chosenPage?.aspect?:.75f),
+                        color=palette.inkFaint,fontSize=12.sp)
+                }
             }
         }
-        item {
-            Button(onClick=onFetchDetails,modifier=Modifier.fillMaxWidth().height(54.dp),
+        if(documentStyle!="wallet")item{
+            Row(Modifier.fillMaxWidth(),
+                horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                listOf("Holder" to DesignLogic.holder(card).ifBlank{"Not added"},
+                    "Document number" to DesignLogic.maskedNumber(card).ifBlank{"Not added"}
+                ).forEach{(label,value)->
+                    Surface(color=palette.panelRaised,shape=RoundedCornerShape(16.dp),
+                        border=BorderStroke(1.dp,palette.line),
+                        modifier=Modifier.weight(1f)){
+                        Column(Modifier.padding(12.dp),
+                            verticalArrangement=Arrangement.spacedBy(6.dp)){
+                            Text(label.uppercase(),color=palette.inkFaint,
+                                fontSize=10.sp,letterSpacing=.8.sp)
+                            Text(value,color=palette.ink,fontSize=14.sp,
+                                fontWeight=FontWeight.SemiBold,maxLines=1,
+                                overflow=TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+        }
+        if(card.expiry.isNotBlank())item{ MockupExpiryRow(card) }
+        if(DesignLogic.hasHolderConflict(card))item{
+            MockupNote(Icons.Outlined.WarningAmber,
+                "The saved Full Name matches a parent's name. Please check and correct it in Full details.",
+                warning=true)
+        }
+        item{
+            MockupActionRow(listOf(
+                MockupAction(Icons.Outlined.Visibility,"View",primary=true,enabled=selected!=null,
+                    onClick={viewSelected()}),
+                MockupAction(Icons.Outlined.Share,"Share",enabled=selected!=null,
+                    onClick={selected?.let(onShare)}),
+                if(selected?.mime?.startsWith("image/")==true)
+                    MockupAction(Icons.Outlined.PictureAsPdf,"Share PDF",
+                        onClick={selected?.let{onSharePdf(it)}})
+                else MockupAction(Icons.Outlined.PictureAsPdf,"PDF tools",onClick=onTools)
+            ))
+        }
+        item{
+            Button(onClick=onFetchDetails,
                 enabled=!fetchingDetails && card.files.any{DetailFetchPlan.supported(it)},
-                shape=RoundedCornerShape(12.dp)){
-                Icon(Icons.Outlined.AutoAwesome,null,modifier=Modifier.size(20.dp))
+                modifier=Modifier.fillMaxWidth().heightIn(min=54.dp),
+                shape=RoundedCornerShape(16.dp),
+                colors=ButtonDefaults.buttonColors(containerColor=palette.accentSoft,
+                    contentColor=palette.accent)){
+                Icon(Icons.Outlined.AutoAwesome,null,Modifier.size(21.dp))
                 Spacer(Modifier.width(10.dp))
-                Text(if(fetchingDetails)"Fetching details…" else "Fetch Details · All Pages",
-                    fontWeight=FontWeight.SemiBold,modifier=Modifier.weight(1f))
-                Icon(Icons.Outlined.ArrowForward,null,modifier=Modifier.size(18.dp))
-            }
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick=onFull,modifier=Modifier.fillMaxWidth().height(48.dp),
-                shape=RoundedCornerShape(12.dp)){
-                Icon(Icons.Outlined.DataObject,null,modifier=Modifier.size(19.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Open details.json  /  Copy fields",modifier=Modifier.weight(1f))
-                Icon(Icons.Outlined.ChevronRight,null,modifier=Modifier.size(18.dp))
-            }
-            Text("// Runs OCR locally on every compatible attachment; fields are editable.",
-                color=MaterialTheme.colorScheme.onSurfaceVariant,
-                style=MaterialTheme.typography.labelSmall)
-        }
-        item {
-            Column(Modifier.fillMaxWidth().background(VaultPanel,rounded).border(1.dp,MaterialTheme.colorScheme.outlineVariant,rounded).padding(12.dp)){
-                Row(verticalAlignment=Alignment.CenterVertically) {
-                    Text("fields.preview",color=VaultColors.syntax,fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace,
-                        fontWeight=FontWeight.Medium,modifier=Modifier.weight(1f))
-                    TextButton(onClick=onFull){Text("Open editor →",color=VaultColors.syntax)}
-                }
-                card.fields.take(4).forEach{f->
-                    HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-                    Row(Modifier.padding(vertical=7.dp),verticalAlignment=Alignment.CenterVertically){
-                        Column(Modifier.weight(1f)){
-                            Text("\""+f.name+"\":",color=VaultColors.syntax,
-                                fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace,
-                                style=MaterialTheme.typography.labelSmall)
-                            Text("\""+f.value.ifBlank{"—"}+"\"",color=MaterialTheme.colorScheme.onSurface,
-                                fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace)
-                        }
-                        IconButton(onClick={copyToClipboard(context,f.name,f.value)}){
-                            Icon(Icons.Outlined.ContentCopy,null,tint=VaultSky)
-                        }
-                    }
-                }
-                if(card.fields.isEmpty())Text("// No saved fields. Select OCR text or add a field.",color=VaultMuted,
-                        style=MaterialTheme.typography.bodySmall)
-            }
-        }
-        item {
-            card.files.getOrNull(selected)?.takeIf{it.mime.startsWith("image/")}?.let{f->
-                OutlinedButton(onClick={onEnhance(f)},modifier=Modifier.fillMaxWidth()){
-                    Icon(Icons.Outlined.AutoFixHigh,null)
-                    Text(" Enhance / Crop image (keep original)")
-                }
-            }
-            OutlinedButton(onClick=onManage,modifier=Modifier.fillMaxWidth()) {
-                Icon(Icons.Outlined.FolderOpen,null)
-                Text(" Manage individual attachments")
-            }
-            OutlinedButton(onClick=onAdd,modifier=Modifier.fillMaxWidth()){
-                Icon(Icons.Outlined.Add,null);Text(" Add pages / documents")
-            }
-            OutlinedButton(onClick=onShareAll,enabled=card.files.isNotEmpty(),modifier=Modifier.fillMaxWidth()){
-                Icon(Icons.Outlined.Share,null);Text(" Share all attachments")
-            }
-            TextButton(onClick={confirm=true}){Text("Delete card",color=MaterialTheme.colorScheme.error)}
-        }
-    }
-}
-
-
-@Composable private fun EditorImportRow(
-    index:String,title:String,detail:String,
-    icon:androidx.compose.ui.graphics.vector.ImageVector,onClick:()->Unit
-){
-    Surface(
-        modifier=Modifier.fillMaxWidth().clickable(onClick=onClick),
-        color=MaterialTheme.colorScheme.surface,
-        shape=RoundedCornerShape(14.dp),
-        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)
-    ){
-        Row(Modifier.padding(horizontal=16.dp,vertical=17.dp),verticalAlignment=Alignment.CenterVertically){
-            Text(index,color=VaultColors.lineNumber,style=MaterialTheme.typography.labelSmall)
-            Spacer(Modifier.width(14.dp))
-            Box(
-                Modifier.size(42.dp).background(MaterialTheme.colorScheme.surfaceVariant,RoundedCornerShape(10.dp)),
-                contentAlignment=Alignment.Center
-            ){Icon(icon,null,tint=MaterialTheme.colorScheme.onSurface,modifier=Modifier.size(21.dp))}
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)){
-                Text(title,fontWeight=FontWeight.SemiBold,style=MaterialTheme.typography.bodyLarge)
-                Text(detail,color=MaterialTheme.colorScheme.onSurfaceVariant,
-                    style=MaterialTheme.typography.labelSmall)
-            }
-            Icon(Icons.Outlined.NorthEast,null,
-                tint=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.size(18.dp))
-        }
-    }
-}
-
-/** No accidental launch into camera: all three import sources remain visible. */
-@Composable fun NavyScanScreen(
-    onCamera:()->Unit,
-    onGallery:()->Unit,
-    onFiles:()->Unit,
-    onNew:()->Unit
-){
-    LazyColumn(
-        Modifier.fillMaxSize().background(bgBrush),
-        contentPadding=PaddingValues(horizontal=20.dp,vertical=18.dp),
-        verticalArrangement=Arrangement.spacedBy(14.dp)
-    ){
-        item{
-            Row(verticalAlignment=Alignment.CenterVertically){
-                Text("WORKSPACE  /  CAPTURE",color=VaultColors.syntax,
-                    style=MaterialTheme.typography.labelSmall,modifier=Modifier.weight(1f))
-                Text("● OFFLINE",color=VaultColors.valid,
-                    style=MaterialTheme.typography.labelSmall)
-            }
-            Spacer(Modifier.height(12.dp))
-            Text("Add documents.",color=MaterialTheme.colorScheme.onSurface,
-                fontWeight=FontWeight.SemiBold,style=MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.height(5.dp))
-            Text("Capture, import, organize. Your files stay on this device.",
-                color=MaterialTheme.colorScheme.onSurfaceVariant,
-                style=MaterialTheme.typography.bodySmall)
-        }
-        item{
-            Surface(
-                color=MaterialTheme.colorScheme.surface,
-                border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline),
-                shape=RoundedCornerShape(18.dp)
-            ){
-                Column(Modifier.fillMaxWidth().padding(16.dp),
-                    verticalArrangement=Arrangement.spacedBy(14.dp)){
-                    Row(verticalAlignment=Alignment.CenterVertically){
-                        Text("scan_session.kt",color=VaultColors.syntax,
-                            style=MaterialTheme.typography.labelSmall,
-                            modifier=Modifier.weight(1f))
-                        Text("01 / CAMERA",color=VaultColors.lineNumber,
-                            style=MaterialTheme.typography.labelSmall)
-                    }
-                    Box(
-                        Modifier.fillMaxWidth().height(164.dp)
-                            .background(MaterialTheme.colorScheme.background,RoundedCornerShape(12.dp)),
-                        contentAlignment=Alignment.Center
-                    ){
-                        Column(horizontalAlignment=Alignment.CenterHorizontally,
-                            verticalArrangement=Arrangement.spacedBy(8.dp)){
-                            Icon(Icons.Outlined.CropFree,null,tint=MaterialTheme.colorScheme.onSurface,
-                                modifier=Modifier.size(65.dp))
-                            Text("[  AUTO-EDGE DETECTION  ]",color=VaultColors.syntax,
-                                style=MaterialTheme.typography.labelSmall)
-                            Text("Detect → Crop → Enhance → Save",
-                                color=MaterialTheme.colorScheme.onSurfaceVariant,
-                                style=MaterialTheme.typography.labelSmall)
-                        }
-                    }
-                    Button(onClick=onCamera,modifier=Modifier.fillMaxWidth().height(52.dp),
-                        shape=RoundedCornerShape(11.dp)){
-                        Icon(Icons.Outlined.CameraAlt,null,Modifier.size(21.dp))
-                        Spacer(Modifier.width(9.dp))
-                        Text("Open camera",fontWeight=FontWeight.SemiBold)
-                        Spacer(Modifier.weight(1f))
-                        Icon(Icons.Outlined.ArrowForward,null,Modifier.size(20.dp))
-                    }
-                }
+                Text(if(fetchingDetails)"Getting details…" else "GET DETAILS",
+                    style=MaterialTheme.typography.titleMedium)
             }
         }
         item{
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment=Alignment.CenterVertically){
-                Text("IMPORT SOURCES",color=MaterialTheme.colorScheme.onSurface,
-                    fontWeight=FontWeight.SemiBold,
-                    style=MaterialTheme.typography.labelMedium,
-                    modifier=Modifier.weight(1f))
-                Text("02 OPTIONS",color=VaultColors.lineNumber,
-                    style=MaterialTheme.typography.labelSmall)
+            Column{
+                MockupSectionHeader(if(documentStyle=="wallet")"Attachments" else "Pages",
+                    if(documentStyle=="wallet")VaultCounts.format(card.files.size,"attachment")
+                    else VaultCounts.format(pages.size,"page"))
+                Spacer(Modifier.height(12.dp))
+                if(documentStyle=="wallet")
+                    MockupPagesStrip(card.files,repo,selected?.id,
+                        onOpen={file->
+                            selectedId=file.id
+                            selectedIndex=card.files.indexOfFirst{it.id==file.id}
+                            onFile(file,0)
+                        },onAdd=onAdd)
+                else VaultDocumentPageStrip(pages,repo,activePage,
+                    onSelect={activePage=it},onAdd=onAdd)
             }
         }
         item{
-            EditorImportRow("02","Import from gallery","JPG · PNG · HEIC · multiple photos",
-                Icons.Outlined.PhotoLibrary,onGallery)
-        }
-        item{
-            EditorImportRow("03","Import files / PDF","PDF · DOCX · images · text · ZIP",
-                Icons.Outlined.FolderOpen,onFiles)
-        }
-        item{
-            EditorImportRow("04","New information card","Save custom fields without an attachment",
-                Icons.Outlined.DataObject,onNew)
-        }
-        item{
-            Surface(color=MaterialTheme.colorScheme.surfaceVariant,
-                shape=RoundedCornerShape(12.dp)){
-                Row(Modifier.fillMaxWidth().padding(14.dp),
-                    verticalAlignment=Alignment.Top){
-                    Icon(Icons.Outlined.Info,null,
-                        tint=VaultColors.syntax,modifier=Modifier.size(18.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text("// To add pages to an existing document, open its card and choose Add.\n"+
-                        "// PDF Studio can combine attached pages into one file.",
-                        style=MaterialTheme.typography.bodySmall,
-                        color=MaterialTheme.colorScheme.onSurfaceVariant)
+            Column{
+                MockupSectionHeader("Quick copy","All ${card.fields.size}",onFull)
+                Spacer(Modifier.height(12.dp))
+                MockupQuickCopy(card.fields.take(3),
+                    onCopy={field->copyToClipboard(context,field.name,field.value)})
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(onClick=onFull,modifier=Modifier.fillMaxWidth().heightIn(min=52.dp),
+                    shape=RoundedCornerShape(16.dp),
+                    border=BorderStroke(1.dp,palette.line),
+                    colors=ButtonDefaults.outlinedButtonColors(contentColor=palette.ink)){
+                    Icon(Icons.Outlined.Edit,null,Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Full details"+if(reviewCount>0)" · $reviewCount to review" else "")
                 }
             }
         }

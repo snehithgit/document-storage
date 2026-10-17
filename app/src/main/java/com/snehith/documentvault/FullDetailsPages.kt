@@ -12,6 +12,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -22,30 +24,61 @@ private val dNavy:Color @Composable get()=MaterialTheme.colorScheme.background
 private val dPanel:Color @Composable get()=MaterialTheme.colorScheme.surface
 private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVariant
 
+/** Read-first information sheet; values, not storage syntax, are the focus. */
 @Composable fun FullDetailsPage(card:VaultCard,onSave:(VaultCard)->Unit,onSelect:()->Unit,
-    onFetchDetails:()->Unit,fetchingDetails:Boolean){
+    onFetchDetails:()->Unit,fetchingDetails:Boolean,
+    profiles:List<VaultProfile> = emptyList(),
+    onAddToProfile:(String,List<DataField>)->Unit={_,_->},
+    onCreatePerson:(String,List<DataField>)->Unit={_,_->}){
     val context=LocalContext.current
     var tab by rememberSaveable(card.id){mutableStateOf("All")}
     var editId by rememberSaveable(card.id){mutableStateOf("")}
     var fieldName by rememberSaveable(card.id){mutableStateOf("")}
     var fieldValue by rememberSaveable(card.id){mutableStateOf("")}
     var arranging by rememberSaveable(card.id){mutableStateOf(false)}
+    var selectMode by rememberSaveable(card.id){mutableStateOf(false)}
     var selected by rememberSaveable(card.id){mutableStateOf(emptySet<String>())}
+    var choosingPerson by rememberSaveable(card.id){mutableStateOf(false)}
+    var revealedFields by rememberSaveable(card.id){mutableStateOf(emptySet<String>())}
+    val activity=LocalContext.current as? androidx.activity.ComponentActivity
+    DisposableEffect(activity,card.id){
+        val observer=androidx.lifecycle.LifecycleEventObserver{_,event->
+            if(event==androidx.lifecycle.Lifecycle.Event.ON_STOP)revealedFields=emptySet()
+        }
+        activity?.lifecycle?.addObserver(observer)
+        onDispose{activity?.lifecycle?.removeObserver(observer)}
+    }
     val fields=card.fields
-    val rows=fields.mapIndexed{index,f->index to f}.filter{(_,f)->
+    val rows=fields.filter { f ->
         when(tab) {
-            "OCR"->f.source=="extracted"
-            "Picked"->f.source=="selected"
-            "Custom"->f.source=="manual"
-            else->true
+            "Scanned" -> f.source=="extracted"
+            "Picked" -> f.source=="selected"
+            "Added" -> f.source=="manual"
+            else -> true
         }
     }
-    fun copyText(ids:Set<String>)=fields.filter{it.id in ids&&it.value.isNotBlank()}
+    fun copyText(ids:Set<String>):String=fields.filter{it.id in ids&&it.value.isNotBlank()}
         .joinToString("\n"){it.name+": "+it.value}
-    if(editId.isNotBlank())AlertDialog(
+    fun edit(field:DataField?){
+        editId=field?.id ?: "new"
+        fieldName=field?.name.orEmpty()
+        fieldValue=field?.value.orEmpty()
+    }
+    fun updateField(id:String,transform:(List<DataField>)->List<DataField>){
+        onSave(card.copy(fields=transform(fields)))
+        selected=selected-id
+    }
+    if(choosingPerson){
+        val chosen=fields.filter{it.id in selected&&it.value.isNotBlank()}
+        AddToProfileDialog(profiles,chosen.size,
+            {personId->choosingPerson=false;selected=emptySet();onAddToProfile(personId,chosen)},
+            {name->choosingPerson=false;selected=emptySet();onCreatePerson(name,chosen)},
+            {choosingPerson=false})
+    }
+    if(editId.isNotBlank()) AlertDialog(
         onDismissRequest={editId=""},
-        title={Text(if(editId=="new")"Add a field" else "Edit field")},
-        text={Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
+        title={Text(if(editId=="new")"Add information" else "Edit information")},
+        text={Column(verticalArrangement=Arrangement.spacedBy(12.dp)){
             OutlinedTextField(fieldName,{fieldName=it},modifier=Modifier.fillMaxWidth(),
                 label={Text("Field name")},singleLine=true)
             OutlinedTextField(fieldValue,{fieldValue=it},modifier=Modifier.fillMaxWidth(),
@@ -53,196 +86,209 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
         }},
         confirmButton={TextButton(onClick={
             if(fieldName.isNotBlank()){
-                val next=fields.toMutableList()
-                val old=fields.firstOrNull{it.id==editId}
-                val field=DataField(fieldName.trim(),fieldValue.trim(),old?.page?:-1,
-                    old?.source?:"manual",old?.id?:java.util.UUID.randomUUID().toString(),
-                    old?.confidence?:0f)
-                if(old==null)next.add(field)else next[next.indexOfFirst{it.id==old.id}]=field
-                onSave(card.copy(fields=next))
+                val existing=fields.firstOrNull{it.id==editId}
+                val item=DataField(fieldName.trim(),fieldValue.trim(),
+                    existing?.page?:-1,existing?.source?:"manual",
+                    existing?.id?:java.util.UUID.randomUUID().toString(),
+                    existing?.confidence?:0f)
+                onSave(card.copy(fields=if(existing==null)fields+item
+                    else fields.map{if(it.id==existing.id)item else it}))
+                editId=""
             }
-            editId=""
         },enabled=fieldName.isNotBlank()){Text("Save")}},
         dismissButton={TextButton(onClick={editId=""}){Text("Cancel")}}
     )
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)){
-        Column(Modifier.padding(horizontal=16.dp,vertical=10.dp),
-            verticalArrangement=Arrangement.spacedBy(10.dp)){
-            Row(verticalAlignment=Alignment.CenterVertically){
-                Text("VAULT / FIELD EDITOR",color=VaultColors.syntax,
-                    modifier=Modifier.weight(1f),style=MaterialTheme.typography.labelSmall)
-                Text("● LOCAL",color=VaultColors.valid,style=MaterialTheme.typography.labelSmall)
+    val p=mockupPalette
+    Column(Modifier.fillMaxSize().background(p.panel)){
+        Column(Modifier.fillMaxWidth().padding(horizontal=18.dp,vertical=12.dp),
+            verticalArrangement=Arrangement.spacedBy(12.dp)){
+            Column{
+                Eyebrow("Full details")
+                Spacer(Modifier.height(4.dp))
+                Text(VaultNames.title(card.title),color=p.ink,fontSize=22.sp,
+                    fontWeight=FontWeight.Bold)
             }
-            Text(VaultNames.title(card.title),color=MaterialTheme.colorScheme.onSurface,
-                fontWeight=FontWeight.SemiBold,style=MaterialTheme.typography.titleLarge)
-            Row(verticalAlignment=Alignment.CenterVertically){
-                Icon(Icons.Outlined.DataObject,null,tint=VaultColors.syntax,modifier=Modifier.size(17.dp))
-                Spacer(Modifier.width(9.dp))
-                Text("details.json",style=MaterialTheme.typography.labelMedium,modifier=Modifier.weight(1f))
-                Text(VaultCounts.format(fields.size,"field"),color=VaultColors.lineNumber,
-                    style=MaterialTheme.typography.labelSmall)
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(p.warningSoft)
+                .padding(12.dp),verticalAlignment=Alignment.Top){
+                Icon(Icons.Outlined.WarningAmber,null,modifier=Modifier.size(18.dp),tint=p.warning)
+                Spacer(Modifier.width(10.dp))
+                Text("Values read from pages are suggestions. Check them against the document. "+
+                    "They do not verify identity.",color=p.ink,fontSize=12.sp,lineHeight=17.sp)
+            }
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                Button(onClick=onFetchDetails,
+                    enabled=!fetchingDetails&&card.files.any{DetailFetchPlan.supported(it)},
+                    modifier=Modifier.weight(1f).heightIn(min=48.dp)){
+                    Icon(Icons.Outlined.AutoAwesome,null,Modifier.size(19.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if(fetchingDetails)"Reading…" else "Get Details")
+                }
+                OutlinedButton(onClick={edit(null)},modifier=Modifier.weight(1f).heightIn(min=48.dp)){
+                    Icon(Icons.Outlined.Add,null,Modifier.size(19.dp))
+                    Spacer(Modifier.width(5.dp))
+                    Text("Add Field")
+                }
+            }
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+                TextButton(onClick=onSelect){
+                    Icon(Icons.Outlined.TextSnippet,null,Modifier.size(19.dp))
+                    Text(" Select from page")
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick={
+                    val next=!selectMode
+                    selectMode=next
+                    arranging=false
+                    if(!next)selected=emptySet()
+                }){
+                    Text(if(selectMode)"Done" else "Select")
+                }
+                TextButton(onClick={
+                    arranging=!arranging
+                    if(arranging){selectMode=false;selected=emptySet()}
+                }){
+                    Text(if(arranging)"Done" else "Arrange")
+                }
             }
             Row(Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement=Arrangement.spacedBy(7.dp)){
-                listOf("All","Picked","OCR","Custom").forEach{t->
-                    FilterChip(selected=tab==t,onClick={tab=t},
-                        label={Text(t)},shape=RoundedCornerShape(8.dp))
-                }
-            }
-            if(card.files.isNotEmpty()){
-                OutlinedButton(
-                    onClick=onFetchDetails,
-                    enabled=!fetchingDetails && card.files.any{DetailFetchPlan.supported(it)},
-                    modifier=Modifier.fillMaxWidth(),
-                    shape=RoundedCornerShape(10.dp)
-                ){
-                    Icon(Icons.Outlined.AutoAwesome,null,modifier=Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(if(fetchingDetails)"Fetching document details…" else "Fetch Details from All Pages",
-                        modifier=Modifier.weight(1f))
-                    Icon(Icons.Outlined.ChevronRight,null,modifier=Modifier.size(17.dp))
-                }
-            }
-            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                Button(onClick=onSelect,modifier=Modifier.weight(1f),
-                    shape=RoundedCornerShape(10.dp)){
-                    Icon(Icons.Outlined.TextSnippet,null,Modifier.size(16.dp))
-                    Text(" From document")
-                }
-                OutlinedButton(onClick={editId="new";fieldName="";fieldValue=""},
-                    modifier=Modifier.weight(1f),shape=RoundedCornerShape(10.dp)){
-                    Icon(Icons.Outlined.Add,null,Modifier.size(16.dp))
-                    Text(" Custom field")
-                }
-            }
-            Row(verticalAlignment=Alignment.CenterVertically){
-                Text("// Tap and hold values to select text",color=VaultColors.lineNumber,
-                    style=MaterialTheme.typography.labelSmall,modifier=Modifier.weight(1f))
-                TextButton(onClick={arranging=!arranging}){
-                    Text(if(arranging)"Done" else "Arrange",color=VaultColors.syntax)
+                horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                listOf("All","Picked","Scanned","Added").forEach{option->
+                    MockupChip(option,tab==option){tab=option}
                 }
             }
         }
-        Surface(modifier=Modifier.fillMaxWidth().weight(1f).padding(horizontal=13.dp),
-            color=MaterialTheme.colorScheme.surface,shape=RoundedCornerShape(13.dp),
-            border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
-            Column{
-                Row(Modifier.fillMaxWidth().padding(horizontal=13.dp,vertical=12.dp),
-                    verticalAlignment=Alignment.CenterVertically){
-                    listOf(VaultColors.expired,VaultColors.expiring,VaultColors.valid).forEach{tint->
-                        Box(Modifier.padding(end=5.dp).size(7.dp).background(
-                            tint,androidx.compose.foundation.shape.CircleShape))
+        LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(start=18.dp,end=18.dp,top=6.dp,bottom=16.dp),
+            verticalArrangement=Arrangement.spacedBy(10.dp)){
+            if(rows.isEmpty())item{
+                Surface(shape=RoundedCornerShape(14.dp),color=dPanel,
+                    border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
+                    Column(Modifier.fillMaxWidth().padding(18.dp),
+                        verticalArrangement=Arrangement.spacedBy(8.dp)){
+                        Icon(Icons.Outlined.Description,null,tint=dMuted)
+                        Text("No information saved yet",style=MaterialTheme.typography.titleMedium)
+                        Text("Get details from an attached document, select recognized text, or add your own field.",
+                            color=dMuted,style=MaterialTheme.typography.bodySmall)
                     }
-                    Spacer(Modifier.width(11.dp))
-                    Text("details.json",color=MaterialTheme.colorScheme.onSurfaceVariant,
-                        style=MaterialTheme.typography.labelSmall,modifier=Modifier.weight(1f))
-                    Text("UTF-8",color=VaultColors.lineNumber,style=MaterialTheme.typography.labelSmall)
                 }
-                HorizontalDivider(color=MaterialTheme.colorScheme.outline)
-                LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(vertical=5.dp)){
-                    item{
-                        Row(Modifier.padding(horizontal=12.dp,vertical=8.dp)){
-                            Text("01",color=VaultColors.lineNumber,modifier=Modifier.width(30.dp),
-                                style=MaterialTheme.typography.labelSmall)
-                            Text("{",fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace)
-                        }
-                    }
-                    items(rows,key={it.second.id}){(index,f)->
-                        Row(Modifier.fillMaxWidth().padding(horizontal=9.dp,vertical=6.dp),
-                            verticalAlignment=Alignment.CenterVertically){
-                            Text((index+2).toString().padStart(2,'0'),
-                                color=VaultColors.lineNumber,modifier=Modifier.width(28.dp),
-                                style=MaterialTheme.typography.labelSmall)
-                            Checkbox(checked=f.id in selected,onCheckedChange={checked->
-                                selected=if(checked)selected+f.id else selected-f.id
-                            },modifier=Modifier.size(35.dp))
-                            Column(Modifier.weight(1f).padding(start=4.dp),
-                                verticalArrangement=Arrangement.spacedBy(3.dp)){
-                                Text("\""+f.name+"\":",color=VaultColors.syntax,
-                                    fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace,
-                                    style=MaterialTheme.typography.bodySmall)
+            }
+            items(rows,key={it.id}){field->
+                val isSelected=field.id in selected
+                Card(colors=CardDefaults.cardColors(containerColor=p.panelRaised),
+                    shape=RoundedCornerShape(18.dp),
+                    border=BorderStroke(if(isSelected)1.5.dp else 1.dp,
+                        if(isSelected)p.accent else p.line)){
+                    Column(Modifier.fillMaxWidth().padding(start=12.dp,end=6.dp,top=12.dp,bottom=10.dp)){
+                        Row(verticalAlignment=Alignment.CenterVertically){
+                            if(selectMode)Checkbox(checked=field.id in selected,
+                                onCheckedChange={checked->
+                                    selected=if(checked)selected+field.id else selected-field.id
+                                },modifier=Modifier.size(48.dp))
+                            Column(Modifier.weight(1f).clickable{edit(field)}
+                                .padding(start=if(selectMode)0.dp else 4.dp),
+                                verticalArrangement=Arrangement.spacedBy(5.dp)){
+                                Row(verticalAlignment=Alignment.CenterVertically,
+                                    horizontalArrangement=Arrangement.spacedBy(7.dp)){
+                                    Text(field.name.uppercase(java.util.Locale.ROOT),color=p.inkFaint,
+                                        fontSize=10.sp,letterSpacing=1.2.sp,fontWeight=FontWeight.Medium,
+                                        maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        modifier=Modifier.weight(1f,fill=false))
+                                    if(field.confidence>0f&&field.confidence<.75f)
+                                        MockupTag("Review",p.warning,p.warningSoft)
+                                    else if(field.source=="manual")
+                                        MockupTag("Manual",p.inkMuted,p.line.copy(alpha=.5f))
+                                }
                                 SelectionContainer{
-                                    Text("\""+f.value.ifBlank{"—"}+"\"",
-                                        color=MaterialTheme.colorScheme.onSurface,
-                                        fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace,
-                                        style=MaterialTheme.typography.bodyMedium)
+                                    Text(if(field.value.isBlank())"Not entered" else
+                                        if(ProfileLogic.isSensitive(field.name)&&field.id !in revealedFields)
+                                            ProfileLogic.mask(field.value)
+                                        else field.value,color=p.ink,
+                                        fontSize=15.sp,fontWeight=FontWeight.SemiBold)
                                 }
-                                val origin=if(f.confidence>0f)
-                                    "// OCR confidence "+(f.confidence*100).toInt()+"% · review"
-                                else "// "+(if(f.page>=0)"page "+(f.page+1)+" · " else "")+f.source
-                                Text(origin,color=VaultColors.lineNumber,
-                                    style=MaterialTheme.typography.labelSmall)
                             }
-                            IconButton(onClick={copyToClipboard(context,f.name,f.value)},
-                                modifier=Modifier.size(34.dp)){
-                                Icon(Icons.Outlined.ContentCopy,"Copy "+f.name,
-                                    tint=MaterialTheme.colorScheme.onSurface,modifier=Modifier.size(17.dp))
+                            if(ProfileLogic.isSensitive(field.name))IconButton(
+                                onClick={revealedFields=if(field.id in revealedFields)
+                                    revealedFields-field.id else revealedFields+field.id},
+                                modifier=Modifier.size(48.dp)){
+                                Icon(if(field.id in revealedFields)Icons.Outlined.VisibilityOff
+                                    else Icons.Outlined.Visibility,
+                                    if(field.id in revealedFields)"Hide "+field.name else "Reveal "+field.name,
+                                    modifier=Modifier.size(20.dp),tint=p.inkMuted)
                             }
-                            IconButton(onClick={editId=f.id;fieldName=f.name;fieldValue=f.value},
-                                modifier=Modifier.size(34.dp)){
-                                Icon(Icons.Outlined.Edit,"Edit "+f.name,
-                                    tint=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.size(17.dp))
+                            IconButton(onClick={copyToClipboard(context,field.name,field.value)},
+                                enabled=field.value.isNotBlank(),modifier=Modifier.size(48.dp)){
+                                Icon(Icons.Outlined.ContentCopy,"Copy "+field.name,
+                                    modifier=Modifier.size(20.dp),tint=p.accent)
+                            }
+                            IconButton(onClick={edit(field)},modifier=Modifier.size(48.dp)){
+                                Icon(Icons.Outlined.Edit,"Edit "+field.name,
+                                    modifier=Modifier.size(20.dp),tint=p.inkMuted)
                             }
                         }
-                        if(arranging)Row(Modifier.padding(start=38.dp),
-                            horizontalArrangement=Arrangement.spacedBy(3.dp)){
-                            TextButton(enabled=index>0,onClick={
-                                if(index>0){
-                                    val next=fields.toMutableList()
-                                    java.util.Collections.swap(next,index,index-1)
-                                    onSave(card.copy(fields=next))
+                        if(arranging){
+                            HorizontalDivider(Modifier.padding(top=8.dp))
+                            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+                                val index=fields.indexOfFirst{it.id==field.id}
+                                IconButton(onClick={
+                                    if(index>0){
+                                        val next=fields.toMutableList()
+                                        java.util.Collections.swap(next,index,index-1)
+                                        updateField("",{next})
+                                    }
+                                },enabled=index>0){
+                                    Icon(Icons.Outlined.ArrowUpward,"Move "+field.name+" up")
                                 }
-                            }){Text("↑ Up")}
-                            TextButton(enabled=index<fields.lastIndex,onClick={
-                                if(index<fields.lastIndex){
-                                    val next=fields.toMutableList()
-                                    java.util.Collections.swap(next,index,index+1)
-                                    onSave(card.copy(fields=next))
+                                IconButton(onClick={
+                                    if(index in 0 until fields.lastIndex){
+                                        val next=fields.toMutableList()
+                                        java.util.Collections.swap(next,index,index+1)
+                                        updateField("",{next})
+                                    }
+                                },enabled=index>=0&&index<fields.lastIndex){
+                                    Icon(Icons.Outlined.ArrowDownward,"Move "+field.name+" down")
                                 }
-                            }){Text("↓ Down")}
-                            TextButton(onClick={
-                                onSave(card.copy(fields=fields.filterNot{it.id==f.id}))
-                                selected=selected-f.id
-                            }){Text("Remove",color=MaterialTheme.colorScheme.error)}
-                        }
-                        HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant,
-                            modifier=Modifier.padding(start=42.dp,end=12.dp))
-                    }
-                    if(rows.isEmpty())item{
-                        Text("// Empty. Select from document or add a field.",
-                            color=MaterialTheme.colorScheme.onSurfaceVariant,
-                            style=MaterialTheme.typography.bodySmall,
-                            modifier=Modifier.padding(16.dp))
-                    }
-                    item{
-                        Row(Modifier.padding(horizontal=12.dp,vertical=9.dp)){
-                            Text((fields.size+2).toString().padStart(2,'0'),
-                                color=VaultColors.lineNumber,modifier=Modifier.width(30.dp),
-                                style=MaterialTheme.typography.labelSmall)
-                            Text("}",fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace)
+                                Spacer(Modifier.weight(1f))
+                                TextButton(onClick={edit(field)}){Text("Edit")}
+                                TextButton(onClick={updateField(field.id){items->
+                                    items.filterNot{it.id==field.id}
+                                }}){Text("Remove",color=MaterialTheme.colorScheme.error)}
+                            }
                         }
                     }
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(12.dp),horizontalArrangement=Arrangement.spacedBy(9.dp)){
-            OutlinedButton(
-                onClick={copyToClipboard(context,"Selected information",copyText(selected))},
-                modifier=Modifier.weight(1f),enabled=fields.any{it.id in selected&&it.value.isNotBlank()},
-                shape=RoundedCornerShape(10.dp)){
-                Icon(Icons.Outlined.Checklist,null,Modifier.size(17.dp))
-                Text(" Selected ("+selected.size+")")
+        HorizontalDivider(color=p.line)
+        Row(Modifier.fillMaxWidth().padding(horizontal=18.dp,vertical=10.dp),
+            horizontalArrangement=Arrangement.spacedBy(10.dp)){
+            OutlinedButton(onClick={copyToClipboard(context,"Selected information",copyText(selected))},
+                enabled=fields.any{it.id in selected&&it.value.isNotBlank()},
+                modifier=Modifier.weight(1f).heightIn(min=48.dp)){
+                Icon(Icons.Outlined.Checklist,"Copy selected fields",Modifier.size(19.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Copy Selected")
             }
-            Button(
-                onClick={copyToClipboard(context,"Full details",copyText(fields.map{it.id}.toSet()))},
-                modifier=Modifier.weight(1f),enabled=fields.any{it.value.isNotBlank()},
-                shape=RoundedCornerShape(10.dp)){
-                Icon(Icons.Outlined.ContentCopy,null,Modifier.size(17.dp))
-                Text(" Copy all")
+            if(fields.any{it.id in selected&&it.value.isNotBlank()}) {
+                Button(onClick={choosingPerson=true},
+                    modifier=Modifier.weight(1f).heightIn(min=48.dp)){
+                    Icon(Icons.Outlined.PersonAdd,"Add selected details to person",
+                        Modifier.size(19.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Add to profile · "+fields.count{it.id in selected&&it.value.isNotBlank()})
+                }
+            }else{
+                Button(onClick={copyToClipboard(context,"Document information",
+                    copyText(fields.map{it.id}.toSet()))},
+                    enabled=fields.any{it.value.isNotBlank()},
+                    modifier=Modifier.weight(1f).heightIn(min=48.dp)){
+                    Icon(Icons.Outlined.ContentCopy,"Copy all fields",Modifier.size(19.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Copy All")
+                }
             }
         }
     }
 }
+
 @Composable fun SelectDocumentTextPage(card:VaultCard,onAdd:(DataField)->Unit,onRunOcr:(VaultFile)->Unit){
     var selectedFile by rememberSaveable(card.id){mutableIntStateOf(0)}
     var query by rememberSaveable(card.id){mutableStateOf("")}
@@ -267,14 +313,14 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                 onAdd(DataField(label.trim(),candidate!!.trim(),chosenPage,"selected"))
                 candidate=null;label=""
             }
-        }){Text("Add to Full Details")}},
+        }){Text("Save field")}},
         dismissButton={TextButton(onClick={candidate=null}){Text("Cancel")}})
     Column(Modifier.fillMaxSize().background(dNavy).padding(14.dp)){
-        Text("OCR / SELECT SOURCE",color=VaultColors.syntax,style=MaterialTheme.typography.labelSmall)
+        Text("Choose information from a page",color=VaultColors.syntax,style=MaterialTheme.typography.labelSmall)
         Spacer(Modifier.height(7.dp))
-        Text("text.extract",color=MaterialTheme.colorScheme.onSurface,
+        Text("Recognized text",color=MaterialTheme.colorScheme.onSurface,
             style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.SemiBold)
-        Text("// Tap a source line, name it, save to details.json",color=dMuted,
+        Text("Tap a line to save it as a document detail.",color=dMuted,
             style=MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(10.dp))
         Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(7.dp)){
@@ -284,15 +330,19 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
         if(file==null)Text("Attach a document first.",color=dMuted)
         else if(file.extractedText.isBlank()){
             Spacer(Modifier.height(15.dp))
-            Text("This document needs OCR before individual text can be selected.",color=dMuted)
-            Button(onClick={onRunOcr(file)}){Text("Run on-device OCR")}
+            Text("Extract details to select text from this document.",color=dMuted)
+            Button(onClick={onRunOcr(file)}){Text("Get Details")}
         }else{
             OutlinedTextField(query,{query=it},modifier=Modifier.fillMaxWidth(),
                 label={Text("Find text")},singleLine=true,leadingIcon={Icon(Icons.Outlined.Search,null)})
             Spacer(Modifier.height(8.dp))
             if(truncated) Text("Showing first 350 matches. Refine search to see more.",
                 color=dMuted,style=MaterialTheme.typography.bodySmall)
-            LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp)){
+            LazyColumn(
+                modifier=Modifier.weight(1f).fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.background),
+                contentPadding=PaddingValues(bottom=16.dp),
+                verticalArrangement=Arrangement.spacedBy(8.dp)){
                 items(choices.take(350)){(page,line)->
                     Card(onClick={candidate=line;label="";chosenPage=page},
                         colors=CardDefaults.cardColors(containerColor=dPanel),
@@ -302,8 +352,8 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                             Text((page+1).toString().padStart(2,'0'),color=VaultColors.lineNumber,
                                 style=MaterialTheme.typography.labelSmall,modifier=Modifier.width(30.dp))
                             Text(line,color=MaterialTheme.colorScheme.onSurface,
-                                fontFamily=androidx.compose.ui.text.font.FontFamily.Monospace,
-                                style=MaterialTheme.typography.bodyMedium,modifier=Modifier.weight(1f))
+                                style=MaterialTheme.typography.bodyMedium,
+                                modifier=Modifier.weight(1f))
                             Icon(Icons.Outlined.Add,null,tint=VaultColors.syntax,modifier=Modifier.size(18.dp))
                         }
                     }
