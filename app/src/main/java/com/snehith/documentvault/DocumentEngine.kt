@@ -49,6 +49,12 @@ class PdfPageSession(private val source:File):Closeable {
     private val renderer=try{PdfRenderer(descriptor)}catch(e:Exception){descriptor.close();throw e}
     private var closed=false
     val pageCount:Int get()=renderer.pageCount
+    @Synchronized fun pageAspect(index:Int):Float {
+        check(!closed){"PDF viewing session already closed"}
+        renderer.openPage(index.coerceIn(0,renderer.pageCount-1)).use{
+            return (it.width.toFloat()/it.height.coerceAtLeast(1)).coerceIn(.38f,2.2f)
+        }
+    }
     private val cached=object:LinkedHashMap<Pair<Int,Int>,Bitmap>(3,0.75f,true){
         override fun removeEldestEntry(eldest:MutableMap.MutableEntry<Pair<Int,Int>,Bitmap>?):Boolean=size>2
     }
@@ -297,6 +303,39 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
             for(page in doc.pages)page.rotation=(page.rotation+angle+360)%360
             context.contentResolver.openOutputStream(target)!!.use{doc.save(it)}
         }}finally{ /* original retained */ }
+    }
+    /**
+     * Create an enhanced PDF COPY by replacing exactly one rendered page.
+     * All other source pages remain embedded in the resulting PDF.
+     * The original PDF is never written or modified.
+     */
+    fun enhancedPdfPage(file:VaultFile,index:Int,imageUri:Uri,target:Uri) {
+        require(file.mime=="application/pdf"||file.name.endsWith(".pdf",true)){
+            "Enhancement requires a PDF attachment"
+        }
+        val corrected=context.contentResolver.openInputStream(imageUri)?.use{
+            BitmapFactory.decodeStream(it)
+        }?:throw IOException("Enhanced image could not be decoded")
+        try{
+            PDDocument.load(repo.documentFile(file)).use{doc->
+                require(index in 0 until doc.numberOfPages){"PDF page index is out of range"}
+                val previous=doc.getPage(index)
+                val page=PDPage(PDRectangle(previous.mediaBox.width,previous.mediaBox.height))
+                doc.pages.insertBefore(page,previous)
+                doc.removePage(previous)
+                val embedded=JPEGFactory.createFromImage(doc,corrected,0.94f)
+                val box=page.mediaBox
+                val scale=minOf(box.width/corrected.width,box.height/corrected.height)
+                val width=corrected.width*scale
+                val height=corrected.height*scale
+                PDPageContentStream(doc,page).use{stream->
+                    stream.drawImage(embedded,(box.width-width)/2f,(box.height-height)/2f,
+                        width,height)
+                }
+                context.contentResolver.openOutputStream(target)?.use{doc.save(it)}
+                    ?:throw IOException("Unable to write enhanced PDF")
+            }
+        }finally{corrected.recycle()}
     }
     fun imagesToPdf(files:List<VaultFile>,target:Uri,maxWidth:Int=1800) {
         val doc=PdfDocument()

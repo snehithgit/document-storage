@@ -103,6 +103,7 @@ private data class ExpiryLook(val title:String,val sub:String,val tag:String,
     val tint:Color,val soft:Color,val icon:ImageVector)
 
 @Composable fun MockupExpiryRow(card:VaultCard,modifier:Modifier=Modifier){
+    if(card.expiry.isBlank())return
     val p=mockupPalette
     val days=DesignLogic.daysLeft(card)
     val date=runCatching{LocalDate.parse(card.expiry)

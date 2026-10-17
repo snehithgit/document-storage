@@ -22,17 +22,50 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** Real page references: an imported PDF is ONE attachment with MANY viewable pages. */
-data class VaultDocumentPage(val file:VaultFile,val index:Int,val total:Int)
+data class VaultDocumentPage(val file:VaultFile,val index:Int,val total:Int,
+    val aspect:Float=.75f)
+
+object VaultPageLayout {
+    fun kind(aspect:Float):String=when{
+        aspect>=1.45f->"ID card / landscape"
+        aspect>=1.16f->"Landscape page"
+        aspect>=.58f->"Portrait page"
+        else->"Long document"
+    }
+    fun widthFraction(aspect:Float):Float=when{
+        aspect>=1.16f->.95f
+        aspect>=.62f->.72f
+        else->.6f
+    }
+}
+
 
 object VaultDocumentPages {
     fun expand(repo:VaultRepository,files:List<VaultFile>):List<VaultDocumentPage> =
         files.flatMap{file->
             if(file.mime=="application/pdf"||file.name.endsWith(".pdf",true)){
-                val pages=runCatching{
-                    PdfPageSession(repo.documentFile(file)).use{it.pageCount}
-                }.getOrDefault(1).coerceIn(1,5000)
-                (0 until pages).map{VaultDocumentPage(file,it,pages)}
-            }else listOf(VaultDocumentPage(file,0,1))
+                runCatching {
+                    PdfPageSession(repo.documentFile(file)).use{session->
+                        val count=session.pageCount.coerceIn(1,5000)
+                        (0 until count).map{index->
+                            VaultDocumentPage(file,index,count,session.pageAspect(index))
+                        }
+                    }
+                }.getOrElse{listOf(VaultDocumentPage(file,0,1))}
+            }else{
+                val aspect=runCatching{
+                    val original=repo.documentFile(file)
+                    val bounds=android.graphics.BitmapFactory.Options().apply{inJustDecodeBounds=true}
+                    android.graphics.BitmapFactory.decodeFile(original.absolutePath,bounds)
+                    val initial=bounds.outWidth.toFloat()/bounds.outHeight.coerceAtLeast(1)
+                    val orientation=androidx.exifinterface.media.ExifInterface(original)
+                        .getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
+                            androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL)
+                    val sideways=orientation in listOf(5,6,7,8)
+                    (if(sideways)1f/initial else initial).coerceIn(.38f,2.2f)
+                }.getOrDefault(.75f)
+                listOf(VaultDocumentPage(file,0,1,aspect))
+            }
         }
     fun identity(files:List<VaultFile>)=files.joinToString(";"){it.id+":"+it.sha256+":"+it.bytes}
 }
@@ -86,7 +119,7 @@ object VaultDocumentPages {
 ){
     val p=mockupPalette
     val shape=RoundedCornerShape(14.dp)
-    Box(modifier.aspectRatio(.75f).clip(shape)
+    Box(modifier.aspectRatio(page?.aspect?:.75f).clip(shape)
         .background(p.panelRaised)
         .border(1.dp,p.line,shape)
         .then(if(onClick!=null)Modifier.clickable(onClick=onClick) else Modifier)){
@@ -130,7 +163,7 @@ object VaultDocumentPages {
         Text(VaultCounts.format(pages.size,"page"),fontSize=11.sp,color=p.inkFaint,
             maxLines=1)
         Spacer(Modifier.height(4.dp))
-        ExpiryTag(card)
+        if(card.expiry.isNotBlank())ExpiryTag(card)
     }
 }
 

@@ -37,7 +37,7 @@ val VaultRaised:Color @Composable get()=MaterialTheme.colorScheme.surface
 val VaultBlue=VaultColors.primaryText
 val VaultSky:Color @Composable get()=MaterialTheme.colorScheme.primary
 val VaultMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVariant
-val bgBrush:Brush @Composable get()=vaultWarmBrush(MaterialTheme.colorScheme.background==VaultColors.darkBg)
+val bgBrush:Brush @Composable get()=vaultWarmBrush(MaterialTheme.colorScheme.primary==VaultColors.darkAccent)
 private val rounded=RoundedCornerShape(14.dp)
 
 @Composable fun VaultHeader(title:String,subtitle:String?=null) {
@@ -135,7 +135,7 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
                 Text("$needsReview TO REVIEW",modifier=Modifier.padding(
                     horizontal=8.dp,vertical=5.dp),
                     color=palette.warning,fontSize=10.sp,fontWeight=FontWeight.SemiBold)
-            }else ExpiryTag(card)
+            }else if(card.expiry.isNotBlank())ExpiryTag(card)
         }
      }
 }
@@ -322,7 +322,7 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
 @Composable fun VaultNavDetail(card:VaultCard,repo:VaultRepository,onFile:(VaultFile,Int)->Unit,
     onShare:(VaultFile)->Unit,onSharePdf:(VaultFile)->Unit,onShareAll:()->Unit,onAdd:()->Unit,
     onFull:()->Unit,onTools:()->Unit,onEdit:()->Unit,onManage:()->Unit,onDelete:()->Unit,
-    onFetchDetails:()->Unit,fetchingDetails:Boolean,onEnhance:(VaultFile)->Unit,
+    onFetchDetails:()->Unit,fetchingDetails:Boolean,onEnhance:(VaultFile,Int)->Unit,
     documentStyle:String="pages"){
     var selectedId by rememberSaveable(card.id){mutableStateOf("")}
     var selectedIndex by rememberSaveable(card.id){mutableIntStateOf(0)}
@@ -365,9 +365,12 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
                         DropdownMenuItem(text={Text("Manage attachments")},onClick={showMore=false;onManage()})
                         DropdownMenuItem(text={Text("Share all files")},enabled=card.files.isNotEmpty(),
                             onClick={showMore=false;onShareAll()})
-                        if(selected?.mime?.startsWith("image/")==true){
-                            DropdownMenuItem(text={Text("Enhance or crop image")},
-                                onClick={showMore=false;onEnhance(selected)})
+                        if(selected!=null&&(selected.mime.startsWith("image/") ||
+                            selected.mime=="application/pdf"||selected.name.endsWith(".pdf",true))){
+                            DropdownMenuItem(text={Text(if(selected.mime.startsWith("image/"))
+                                "Enhance or crop image" else "Enhance selected PDF page")},
+                                onClick={showMore=false;onEnhance(selected,
+                                    if(documentStyle=="wallet")0 else (chosenPage?.index?:0))})
                         }
                         DropdownMenuItem(text={Text("Delete document")},onClick={showMore=false;confirmDelete=true})
                     }
@@ -376,7 +379,7 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
         }
         item{
             if(documentStyle=="wallet"){
-                TiltBox{CardFace(card,onClick={selected?.let{file->{onFile(file,0)}}})}
+                TiltBox{CardFace(card,onClick={selected?.let{file->onFile(file,0)};Unit})}
             }else{
                 Column(Modifier.fillMaxWidth().padding(vertical=6.dp),
                     horizontalAlignment=Alignment.CenterHorizontally){
@@ -384,8 +387,9 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
                         .background(palette.accentSoft).padding(vertical=18.dp),
                         contentAlignment=Alignment.Center){
                         VaultDocumentPaper(chosenPage,repo,
-                            Modifier.fillMaxWidth(.66f),
-                            maxEdge=1050,onClick={::viewSelected})
+                            Modifier.fillMaxWidth(
+                                VaultPageLayout.widthFraction(chosenPage?.aspect?:.75f)),
+                            maxEdge=1050,onClick={viewSelected()})
                     }
                     if(pages.size>1){
                         Spacer(Modifier.height(12.dp))
@@ -402,7 +406,8 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(VaultCounts.format(pages.size,"page")+" · "+
-                        VaultCounts.format(card.files.size,"attachment"),
+                        VaultCounts.format(card.files.size,"attachment")+
+                        " · "+VaultPageLayout.kind(chosenPage?.aspect?:.75f),
                         color=palette.inkFaint,fontSize=12.sp)
                 }
             }
@@ -428,7 +433,7 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
                 }
             }
         }
-        item{ MockupExpiryRow(card) }
+        if(card.expiry.isNotBlank())item{ MockupExpiryRow(card) }
         if(DesignLogic.hasHolderConflict(card))item{
             MockupNote(Icons.Outlined.WarningAmber,
                 "The saved Full Name matches a parent's name. Please check and correct it in Full details.",
@@ -437,7 +442,7 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
         item{
             MockupActionRow(listOf(
                 MockupAction(Icons.Outlined.Visibility,"View",primary=true,enabled=selected!=null,
-                    onClick={::viewSelected}),
+                    onClick={viewSelected()}),
                 MockupAction(Icons.Outlined.Share,"Share",enabled=selected!=null,
                     onClick={selected?.let(onShare)}),
                 if(selected?.mime?.startsWith("image/")==true)

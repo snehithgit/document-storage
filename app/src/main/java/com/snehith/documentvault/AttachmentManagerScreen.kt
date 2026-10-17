@@ -30,7 +30,7 @@ import androidx.compose.ui.unit.sp
         confirmButton={TextButton(onClick={onDelete(toDelete);deleteId=""}){
             Text("Remove",color=MaterialTheme.colorScheme.error)}},
         dismissButton={TextButton(onClick={deleteId=""}){Text("Cancel")}})
-    LazyColumn(Modifier.fillMaxSize().background(vaultWarmBrush(MaterialTheme.colorScheme.background==VaultColors.darkBg)),
+    LazyColumn(Modifier.fillMaxSize().background(vaultWarmBrush(MaterialTheme.colorScheme.primary==VaultColors.darkAccent)),
         contentPadding=PaddingValues(16.dp,12.dp,16.dp,96.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
         item{
             Text("Attachments",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.SemiBold)

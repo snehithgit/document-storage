@@ -111,8 +111,9 @@ import java.util.UUID
             }
             bitmap=rendered
             error=""
-        }catch(e:Exception){error=e.message?:"Unable to preview document"}
-        finally{loading=false}
+            loading=false
+        }catch(cancelled:kotlinx.coroutines.CancellationException){throw cancelled}
+        catch(e:Exception){error=e.message?:"Unable to preview document";loading=false}
     }
     Column(Modifier.fillMaxSize().background(Color.Black).padding(horizontal=12.dp,vertical=8.dp),
         verticalArrangement=Arrangement.spacedBy(8.dp)){
@@ -208,8 +209,13 @@ import java.util.UUID
     }
 }
 @Composable fun PdfToolsScreen(card:VaultCard,repo:VaultRepository,
-    onAdd:()->Unit,onExport:(String,List<VaultFile>,Int,Int)->Unit) {
-    var selected by rememberSaveable(card.id){mutableStateOf(card.files.map{it.id})}
+    onAdd:()->Unit,onExport:(String,List<VaultFile>,Int,Int)->Unit,
+    onEnhance:(VaultFile,Int)->Unit={_,_->}) {
+    // Prefer the first PDF for page operations; other attachments can be added for combining.
+    var selected by rememberSaveable(card.id){mutableStateOf(
+        card.files.firstOrNull{it.mime=="application/pdf"||it.name.endsWith(".pdf",true)}
+            ?.let{listOf(it.id)} ?: card.files.map{it.id}
+    )}
     var fromPage by rememberSaveable(card.id){mutableStateOf("1")}
     var toPage by rememberSaveable(card.id){mutableStateOf("1")}
     val selectedFiles=selected.mapNotNull{id->card.files.firstOrNull{it.id==id}}
@@ -218,9 +224,17 @@ import java.util.UUID
     }
     val onlyPdf=selectedFiles.size==1 && (selectedFiles[0].mime=="application/pdf"||
         selectedFiles[0].name.endsWith(".pdf",true))
+    val pdfFile=if(onlyPdf)selectedFiles.first() else null
+    val pdfPages=rememberVaultDocumentPages(repo,pdfFile?.let{listOf(it)}?:emptyList())
+    val pdfPageCount=if(pdfFile!=null)pdfPages.size else 0
+    LaunchedEffect(pdfFile?.id,pdfPageCount){
+        fromPage="1"
+        toPage=pdfPageCount.coerceAtLeast(1).toString()
+    }
     val startIndex=fromPage.toIntOrNull()
     val endIndex=toPage.toIntOrNull()
-    val validRange=startIndex!=null&&endIndex!=null&&startIndex>0&&endIndex>=startIndex
+    val validRange=onlyPdf&&startIndex!=null&&endIndex!=null&&
+        startIndex in 1..pdfPageCount&&endIndex in startIndex..pdfPageCount
     val p=mockupPalette
     LazyColumn(Modifier.fillMaxSize().background(p.panel),
         contentPadding=PaddingValues(18.dp,22.dp,18.dp,28.dp),
@@ -314,6 +328,30 @@ import java.util.UUID
                 Text("Export combined PDF…")
             }
         }
+        if(onlyPdf)item{
+            MockupSectionHeader("Pages in PDF",VaultCounts.format(pdfPageCount,"page"))
+            Text("Tap a page to choose the export range. All pages remain in the original PDF.",
+                color=p.inkMuted,fontSize=12.sp)
+            Spacer(Modifier.height(8.dp))
+            LazyRow(horizontalArrangement=Arrangement.spacedBy(9.dp)){
+                itemsIndexed(pdfPages,key={_,page->page.file.id+":"+page.index}){index,page->
+                    val number=index+1
+                    val active=validRange&&number>=startIndex!!&&number<=endIndex!!
+                    Column(Modifier.width(88.dp).clickable{
+                        if(startIndex==null||number<startIndex)fromPage=number.toString()
+                        else toPage=number.toString()
+                    },horizontalAlignment=Alignment.CenterHorizontally){
+                        Surface(shape=RoundedCornerShape(12.dp),
+                            border=BorderStroke(if(active)2.dp else 1.dp,
+                                if(active)p.accent else p.line)){
+                            VaultDocumentPaper(page,repo,Modifier.fillMaxWidth(),maxEdge=250)
+                        }
+                        Text("Page "+number,fontSize=11.sp,
+                            color=if(active)p.accent else p.inkMuted)
+                    }
+                }
+            }
+        }
         item{
             Text("Other PDF tools",color=p.ink,fontSize=17.sp,fontWeight=FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
@@ -324,20 +362,31 @@ import java.util.UUID
                     modifier=Modifier.weight(1f),singleLine=true)
             }
             Spacer(Modifier.height(8.dp))
+            if(onlyPdf&&!validRange)
+                Text("Choose a range from 1 to "+pdfPageCount+".",
+                    color=p.warning,fontSize=12.sp)
             OutlinedButton(onClick={
                 onExport("split",selectedFiles,startIndex?:1,endIndex?:1)
-            },enabled=onlyPdf&&validRange,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
+            },enabled=validRange,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
                 Text("Export selected pages")
             }
-            OutlinedButton(onClick={onExport("rotate",selectedFiles,1,1)},
+            OutlinedButton(onClick={onExport("rotate",selectedFiles,1,pdfPageCount)},
                 enabled=onlyPdf,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
-                Text("Rotate PDF 90°")
+                Text("Rotate all PDF pages 90°")
             }
-            OutlinedButton(onClick={onExport("searchable",selectedFiles,1,1)},
+            if(pdfFile!=null)OutlinedButton(
+                onClick={onEnhance(pdfFile,((startIndex?:1)-1).coerceIn(0,
+                    (pdfPageCount-1).coerceAtLeast(0)))},
+                enabled=validRange,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
+                Text("Enhance page "+(startIndex?:1)+" (save PDF copy)")
+            }
+            OutlinedButton(onClick={onExport("searchable",selectedFiles,1,pdfPageCount)},
                 enabled=onlyPdf&&selectedFiles[0].extractedText.isNotBlank(),
                 modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
                 Text("Make searchable PDF")
             }
+            if(!onlyPdf)Text("Select exactly one PDF to preview or export individual pages.",
+                color=p.inkMuted,fontSize=12.sp)
             Text("Original files are kept unchanged. You choose where exports are saved.",
                 style=MaterialTheme.typography.bodySmall,
                 color=MaterialTheme.colorScheme.onSurfaceVariant)

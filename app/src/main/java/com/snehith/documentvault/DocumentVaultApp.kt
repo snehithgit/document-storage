@@ -63,6 +63,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var discardEditorDialog by rememberSaveable{mutableStateOf(false)}
     var editing by remember{mutableStateOf<VaultCard?>(null)}
     var editingJson by rememberSaveable{mutableStateOf("")}
+    var editingIsNew by rememberSaveable{mutableStateOf(false)}
     var viewingId by rememberSaveable{mutableStateOf("")}
     var viewingPage by rememberSaveable{mutableIntStateOf(0)}
     var cropBitmap by remember{mutableStateOf<android.graphics.Bitmap?>(null)}
@@ -78,6 +79,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var externalPdfPath by rememberSaveable{mutableStateOf("")}
     var cropFromAttachment by rememberSaveable{mutableStateOf(false)}
     var enhancingFileId by rememberSaveable{mutableStateOf<String?>(null)}
+    var enhancingPdfPage by rememberSaveable{mutableIntStateOf(0)}
     var scanSessionContinue by rememberSaveable{mutableStateOf("")}
     var scanTarget by rememberSaveable{mutableStateOf<String?>(null)}
     var addToCardId by rememberSaveable{mutableStateOf<String?>(null)}
@@ -136,10 +138,57 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         }
     }
     fun startEdit(card:VaultCard){
+        editingIsNew=repo.cards.none{it.id==card.id}
         editing=card
         editingJson=repo.encodeCard(card)
         navigate("edit")
     }
+    fun startEnhance(card:VaultCard,file:VaultFile,page:Int){
+        scope.launch{
+            busy="Preparing page for enhancement"
+            try{
+                val source=withContext(Dispatchers.IO){
+                    val pdf=file.mime=="application/pdf"||file.name.endsWith(".pdf",true)
+                    if(!pdf)repo.originalDocumentFile(file).absolutePath
+                    else{
+                        val staged=File(activity.cacheDir,"shared/pdf-page-"+UUID.randomUUID()+".png")
+                        staged.parentFile?.mkdirs()
+                        try{
+                            PdfPageSession(repo.documentFile(file)).use{session->
+                                val bitmap=session.render(page,1700)
+                                try{
+                                    staged.outputStream().use{
+                                        require(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)){
+                                            "Could not stage PDF page for enhancement"
+                                        }
+                                    }
+                                }finally{bitmap.recycle()}
+                            }
+                            staged.absolutePath
+                        }catch(e:Exception){staged.delete();throw e}
+                    }
+                }
+                val pdf=file.mime=="application/pdf"||file.name.endsWith(".pdf",true)
+                val scan=withContext(Dispatchers.IO){
+                    if(pdf)ScanPrepare.loadForEdit(File(source),"",0)
+                    else ScanPrepare.loadForEdit(File(source),file.cropCorners,file.cropRotation)
+                }
+                scanTarget=card.id;cropFromAttachment=true
+                enhancingFileId=file.id;enhancingPdfPage=page
+                cameraUri=null;cameraPath=source
+                cropBitmap=scan.preview;cropResult=scan.corners
+                cropSessionId=UUID.randomUUID().toString()
+                pendingCropCorners=CropGeometry.encode(scan.corners.corners.map{it.x to it.y})
+                pendingCropRotation=scan.rotation
+                initialCropRotation=scan.rotation
+                busy=""
+                navigate("crop")
+            }catch(cancelled:CancellationException){throw cancelled}
+            catch(e:Exception){error="Cannot enhance page: "+(e.message?:"Error")}
+            finally{busy=""}
+        }
+    }
+
     fun popBack(){
         val previous=backStack.lastOrNull()
         backStack=if(backStack.isEmpty())emptyList()else backStack.dropLast(1)
@@ -752,30 +801,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                               catch(e:Exception){error=e.message?:"Delete failed"}
                               finally{busy=""}}},
                             {fetchDetailsForCard(c)},runningOcr!=null,
-                            {imageFile->scope.launch {
-                                busy="Preparing photo for non-destructive enhancement"
-                                try {
-                                    val prepared=withContext(Dispatchers.IO){
-                                        val source=repo.originalDocumentFile(imageFile)
-                                        val scan=ScanPrepare.loadForEdit(source,
-                                            imageFile.cropCorners,imageFile.cropRotation)
-                                        source.absolutePath to scan
-                                    }
-                                    scanTarget=c.id;cropFromAttachment=true
-                                    enhancingFileId=imageFile.id
-                                    cameraUri=null;cameraPath=prepared.first
-                                    cropBitmap=prepared.second.preview;cropResult=prepared.second.corners
-                                    cropSessionId=UUID.randomUUID().toString()
-                                    pendingCropCorners=CropGeometry.encode(prepared.second.corners.corners.map{it.x to it.y})
-                                    pendingCropRotation=prepared.second.rotation
-                                    initialCropRotation=prepared.second.rotation
-                                     busy=""
-                                     navigate("crop")
-                                }catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error="Cannot enhance image: "+(e.message?:"Error")}
-                                finally{busy=""}
-                            }},documentStyle)}
+                            {file,page->startEnhance(c,file,page)},documentStyle)}
                         "attachments"->current?.let{c->AttachmentManagerScreen(c,repo,
-                            {f->viewingId=f.id;navigate("viewer")},
+                            {f->viewingId=f.id;viewingPage=0;navigate("viewer")},
                             {f,name->scope.launch {
                                 try{withContext(Dispatchers.IO){repo.renameFile(c.id,f.id,name)}}
                                 catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error="Rename failed: "+(e.message?:"Invalid filename")}
@@ -843,11 +871,38 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                         val uri=VaultLongOperations.correctedUri(context,source,
                                             totalRotation,corners,settings)
                                         if(editMode){
-                                            require(target!=null&&chosen!=null){"Selected photo unavailable"}
-                                            val next=repo.importFile(uri)
-                                            try{repo.replaceImageFile(target,chosen,next,normalized,totalRotation)}
-                                            catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){repo.removeOrphan(next);throw e}
-                                            VaultJobResult(note="Photo updated",cardId=target,clearCrop=true)
+                                            require(target!=null&&chosen!=null){"Selected attachment unavailable"}
+                                            val original=repo.cards.firstOrNull{it.id==target}
+                                                ?.files?.firstOrNull{it.id==chosen}
+                                                ?:throw IllegalStateException("Original attachment was removed")
+                                            if(original.mime=="application/pdf"||
+                                                original.name.endsWith(".pdf",true)){
+                                                val tmp=File(activity.cacheDir,
+                                                    "shared/enhanced-"+UUID.randomUUID()+".pdf")
+                                                tmp.parentFile?.mkdirs()
+                                                try{
+                                                    val pdfUri=FileProvider.getUriForFile(context,
+                                                        context.packageName+".provider",tmp)
+                                                    engine.enhancedPdfPage(original,enhancingPdfPage,uri,pdfUri)
+                                                    val next=repo.importFile(pdfUri)
+                                                    try{repo.updateCard(target){latest->
+                                                        latest.copy(files=latest.files+next.copy(
+                                                            name=VaultNames.label(original.name)
+                                                                .removeSuffix(".pdf")+" - enhanced.pdf"))
+                                                    }}catch(cancelled:CancellationException){throw cancelled}
+                                                    catch(e:Exception){repo.removeOrphan(next);throw e}
+                                                }finally{tmp.delete()}
+                                                VaultJobResult(note="Enhanced PDF copy saved; all other pages kept",
+                                                    cardId=target,clearCrop=true)
+                                            }else{
+                                                val next=repo.importFile(uri)
+                                                try{repo.replaceImageFile(target,chosen,next,
+                                                    normalized,totalRotation)}
+                                                catch(cancelled:CancellationException){throw cancelled}
+                                                catch(e:Exception){repo.removeOrphan(next);throw e}
+                                                VaultJobResult(note="Photo updated",
+                                                    cardId=target,clearCrop=true)
+                                            }
                                         }else{
                                             val saved=VaultLongOperations.importDocuments(repo,listOf(uri),target,
                                                 if(userProfile=="all")"self" else userProfile,
@@ -881,7 +936,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 busy="Saving card"
                                 try {
                                     withContext(Dispatchers.IO){
-                                        repo.updateCard(saved.id){latest->
+                                        if(editingIsNew&&repo.cards.none{it.id==saved.id})
+                                            repo.saveCard(saved)
+                                        else repo.updateCard(saved.id){latest->
                                             saved.copy(
                                                 files=latest.files,
                                                 fields=VaultFieldUpdates.merge(
@@ -889,6 +946,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                             )
                                         }
                                     }
+                                    editingIsNew=false
                                     selectedCardId=saved.id;editing=null;editingJson="";editorDirty=false
                                     if(backStack.lastOrNull()=="detail")popBack()
                                     else completeToCard(saved.id)
@@ -938,7 +996,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                         VaultNames.title(c.title)+" - combined.pdf"
                                         else VaultNames.title(c.title)+" - "+op+".pdf")
                                 }
-                            })}
+                            },{file,page->startEnhance(c,file,page)})}
                         "expiry"->ExpiriesScreen(repo.cards.toList(),{openCard(it)},
                             options.getInt("remindDays",30))
                         "profiles"->ProfilesScreen(repo.profiles.toList()){p->repo.saveProfile(p)}

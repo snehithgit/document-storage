@@ -35,6 +35,7 @@ import java.util.Locale
 import kotlin.math.absoluteValue
 
 @Composable fun ExpiryTag(card:VaultCard){
+    if(card.expiry.isBlank())return
     val (status,_)=vaultValidity(card)
     val tint=when(status){
         "Expired"->VaultColors.expired
@@ -43,8 +44,7 @@ import kotlin.math.absoluteValue
         else->MaterialTheme.colorScheme.onSurfaceVariant
     }
     Surface(shape=RoundedCornerShape(8.dp),color=tint.copy(alpha=.13f)){
-        Text(if(card.expiry.isBlank())"NO DATE SET" else
-            DesignLogic.expiryLabel(card).uppercase(Locale.ROOT),
+        Text(DesignLogic.expiryLabel(card).uppercase(Locale.ROOT),
             modifier=Modifier.padding(horizontal=8.dp,vertical=5.dp),
             color=tint,style=MaterialTheme.typography.labelSmall,maxLines=1)
     }
