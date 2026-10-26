@@ -84,7 +84,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var scanTarget by rememberSaveable{mutableStateOf<String?>(null)}
     var addToCardId by rememberSaveable{mutableStateOf<String?>(null)}
     var importTarget by rememberSaveable{mutableStateOf<String?>(null)}
-    var userProfile by rememberSaveable{mutableStateOf("self")}
+    // Show every person's documents by default so new or reassigned cards remain discoverable.
+    var userProfile by rememberSaveable{mutableStateOf("all")}
+    var savedCardRevision by rememberSaveable{mutableIntStateOf(0)}
     var categoryFilter by rememberSaveable{mutableStateOf("")}
     val options=remember { activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE) }
     var ocrLanguage by rememberSaveable {
@@ -740,7 +742,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {openCard(it)},{navigate("scan")},categoryFilter,
                             {navigate("search")},repo.profiles.toList(),userProfile,
                             {userProfile=it},{categoryFilter=""},{navigateRoot("people")},
-                            documentStyle)
+                            documentStyle,savedCardRevision)
                         "search"->VaultNavSearch(repo.cards.toList(),repo,
                             {openCard(it)},repo.profiles.toList(),userProfile,{userProfile=it})
                         "scan"->NavyScanScreen(
@@ -940,17 +942,20 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                         if(editingIsNew&&repo.cards.none{it.id==saved.id})
                                             repo.saveCard(saved)
                                         else repo.updateCard(saved.id){latest->
-                                            saved.copy(
-                                                files=latest.files,
-                                                fields=VaultFieldUpdates.merge(
-                                                    c.fields,saved.fields,latest.fields)
-                                            )
+                                            VaultEditedCard.merge(c,saved,latest)
                                         }
                                     }
                                     editingIsNew=false
+                                    // An edited card may now belong to a different person/category.
+                                    // Clear filters only after persistence succeeded.
+                                    userProfile=VaultSavedDocumentVisibility.profileAfterSave(
+                                        userProfile,saved.profile)
+                                    categoryFilter=""
+                                    savedCardRevision++
                                     selectedCardId=saved.id;editing=null;editingJson="";editorDirty=false
                                     if(backStack.lastOrNull()=="detail")popBack()
                                     else completeToCard(saved.id)
+                                    activity.notify("Document saved")
                                 }catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error="Cannot save card: "+(e.message?:"Storage error")}
                                 finally{busy=""}
                             }},

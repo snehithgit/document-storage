@@ -166,10 +166,12 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
     onOpen:(VaultCard)->Unit,onNew:()->Unit,selectedCategory:String="",onSearch:()->Unit={},
     profiles:List<VaultProfile> = emptyList(),selectedPerson:String="all",
     onPerson:(String)->Unit={},onCategoryConsumed:()->Unit={},
-    onPeople:()->Unit={},documentStyle:String="pages"){
+    onPeople:()->Unit={},documentStyle:String="pages",savedCardRevision:Int=0){
     val colors=mockupPalette
     var filter by rememberSaveable{mutableStateOf("All")}
     var listView by rememberSaveable{mutableStateOf(false)}
+    // The category selected before an edit may no longer match the saved card.
+    LaunchedEffect(savedCardRevision){filter="All"}
     LaunchedEffect(selectedCategory){
         if(selectedCategory.isNotBlank()){
             filter=selectedCategory
