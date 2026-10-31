@@ -5,6 +5,10 @@ import java.util.Locale
 
 /** Pure browse operations; no storage reads or Compose state in the sorting path. */
 object DocumentBrowseLogic {
+    /** A category left with no documents (deleted, re-categorized, other person)
+     * would show an empty list with no visible chip to clear it. */
+    fun effectiveCategory(cards:List<VaultCard>,category:String):String =
+        if(category=="All"||cards.any{it.category.ifBlank{"Other"}==category})category else "All"
     fun browse(cards:List<VaultCard>,category:String,sort:String):List<VaultCard> {
         val shown=cards.filter {
             category=="All"||it.category.ifBlank{"Other"}==category

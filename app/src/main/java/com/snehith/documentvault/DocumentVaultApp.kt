@@ -88,6 +88,11 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var userProfile by rememberSaveable{mutableStateOf("all")}
     var savedCardRevision by rememberSaveable{mutableIntStateOf(0)}
     var categoryFilter by rememberSaveable{mutableStateOf("")}
+    // A restore can replace the people list; never stay filtered to a missing person.
+    val knownProfiles=repo.profiles.toList()
+    LaunchedEffect(userProfile,knownProfiles){
+        userProfile=VaultPersonFilter.effective(userProfile,knownProfiles)
+    }
     val options=remember { activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE) }
     var ocrLanguage by rememberSaveable {
         mutableStateOf(options.getString("ocrLanguage","Latin") ?: "Latin")

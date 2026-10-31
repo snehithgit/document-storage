@@ -159,6 +159,23 @@ abstract class VaultStorageContract {
         repo.restoreBackup(Uri.fromFile(backup()),"")
         assertEquals(attachment,VaultRepository(context).cards.single().files.single())
     }
+    @Test fun removingPersonKeepsTheirDocumentsAfterRestart() {
+        repo.saveProfile(VaultProfile("fictional-person","Fictional Person"))
+        repo.saveCard(repo.cards.single().copy(profile="fictional-person"))
+        repo.removePerson("fictional-person")
+        val reloaded=VaultRepository(context)
+        assertEquals("self",reloaded.cards.single().profile)
+        assertEquals(attachment,reloaded.cards.single().files.single())
+        assertEquals("all",VaultPersonFilter.effective("fictional-person",reloaded.profiles))
+    }
+    @Test fun restoreWithoutSelectedPersonLeavesDocumentsReachable() {
+        val saved=backup()
+        repo.saveProfile(VaultProfile("fictional-person","Fictional Person"))
+        repo.restoreBackup(Uri.fromFile(saved),"")
+        val person=VaultPersonFilter.effective("fictional-person",repo.profiles)
+        assertEquals("all",person)
+        assertEquals(listOf("fictional-card"),VaultPersonFilter.filter(repo.cards,person).map{it.id})
+    }
     @Test fun recoveredAttachmentWithoutMetadataIsExportable() {
         val id="33333333-3333-4333-8333-333333333333"
         File(context.filesDir,"blobs/$id.dat").writeText("fictional recovered page")

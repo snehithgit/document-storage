@@ -182,7 +182,8 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
     val totalPages=rememberVaultPageTotal(repo,personCards)
     val categories=listOf("All")+
         personCards.map{it.category.ifBlank{"Other"}}.distinct().sorted()
-    val visible=DocumentBrowseLogic.browse(personCards,filter,"Recent")
+    val shownFilter=DocumentBrowseLogic.effectiveCategory(personCards,filter)
+    val visible=DocumentBrowseLogic.browse(personCards,shownFilter,"Recent")
     val name=profiles.firstOrNull{it.id==selectedPerson}?.name?:if(selectedPerson=="all")"My vault" else "Me"
     var chooseProfile by remember{mutableStateOf(false)}
     if(chooseProfile)AlertDialog(onDismissRequest={chooseProfile=false},
@@ -254,7 +255,7 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
             .padding(horizontal=18.dp,vertical=6.dp),
             horizontalArrangement=Arrangement.spacedBy(8.dp)){
             categories.forEach{category->
-                val chosen=category==filter
+                val chosen=category==shownFilter
                 val count=if(category=="All")personCards.size else
                     personCards.count{it.category.ifBlank{"Other"}==category}
                 Surface(onClick={filter=category},
