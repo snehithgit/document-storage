@@ -84,12 +84,13 @@ object DocumentCropEngine {
         val source=MatOfPoint2f(*p.toTypedArray())
         val dst=MatOfPoint2f(Point(0.0,0.0),Point(width-1.0,0.0),
             Point(width-1.0,height-1.0),Point(0.0,height-1.0))
-        val transform=Imgproc.getPerspectiveTransform(source,dst)
+        var transform:Mat?=null
         return try {
+            transform=Imgproc.getPerspectiveTransform(source,dst)
             Utils.bitmapToMat(bitmap,src)
             Imgproc.warpPerspective(src,warped,transform,Size(width.toDouble(),height.toDouble()))
             Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888).also{Utils.matToBitmap(warped,it)}
-        }finally{src.release();warped.release();source.release();dst.release();transform.release()}
+        }finally{src.release();warped.release();source.release();dst.release();transform?.release()}
     }
     fun save(bitmap:Bitmap,output:File) {
         ScanOutputFiles.ensureParent(output)

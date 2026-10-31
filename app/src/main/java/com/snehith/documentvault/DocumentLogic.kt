@@ -47,6 +47,16 @@ object PdfPageGeometry {
         val w=imageWidth*scale;val h=imageHeight*scale
         return floatArrayOf(pageW,pageH,(pageW-w)/2,(pageH-h)/2,w,h)
     }
+    /** Bitmap size for rendering a page near [targetWidth] pixels wide. Width and height
+     * share one scale: page.render(null transform) stretches the page to the bitmap,
+     * so clamping them separately distorted long receipts and oversized pages. */
+    fun renderSize(pageWidth:Int,pageHeight:Int,targetWidth:Int,minScale:Float,maxScale:Float,
+        maxWidth:Int,maxHeight:Int):Pair<Int,Int> {
+        val w=pageWidth.coerceAtLeast(1).toFloat();val h=pageHeight.coerceAtLeast(1).toFloat()
+        val wanted=(targetWidth/w).coerceIn(minScale,maxScale)
+        val scale=wanted*minOf(1f,maxWidth/(w*wanted),maxHeight/(h*wanted))
+        return (w*scale).toInt().coerceIn(1,maxWidth) to (h*scale).toInt().coerceIn(1,maxHeight)
+    }
 }
 object ImageSampling {
     fun sample(width:Int,height:Int,maxEdge:Int):Int {

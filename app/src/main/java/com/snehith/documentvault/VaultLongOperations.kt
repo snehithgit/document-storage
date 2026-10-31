@@ -28,14 +28,19 @@ object VaultLongOperations {
     ):Uri {
         val original=ImageDecode.decode(File(sourcePath),Int.MAX_VALUE,
             fullResolution=true,highQuality=true)
-        val oriented=if(rotation%360==0)original else {
+        // Quarter turns are folded into the perspective warp: mapping the corners back
+        // onto the original avoids a second full-resolution bitmap at peak memory.
+        val oriented=if(rotation%90==0)original else {
             try {
                 android.graphics.Bitmap.createBitmap(original,0,0,original.width,original.height,
                     Matrix().apply{postRotate(rotation.toFloat())},true)
             }finally{original.recycle()}
         }
         try {
-            val cropped=DocumentCropEngine.crop(oriented,corners)
+            val quad=if(oriented===original)corners.map{
+                CropGeometry.unrotate(it.x to it.y,rotation).let{(x,y)->PointF(x,y)}
+            } else corners
+            val cropped=DocumentCropEngine.crop(oriented,quad)
             try {
                 val enhanced=ScanEnhance.apply(cropped,settings)
                 try {

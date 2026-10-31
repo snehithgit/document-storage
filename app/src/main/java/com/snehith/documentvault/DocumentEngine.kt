@@ -63,9 +63,7 @@ class PdfPageSession(private val source:File):Closeable {
         val cacheKey=index to maxWidth
         cached[cacheKey]?.let{return it}
         renderer.openPage(index.coerceIn(0,renderer.pageCount-1)).use{page->
-            val scale=(maxWidth.toFloat()/page.width).coerceIn(0.5f,4f)
-            val w=(page.width*scale).toInt().coerceIn(1,3200)
-            val h=(page.height*scale).toInt().coerceIn(1,4200)
+            val (w,h)=PdfPageGeometry.renderSize(page.width,page.height,maxWidth,0.5f,4f,3200,4200)
             require(w.toLong()*h<=18_000_000L){"PDF page exceeds safe rendering size"}
             val image=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888)
             try {
@@ -161,9 +159,7 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
                             for(i in 0 until renderer.pageCount) {
                                 currentCoroutineContext().ensureActive()
                                 renderer.openPage(i).use{page->
-                                    val scale=(2100f/page.width).coerceIn(1f,3.25f)
-                                    val w=(page.width*scale).toInt().coerceIn(1,2400)
-                                    val h=(page.height*scale).toInt().coerceIn(1,3200)
+                                    val (w,h)=PdfPageGeometry.renderSize(page.width,page.height,2100,1f,3.25f,2400,3200)
                                     val bitmap=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888)
                                     try {bitmap.eraseColor(android.graphics.Color.WHITE);page.render(bitmap,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                                         extracted.append("\n--- PAGE ").append(i+1).append(" ---\n").append(session.recognize(bitmap))
@@ -209,22 +205,6 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
                 .replace(Regex("<[^>]*>"),"")
             return normalized.replace("&lt;","<").replace("&gt;",">")
                 .replace("&quot;","\"").replace("&apos;","'").replace("&amp;","&")
-        }
-    }
-    fun pdfPageImage(file:File,pageIndex:Int,maxWidth:Int=1440):Pair<Bitmap,Int> {
-        ParcelFileDescriptor.open(file,ParcelFileDescriptor.MODE_READ_ONLY).use{fd->
-            PdfRenderer(fd).use{renderer ->
-                val index=pageIndex.coerceIn(0,renderer.pageCount-1)
-                renderer.openPage(index).use{page->
-                    val scale=maxWidth.toFloat()/page.width
-                    val image=Bitmap.createBitmap(maxWidth,(page.height*scale).toInt().coerceIn(1,4200),Bitmap.Config.ARGB_8888)
-                    try {
-                        image.eraseColor(android.graphics.Color.WHITE)
-                        page.render(image,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                        return image to renderer.pageCount
-                    }catch(e:Exception){image.recycle();throw e}
-                }
-            }
         }
     }
     // Combine PDFs and captured pictures in the requested order.
