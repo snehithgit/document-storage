@@ -190,6 +190,20 @@ object VaultDocumentPages {
     }
 }
 
+@Composable fun VaultPreviewPrivacy(hidden:Boolean,modifier:Modifier=Modifier,showLabel:Boolean=true,
+    content:@Composable ()->Unit) {
+    val p=mockupPalette
+    Box(modifier,contentAlignment=Alignment.Center){
+        Box(Modifier.then(if(hidden&&android.os.Build.VERSION.SDK_INT>=31)Modifier.blur(14.dp) else Modifier)){content()}
+        if(hidden)Column(Modifier.matchParentSize().background(p.panelRaised.copy(
+            alpha=if(android.os.Build.VERSION.SDK_INT>=31).5f else .96f)),
+            horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){
+            Icon(Icons.Outlined.VisibilityOff,"Hidden identity preview",tint=p.inkMuted)
+            if(showLabel)Text("Tap to view",fontSize=11.sp,color=p.inkMuted)
+        }
+    }
+}
+
 @Composable fun VaultDocumentPageStrip(
     pages:List<VaultDocumentPage>,repo:VaultRepository,
     selectedIndex:Int,onSelect:(Int)->Unit,onAdd:()->Unit

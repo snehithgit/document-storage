@@ -120,10 +120,10 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
     }
 }
 /** Document Vault.html .grid2 .tile + .cap: real repo cards, mockup wallet face. */
-@Composable fun VaultTile(card:VaultCard,repo:VaultRepository,personName:String="",onClick:()->Unit){
+@Composable fun VaultTile(card:VaultCard,repo:VaultRepository,personName:String="",hidePreviews:Boolean=false,onClick:()->Unit){
     val palette=mockupPalette
     Column(Modifier.fillMaxWidth().clickable(onClick=onClick)) {
-        CardFace(card)
+        VaultPreviewPrivacy(hidePreviews&&card.category.equals("Identity",true)){CardFace(card)}
         Row(Modifier.fillMaxWidth().padding(top=9.dp),verticalAlignment=Alignment.CenterVertically){
             Text(VaultNames.title(card.title),Modifier.weight(1f),
                 color=palette.ink,fontSize=13.sp,fontWeight=FontWeight.SemiBold,
@@ -166,7 +166,7 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
     onOpen:(VaultCard)->Unit,onNew:()->Unit,selectedCategory:String="",onSearch:()->Unit={},
     profiles:List<VaultProfile> = emptyList(),selectedPerson:String="all",
     onPerson:(String)->Unit={},onCategoryConsumed:()->Unit={},
-    onPeople:()->Unit={},documentStyle:String="pages",savedCardRevision:Int=0){
+    onPeople:()->Unit={},documentStyle:String="pages",savedCardRevision:Int=0,hidePreviews:Boolean=true){
     val colors=mockupPalette
     var filter by rememberSaveable{mutableStateOf("All")}
     var listView by rememberSaveable{mutableStateOf(true)}
@@ -297,8 +297,9 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
                         Row(Modifier.fillMaxWidth().padding(11.dp),
                             verticalAlignment=Alignment.CenterVertically,
                             horizontalArrangement=Arrangement.spacedBy(14.dp)){
-                            VaultDocumentPaper(pages.firstOrNull(),repo,Modifier.width(54.dp),
-                                maxEdge=220,numberOfPages=pages.size)
+                            VaultPreviewPrivacy(hidePreviews&&card.category.equals("Identity",true),Modifier.width(54.dp),showLabel=false){
+                                VaultDocumentPaper(pages.firstOrNull(),repo,Modifier.width(54.dp),maxEdge=220,numberOfPages=pages.size)
+                            }
                             Column(Modifier.weight(1f)){
                                 Text(VaultNames.title(card.title),color=colors.ink,
                                     fontSize=14.sp,fontWeight=FontWeight.SemiBold,maxLines=1,
@@ -321,8 +322,8 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
                     items(visible,key={it.id}){card->
                         if(documentStyle=="wallet")
                             VaultTile(card,repo,profiles.firstOrNull{
-                                it.id==card.profile}?.name.orEmpty()){onOpen(card)}
-                        else VaultDocumentTile(card,repo){onOpen(card)}
+                                it.id==card.profile}?.name.orEmpty(),hidePreviews=hidePreviews){onOpen(card)}
+                        else VaultDocumentTile(card,repo,privatePreview=hidePreviews){onOpen(card)}
                     }
                 }
             }
@@ -333,7 +334,7 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
     onShare:(VaultFile)->Unit,onSharePdf:(VaultFile)->Unit,onShareAll:()->Unit,onAdd:()->Unit,
     onFull:()->Unit,onTools:()->Unit,onEdit:()->Unit,onManage:()->Unit,onDelete:()->Unit,
     onFetchDetails:()->Unit,fetchingDetails:Boolean,onEnhance:(VaultFile,Int)->Unit,
-    documentStyle:String="pages"){
+    documentStyle:String="pages",onActions:(String)->Unit={}){
     var selectedId by rememberSaveable(card.id){mutableStateOf("")}
     var selectedIndex by rememberSaveable(card.id){mutableIntStateOf(0)}
     val pages=rememberVaultDocumentPages(repo,card.files)
@@ -370,6 +371,8 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
                     }
                     DropdownMenu(expanded=showMore,onDismissRequest={showMore=false}){
                         DropdownMenuItem(text={Text("Edit details")},onClick={showMore=false;onEdit()})
+                        DropdownMenuItem(text={Text("Merge documents")},onClick={showMore=false;onActions("merge-documents")})
+                        DropdownMenuItem(text={Text("Split document")},enabled=card.files.isNotEmpty(),onClick={showMore=false;onActions("split-document")})
                         DropdownMenuItem(text={Text("Manage attachments")},onClick={showMore=false;onManage()})
                         DropdownMenuItem(text={Text("Share all files")},enabled=card.files.isNotEmpty(),
                             onClick={showMore=false;onShareAll()})

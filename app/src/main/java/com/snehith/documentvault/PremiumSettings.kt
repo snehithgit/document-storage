@@ -31,7 +31,7 @@ import kotlinx.coroutines.withContext
     biometricEnabled:Boolean=false,onBiometricChanged:(Boolean)->Unit={},
     profileName:String="My vault",cardCount:Int=0,pageCount:Int=0,peopleCount:Int=0,
     documentStyle:String="pages",onDocumentStyleChanged:(String)->Unit={},
-    onStorageHealth:suspend ()->String={"Unavailable"},profileIdentity:String=profileName
+    onStorageHealth:suspend ()->String={"Unavailable"},profileIdentity:String=profileName,hidePreviews:Boolean=true,onHidePreviewsChanged:(Boolean)->Unit={}
 ){
     val context=LocalContext.current
     var dialog by rememberSaveable{mutableStateOf("")}
@@ -100,7 +100,7 @@ import kotlinx.coroutines.withContext
                 }
             }
             "originals"->{
-                Text("Delete retained original photos only? The edited documents stay available. Reopening a deleted original for re-cropping will no longer be possible.")
+                Text("Delete retained original files only? The edited documents stay available. Reopening a deleted original for re-cropping will no longer be possible.")
                 Button(onClick={onRemoveOriginals();dialog=""}){Text("Remove originals")}
             }
         }
@@ -132,11 +132,15 @@ import kotlinx.coroutines.withContext
             MockupGroup{
                 MockupSettingRow(Icons.Outlined.Translate,"OCR language","Read text offline",
                     {dialog="ocr"},value=currentScript,divider=false)
+                MockupSettingRow(Icons.Outlined.VisibilityOff,"Hide identity previews",
+                    "Blur previews on Home, Cards and Search. Tap a document to view it.",
+                    {onHidePreviewsChanged(!hidePreviews)},
+                    trailing={MockupSwitch(hidePreviews,onHidePreviewsChanged,"Hide identity previews")})
                 MockupSettingRow(Icons.Outlined.Collections,"Keep untouched scan original",
                     "Keeps the original for later editing without adding another visible page",
                     {onKeepOriginalChanged(!keepOriginal)},
-                    trailing={MockupSwitch(keepOriginal,onKeepOriginalChanged)})
-                MockupSettingRow(Icons.Outlined.Image,"Retained original photos",
+                    trailing={MockupSwitch(keepOriginal,onKeepOriginalChanged,"Keep untouched scan original")})
+                MockupSettingRow(Icons.Outlined.Image,"Retained original files",
                     if(originalBytes>=1024*1024)
                         String.format(java.util.Locale.US,"%.1f MB",originalBytes/1048576.0)
                     else "${originalBytes/1024} KB",

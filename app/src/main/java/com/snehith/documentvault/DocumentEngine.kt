@@ -284,6 +284,18 @@ class DocumentEngine(private val context:Context, private val repo:VaultReposito
             context.contentResolver.openOutputStream(target)!!.use{doc.save(it)}
         }}finally{ /* original retained */ }
     }
+    fun pdfPageCount(file:VaultFile):Int=PDDocument.load(repo.documentFile(file)).use{it.numberOfPages}
+    fun copyPdfPages(file:VaultFile,pages:List<Int>,target:Uri) {
+        require(pages.isNotEmpty()&&pages.distinct().size==pages.size){"Choose distinct PDF pages"}
+        PDDocument.load(repo.documentFile(file)).use { source ->
+            require(pages.all{it in 0 until source.numberOfPages}){"A selected PDF page is unavailable"}
+            PDDocument().use { output ->
+                pages.forEach { output.importPage(source.getPage(it)) }
+                context.contentResolver.openOutputStream(target)?.use{output.save(it)}
+                    ?:throw IOException("Cannot save split PDF")
+            }
+        }
+    }
     /**
      * Create an enhanced PDF COPY by replacing exactly one rendered page.
      * All other source pages remain embedded in the resulting PDF.

@@ -16,6 +16,11 @@ internal class VaultIndexStore(private val directory: File) {
         Files.move(source.toPath(),target.toPath(),StandardCopyOption.ATOMIC_MOVE,
             StandardCopyOption.REPLACE_EXISTING)
     }
+    fun checkpoint(bytes:ByteArray) {
+        val stage=File(directory,"vault.json.bak.tmp")
+        try { write(stage,bytes);replace(stage,File(directory,"vault.json.bak")) }
+        finally { stage.delete() }
+    }
     fun commit(bytes: ByteArray, valid: (String) -> Boolean,
                beforeCommit: () -> Unit = {}) {
         val current = File(directory, "vault.json")

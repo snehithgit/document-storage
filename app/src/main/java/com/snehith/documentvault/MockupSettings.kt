@@ -19,6 +19,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,9 +67,9 @@ import androidx.compose.ui.unit.sp
     }
 }
 
-@Composable fun MockupSwitch(checked:Boolean,onChange:(Boolean)->Unit){
+@Composable fun MockupSwitch(checked:Boolean,onChange:(Boolean)->Unit,label:String=""){
     val p=mockupPalette
-    Switch(checked=checked,onCheckedChange=onChange,colors=SwitchDefaults.colors(
+    Switch(checked=checked,onCheckedChange=onChange,modifier=Modifier.semantics{if(label.isNotBlank())contentDescription=label},colors=SwitchDefaults.colors(
         checkedTrackColor=p.accent,checkedThumbColor=p.accentInk,checkedBorderColor=Color.Transparent,
         uncheckedTrackColor=p.line,uncheckedThumbColor=p.panelRaised,
         uncheckedBorderColor=Color.Transparent))

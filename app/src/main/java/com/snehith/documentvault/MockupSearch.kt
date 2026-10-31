@@ -66,7 +66,7 @@ import kotlinx.coroutines.withContext
 
 @Composable fun VaultNavSearch(cards:List<VaultCard>,repo:VaultRepository,
     onOpen:(VaultCard)->Unit,profiles:List<VaultProfile> = emptyList(),
-    selectedPerson:String="all",onPerson:(String)->Unit={}){
+    selectedPerson:String="all",onPerson:(String)->Unit={},hidePreviews:Boolean=true){
     val p=mockupPalette
     var query by rememberSaveable{mutableStateOf("")}
     var mode by rememberSaveable{mutableStateOf("All")}
@@ -152,7 +152,9 @@ import kotlinx.coroutines.withContext
                 Row(Modifier.fillMaxWidth().clip(shape).background(p.panelRaised)
                     .border(1.dp,p.line,shape).clickable{onOpen(result.card)}.padding(12.dp),
                     horizontalArrangement=Arrangement.spacedBy(12.dp)){
-                    VaultThumbnail(result.card.files.firstOrNull(),repo,Modifier.size(62.dp,80.dp))
+                    VaultPreviewPrivacy(hidePreviews&&result.card.category.equals("Identity",true),Modifier.size(62.dp,80.dp),showLabel=false){
+                        VaultThumbnail(result.card.files.firstOrNull(),repo,Modifier.size(62.dp,80.dp))
+                    }
                     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)){
                         Text(VaultNames.title(result.card.title),color=p.ink,fontSize=14.5.sp,
                             fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis)

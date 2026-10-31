@@ -32,6 +32,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.work.*
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -42,6 +43,13 @@ import java.io.File
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+
+private data class DocumentScreen(
+    val route:String,val cardId:String="",val personId:String="",val session:String="",
+    val editorJson:String="",val fileId:String="",val page:Int=0
+) {
+    val key:String get()=VaultDocumentActions.screenKey(route,cardId,session,fileId,personId)
+}
 
 private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,val to:Int)
 
@@ -64,6 +72,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var editing by remember{mutableStateOf<VaultCard?>(null)}
     var editingJson by rememberSaveable{mutableStateOf("")}
     var editingIsNew by rememberSaveable{mutableStateOf(false)}
+    var editorSession by rememberSaveable{mutableStateOf(UUID.randomUUID().toString())}
+    var viewSession by rememberSaveable{mutableStateOf(UUID.randomUUID().toString())}
+    var actionSession by rememberSaveable{mutableStateOf(UUID.randomUUID().toString())}
     var viewingId by rememberSaveable{mutableStateOf("")}
     var viewingPage by rememberSaveable{mutableIntStateOf(0)}
     var cropBitmap by remember{mutableStateOf<android.graphics.Bitmap?>(null)}
@@ -95,6 +106,18 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         userProfile=VaultPersonFilter.effective(userProfile,knownProfiles)
     }
     val options=remember { activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE) }
+    var keepScanOriginal by rememberSaveable{mutableStateOf(options.getBoolean("keepScanOriginal",true))}
+    var hideHomePreviews by rememberSaveable{mutableStateOf(options.getBoolean("hideDocumentPreviews",options.getBoolean("hideHomePreviews",true)))}
+    DisposableEffect(options){
+        val listener=android.content.SharedPreferences.OnSharedPreferenceChangeListener{prefs,key->
+            when(key){
+                "keepScanOriginal"->keepScanOriginal=prefs.getBoolean(key,true)
+                "hideHomePreviews","hideDocumentPreviews"->hideHomePreviews=prefs.getBoolean("hideDocumentPreviews",prefs.getBoolean("hideHomePreviews",true))
+            }
+        }
+        options.registerOnSharedPreferenceChangeListener(listener)
+        onDispose{options.unregisterOnSharedPreferenceChangeListener(listener)}
+    }
     var ocrLanguage by rememberSaveable {
         mutableStateOf(options.getString("ocrLanguage","Latin") ?: "Latin")
     }
@@ -131,6 +154,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         route=destination
     }
     fun openCard(card:VaultCard){
+        if(working||busy.isNotBlank())return
         selectedCardId=card.id
         navigate("detail")
     }
@@ -146,12 +170,16 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         }
     }
     fun startEdit(card:VaultCard){
+        if(working||busy.isNotBlank())return
+        editorDirty=false
+        editorSession=UUID.randomUUID().toString()
         editingIsNew=repo.cards.none{it.id==card.id}
         editing=card
-        editingJson=repo.encodeCard(card)
+        editingJson=repo.encodeCard(if(editingIsNew)card else card.copy(files=emptyList()))
         navigate("edit")
     }
     fun startEnhance(card:VaultCard,file:VaultFile,page:Int){
+        if(working||busy.isNotBlank())return
         scope.launch{
             busy="Preparing page for enhancement"
             try{
@@ -179,7 +207,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 val pdf=file.mime=="application/pdf"||file.name.endsWith(".pdf",true)
                 val scan=withContext(Dispatchers.IO){
                     if(pdf)ScanPrepare.loadForEdit(File(source),"",0)
-                    else ScanPrepare.loadForEdit(File(source),file.cropCorners,file.cropRotation)
+                    else ScanPrepare.loadForEdit(File(source),if(repo.hasOriginal(file))file.cropCorners else "",if(repo.hasOriginal(file))file.cropRotation else 0)
                 }
                 scanTarget=card.id;cropFromAttachment=true
                 enhancingFileId=file.id;enhancingPdfPage=page
@@ -225,7 +253,13 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 cropBitmap=null;cropResult=null;enhancingFileId=null
                 cameraPath="";retakePending=false;cameraPending=false
             }
-            result.cardId?.let(::completeToCard)
+            result.cardId?.let{id->
+                repo.cards.firstOrNull{it.id==id}?.let{saved->
+                    userProfile=VaultSavedDocumentVisibility.profileAfterSave(userProfile,saved.profile)
+                }
+                categoryFilter="";savedCardRevision++
+                completeToCard(id)
+            }
             when(result.destination){
                 "home","cards","search","people","more"->{
                     backStack=emptyList();route=result.destination ?: "home"
@@ -395,9 +429,11 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                     val file=File(path)
                     if(!file.isFile||!CaptureRecoveryPolicy.hasPhotoBytes(file.length()))null
                     else if(cropFromAttachment){
-                        val image=current?.files?.firstOrNull{it.id==enhancingFileId}
-                        if(image!=null)ScanPrepare.loadForEdit(
-                            file,image.cropCorners,image.cropRotation) else null
+                        val image=repo.cards.firstOrNull{it.id==scanTarget}?.files?.firstOrNull{it.id==enhancingFileId}
+                        val pdf=image?.let{it.mime=="application/pdf"||it.name.endsWith(".pdf",true)}?:false
+                        if(image!=null)ScanPrepare.loadForEdit(file,
+                            if(!pdf&&repo.hasOriginal(image))image.cropCorners else "",
+                            if(!pdf&&repo.hasOriginal(image))image.cropRotation else 0) else null
                      }else if(pendingCropCorners.isNotBlank())
                         ScanPrepare.loadForEdit(file,pendingCropCorners,pendingCropRotation)
                     else ScanPrepare.load(activity.applicationContext,file)
@@ -644,6 +680,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     "viewer"->current?.let{VaultNames.title(it.title)} ?: "Document viewer"
                                     "externalviewer"->"Open PDF"
                                     "tools"->"PDF Tools"
+                                    "merge-documents"->"Merge documents"
+                                    "split-document"->"Split document"
                                     "expiry"->"Expiry and renewal"
                                     "profiles"->"Family profiles"
                                     "person"->"Profile"
@@ -674,16 +712,25 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 }
             ){ padding ->
                 Box(Modifier.fillMaxSize().padding(padding)) {
-                    AnimatedContent(targetState=route,modifier=Modifier.fillMaxSize(),
+                    val screen=when(route){
+                        "edit"->DocumentScreen(route,editing?.id.orEmpty().ifBlank{selectedCardId},session=editorSession,editorJson=editingJson)
+                        "crop"->DocumentScreen(route,scanTarget.orEmpty(),session=cropSessionId)
+                        "viewer"->DocumentScreen(route,selectedCardId,session=viewSession,fileId=viewingId,page=viewingPage)
+                        "person"->DocumentScreen(route,personId=selectedPersonId)
+                        "merge-documents","split-document"->DocumentScreen(route,selectedCardId,session=actionSession)
+                        "detail","fulldetails","selectfields","attachments","tools"->DocumentScreen(route,selectedCardId)
+                        else->DocumentScreen(route)
+                    }
+                    AnimatedContent(targetState=screen,contentKey={it.key},modifier=Modifier.fillMaxSize(),
                         transitionSpec={
                             val roots=setOf("home","cards","people","more")
                             val ease=tween<Float>(220)
                             when {
                                 // Switching tabs: a quick cross-fade, no travel.
-                                initialState in roots&&targetState in roots->
+                                initialState.route in roots&&targetState.route in roots->
                                     fadeIn(ease) togetherWith fadeOut(tween(120))
                                 // Opening a screen: it arrives from the right.
-                                backStack.lastOrNull()==initialState->
+                                backStack.lastOrNull()==initialState.route->
                                     (slideInHorizontally(tween(260)){it/10}+fadeIn(ease)) togetherWith
                                         (slideOutHorizontally(tween(260)){-it/10}+fadeOut(tween(160)))
                                 // Going back: the previous screen returns from the left.
@@ -691,14 +738,19 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     (slideInHorizontally(tween(260)){-it/10}+fadeIn(ease)) togetherWith
                                         (slideOutHorizontally(tween(260)){it/10}+fadeOut(tween(160)))
                             }
-                        },label="screen"){screenRoute->
-                    savedScreens.SaveableStateProvider(screenRoute) {
+                        },label="screen"){destination->
+                    val screenRoute=destination.route
+                    val current=repo.cards.firstOrNull{it.id==destination.cardId}
+                    DisposableEffect(destination.key){
+                        onDispose{if(destination.route in setOf("edit","merge-documents","split-document"))savedScreens.removeState(destination.key)}
+                    }
+                    savedScreens.SaveableStateProvider(destination.key) {
                     when(screenRoute){
                         "home"->MockupHome(repo.cards.toList(),repo.profiles.toList(),
                             userProfile,options.getInt("remindDays",30),
                             {userProfile=it},{openCard(it)},
                             {navigateRoot("cards")},{navigateRoot("more")},
-                            {navigate("expiry")},documentStyle,repo,onBackup={navigate("backup")})
+                            {navigate("expiry")},documentStyle,repo,onBackup={navigate("backup")},hidePreviews=hideHomePreviews)
                         "people"->PeopleScreen(repo.profiles.toList(),repo.entries.toList(),
                             repo.cards.toList(),
                             {person->selectedPersonId=person.id;navigate("person")},
@@ -709,7 +761,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 catch(cancelled:CancellationException){throw cancelled}
                                 catch(e:Exception){error=UserMessages.of(e,"Cannot add person")}
                             }})
-                        "person"->repo.profiles.firstOrNull{it.id==selectedPersonId}?.let{person->
+                        "person"->repo.profiles.firstOrNull{it.id==destination.personId}?.let{person->
                             PersonScreen(person,repo.entries.toList(),repo.cards.toList(),repo.hasPin(),
                                 {pin->repo.checkPin(pin)},
                                 {entry->scope.launch{
@@ -748,9 +800,9 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {openCard(it)},{navigate("scan")},categoryFilter,
                             {navigate("search")},repo.profiles.toList(),userProfile,
                             {userProfile=it},{categoryFilter=""},{navigateRoot("people")},
-                            documentStyle,savedCardRevision)
+                            documentStyle,savedCardRevision,hidePreviews=hideHomePreviews)
                         "search"->VaultNavSearch(repo.cards.toList(),repo,
-                            {openCard(it)},repo.profiles.toList(),userProfile,{userProfile=it})
+                            {openCard(it)},repo.profiles.toList(),userProfile,{userProfile=it},hidePreviews=hideHomePreviews)
                         "scan"->NavyScanScreen(
                             onCamera={camera()},
                             onGallery={importTarget=null;galleryPicker.launch("image/*")},
@@ -774,8 +826,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {days->activity.getSharedPreferences("vault_options",Context.MODE_PRIVATE).edit().putInt("remindDays",days).apply()
                                 if(Build.VERSION.SDK_INT>=33)notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                                 activity.notify("Expiry reminders: "+days+" days")},
-                            options.getBoolean("keepScanOriginal",true),
-                            {keep->options.edit().putBoolean("keepScanOriginal",keep).apply()},{navigate("about")},
+                            keepScanOriginal,
+                            {keep->keepScanOriginal=keep;options.edit().putBoolean("keepScanOriginal",keep).apply()},{navigate("about")},
                             {repo.retainedOriginalBytes()},
                             {operations.start("Removing retained originals"){
                                 val count=repo.removeRetainedOriginals()
@@ -793,9 +845,10 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             onDocumentStyleChanged={style->
                                 documentStyle=style
                                 options.edit().putString("documentStyle",style).apply()
-                            },onStorageHealth={repo.storageHealth()},profileIdentity=userProfile)
+                            },onStorageHealth={repo.storageHealth()},profileIdentity=userProfile,hidePreviews=hideHomePreviews,
+                            onHidePreviewsChanged={hideHomePreviews=it;options.edit().putBoolean("hideDocumentPreviews",it).putBoolean("hideHomePreviews",it).apply()})
                         "detail"->current?.let{c->VaultNavDetail(c,repo,
-                            {f,page->viewingId=f.id;viewingPage=page;navigate("viewer")},
+                            {f,page->viewSession=UUID.randomUUID().toString();viewingId=f.id;viewingPage=page;navigate("viewer")},
                             {f->activity.share(f)},{f->activity.shareAsPdf(f)},{activity.shareAll(c.files)},
                             {addToCardId=c.id},
                             {navigate("fulldetails")},{navigate("tools")},
@@ -809,9 +862,11 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                               catch(e:Exception){error=UserMessages.of(e,"Delete failed")}
                               finally{busy=""}}},
                             {fetchDetailsForCard(c)},runningOcr!=null,
-                            {file,page->startEnhance(c,file,page)},documentStyle)}
+                            {file,page->startEnhance(c,file,page)},documentStyle,onActions={action->
+                                actionSession=UUID.randomUUID().toString();navigate(action)
+                            })}
                         "attachments"->current?.let{c->AttachmentManagerScreen(c,repo,
-                            {f->viewingId=f.id;viewingPage=0;navigate("viewer")},
+                            {f->viewSession=UUID.randomUUID().toString();viewingId=f.id;viewingPage=0;navigate("viewer")},
                             {f,name->scope.launch {
                                 try{withContext(Dispatchers.IO){repo.renameFile(c.id,f.id,name)}}
                                 catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error="Rename failed: "+UserMessages.of(e,"Invalid filename")}
@@ -872,7 +927,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     val editMode=cropFromAttachment
                                     val chosen=enhancingFileId
                                     val originalUri=cameraUri
-                                    val keep=options.getBoolean("keepScanOriginal",true)
+                                    val keep=keepScanOriginal
                                     val totalRotation=(initialCropRotation+rotation)%360
                                     val normalized=CropGeometry.encode(corners.map{it.x to it.y})
                                     val context=activity.applicationContext
@@ -894,19 +949,15 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                                         context.packageName+".provider",tmp)
                                                     engine.enhancedPdfPage(original,enhancingPdfPage,uri,pdfUri)
                                                     val next=repo.importFile(pdfUri)
-                                                    try{repo.updateCard(target){latest->
-                                                        latest.copy(files=latest.files+next.copy(
-                                                            name=VaultNames.label(original.name)
-                                                                .removeSuffix(".pdf")+" - enhanced.pdf"))
-                                                    }}catch(cancelled:CancellationException){throw cancelled}
+                                                    try{repo.replaceAttachment(target,chosen,next,keep)}catch(cancelled:CancellationException){throw cancelled}
                                                     catch(e:Exception){repo.removeOrphan(next);throw e}
                                                 }finally{tmp.delete()}
-                                                VaultJobResult(note="Enhanced PDF copy saved; all other pages kept",
+                                                VaultJobResult(note="PDF page updated; all other pages kept",
                                                     cardId=target,clearCrop=true)
                                             }else{
                                                 val next=repo.importFile(uri)
                                                 try{repo.replaceImageFile(target,chosen,next,
-                                                    normalized,totalRotation)}
+                                                    normalized,totalRotation,keep)}
                                                 catch(cancelled:CancellationException){throw cancelled}
                                                 catch(e:Exception){repo.removeOrphan(next);throw e}
                                                 VaultJobResult(note="Photo updated",
@@ -939,10 +990,10 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 canRetake=!cropFromAttachment,
                                 sessionKey=cropSessionId.ifBlank{cameraPath})
                         }
-                        "edit"->(editing?:editingJson.takeIf{it.isNotBlank()}?.let{repo.decodeCard(it)})?.let{c->
+                        "edit"->destination.editorJson.takeIf{it.isNotBlank()}?.let{repo.decodeCard(it)}?.let{c->
                             CardEditorScreen(c,repo.profiles.toList(),
-                            {saved->scope.launch {
-                                busy="Saving card"
+                            {saved->if(route=="edit"&&editorSession==destination.session)scope.launch {
+                                busy="Saving document"
                                 try {
                                     withContext(Dispatchers.IO){
                                         if(editingIsNew&&repo.cards.none{it.id==saved.id})
@@ -976,15 +1027,36 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     "application/pdf",external.length(),""),repo,engine,
                                     {activity.notify("Save to vault before sharing")},sourceOverride=external)
                         }
-                        "viewer"->current?.let{c->c.files.firstOrNull{it.id==viewingId}?.let{f->
+                        "viewer"->current?.let{c->c.files.firstOrNull{it.id==destination.fileId}?.let{f->
                             val docPages=rememberVaultDocumentPages(repo,c.files)
                             DocumentViewerScreen(f,repo,engine,{activity.share(f)},
-                                initialPage=viewingPage,
+                                initialPage=destination.page,
                                 onSwipeBeyond=if(c.files.size>1){delta->
                                     VaultDocumentPages.neighbour(docPages,f.id,delta)?.let{(id,page)->
-                                        viewingId=id;viewingPage=page;true
+                                        viewSession=UUID.randomUUID().toString();viewingId=id;viewingPage=page;true
                                     }?:false
                                 } else null)
+                        }}
+                        "merge-documents"->current?.let{c->DocumentMergeScreen(c,repo.cards.toList(),repo.profiles.toList()){ids,move->
+                            operations.start(if(move)"Moving documents together" else "Copying documents together"){
+                                val id=repo.mergeDocuments(c.id,ids,move)
+                                VaultJobResult(note="Documents merged",cardId=id)
+                            }
+                        }}
+                        "split-document"->current?.let{c->DocumentSplitScreen(c,repo){selection,move->
+                            operations.start(if(move)"Moving pages into documents" else "Copying pages into documents"){
+                                val job=kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
+                                val ids=repo.splitDocument(c.id,selection,move,engine::pdfPageCount,{file,pages->
+                                    val temp=File(activity.cacheDir,"shared/split-"+UUID.randomUUID()+".pdf")
+                                    temp.parentFile?.mkdirs()
+                                    try{
+                                        val uri=FileProvider.getUriForFile(activity,activity.packageName+".provider",temp)
+                                        engine.copyPdfPages(file,pages,uri)
+                                        repo.importFile(uri)
+                                    }finally{temp.delete()}
+                                },checkCancelled={job?.ensureActive()})
+                                VaultJobResult(note="Created ${ids.size} documents",cardId=ids.first())
+                            }
                         }}
                         "tools"->current?.let{c->PdfToolsScreen(c,repo,
                             {addToCardId=c.id},
@@ -1028,8 +1100,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         )
                         "recovery"->{
                             var recoverables by remember {mutableStateOf(emptyList<VaultFile>())}
-                            LaunchedEffect(Unit){
-                                recoverables=withContext(Dispatchers.IO){repo.recoverableFiles()}
+                            LaunchedEffect(operationState.sequence,operationState.busy,repo.cards.toList()){
+                                if(operationState.busy.isBlank())recoverables=withContext(Dispatchers.IO){repo.recoverableFiles()}
                             }
                             RecoveryScreen(recoverables,repo.recoveryError,
                             {file,title->
@@ -1038,7 +1110,13 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     VaultJobResult(note="Recovered document",destination="cards")
                                 }
                             },
-                            {navigate("backup")})
+                            {navigate("backup")},onRemove={ids->
+                                operations.start("Clearing recovery"){
+                                    val result=repo.clearRecovery(ids)
+                                    VaultJobResult(note="Removed ${result.removed} files"+
+                                        if(result.remaining>0)"; ${result.remaining} could not be removed" else "")
+                                }
+                            })
                         }
                     }
                     }

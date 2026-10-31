@@ -38,7 +38,7 @@ import java.time.LocalTime
     cards:List<VaultCard>,profiles:List<VaultProfile>,profile:String,
     reminderDays:Int,onProfile:(String)->Unit,onOpen:(VaultCard)->Unit,
     onAllCards:()->Unit,onSettings:()->Unit,onExpiries:()->Unit,
-    documentStyle:String="pages",repo:VaultRepository,onBackup:()->Unit={}
+    documentStyle:String="pages",repo:VaultRepository,onBackup:()->Unit={},hidePreviews:Boolean=true
 ) {
     val colors=mockupPalette
     val displayed=cards.filter{profile=="all"||it.profile==profile}
@@ -105,7 +105,7 @@ import java.time.LocalTime
                         val height=maxWidth/1.586f + step*(stack.size-1)
                         Box(Modifier.fillMaxWidth().height(height)){
                             stack.forEachIndexed{index,card->
-                                val concealed=card.category.equals("Identity",true)
+                                val concealed=hidePreviews&&card.category.equals("Identity",true)
                                 Box(Modifier.fillMaxWidth().aspectRatio(1.586f).offset(y=step*index)
                                     .zIndex(index.toFloat()).clickable{onOpen(card)}){
                                     CardFace(card,Modifier.fillMaxWidth()
@@ -126,7 +126,7 @@ import java.time.LocalTime
                         .padding(vertical=4.dp),
                         horizontalArrangement=Arrangement.spacedBy(14.dp)){
                         displayed.take(8).forEach{card->
-                            VaultDocumentTile(card,repo,Modifier.width(138.dp),uniform=true,privatePreview=true){
+                            VaultDocumentTile(card,repo,Modifier.width(138.dp),uniform=true,privatePreview=hidePreviews){
                                 onOpen(card)
                             }
                         }

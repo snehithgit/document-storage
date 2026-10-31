@@ -150,8 +150,9 @@ class VaultRepository(private val context: Context) {
     }
     fun hasDocument(file:VaultFile)=blob(file.id).isFile
     /** Source survives re-editing; it is never exposed as a duplicate attachment. */
+    fun hasOriginal(file:VaultFile)=file.originalId.isNotBlank()&&blob(file.originalId).isFile
     fun originalDocumentFile(file:VaultFile):File =
-        blob(file.originalId.ifBlank{file.id}).also {
+        (if(hasOriginal(file))blob(file.originalId)else blob(file.id)).also {
             if(!it.isFile)throw FileNotFoundException("Original image is unavailable")
         }
     @Synchronized fun removeOrphan(file:VaultFile){
@@ -266,12 +267,12 @@ class VaultRepository(private val context: Context) {
         .put("id",e.id).put("personId",e.personId).put("section",e.section)
         .put("label",e.label).put("cardId",e.cardId).put("fieldId",e.fieldId)
         .put("value",e.value).put("sensitive",e.sensitive)
-    private fun snapshot(sourceCards:List<VaultCard> = cards.toList()):String=JSONObject()
+    private fun snapshot(sourceCards:List<VaultCard> = cards.toList(),sourceEntries:List<ProfileEntry> = entries.toList()):String=JSONObject()
         .put("formatVersion",2)
         .put("cards",JSONArray().apply { sourceCards.forEach{put(writeCard(it))} })
         .put("profiles",JSONArray().apply { profiles.forEach{put(JSONObject().put("id",it.id).put("name",it.name))} })
         .put("templates",JSONArray().apply { customTemplates.forEach{put(JSONObject().put("id",it.id).put("name",it.name).put("fields",JSONArray(it.fieldNames)))} })
-        .put("entries",JSONArray().apply { entries.forEach{put(writeEntry(it))} })
+        .put("entries",JSONArray().apply { sourceEntries.forEach{put(writeEntry(it))} })
         .toString()
 
     @Synchronized fun persist() {
@@ -370,17 +371,118 @@ class VaultRepository(private val context: Context) {
     /** A re-edit replaces the attachment at its original position, not a new page. */
     @Synchronized fun replaceImageFile(
         cardId:String,fileId:String,updated:VaultFile,
-        corners:String,rotation:Int
+        corners:String,rotation:Int,keepOriginal:Boolean=true
     ){
         val card=cards.firstOrNull{it.id==cardId}?:throw IOException("Document not found")
+        require(card.files.firstOrNull{it.id==fileId}?.mime?.startsWith("image/")==true){"Only photos can be enhanced"}
+        replaceAttachment(cardId,fileId,updated,keepOriginal,corners,rotation)
+    }
+    @Synchronized fun replaceAttachment(cardId:String,fileId:String,updated:VaultFile,
+        keepOriginal:Boolean=true,corners:String="",rotation:Int=0) {
+        val card=cards.firstOrNull{it.id==cardId}?:throw IOException("Document not found")
         val existing=card.files.firstOrNull{it.id==fileId}?:throw IOException("Attachment not found")
-        require(existing.mime.startsWith("image/")){"Only photos can be enhanced"}
-        val origin=existing.originalId.ifBlank{existing.id}
+        documentFile(updated)
+        require(updated.id!=fileId){"The enhanced file must be stored separately before replacement"}
+        require(card.files.none{it.id==updated.id&&it.id!=fileId}){"The replacement is already attached"}
+        val origin=if(!keepOriginal)"" else if(hasOriginal(existing))existing.originalId else existing.id
         val replacement=updated.copy(name=existing.name,originalId=origin,
-            cropCorners=corners,cropRotation=((rotation%360)+360)%360,
-            extractedText="",ocrStatus="pending")
+            cropCorners=if(keepOriginal)corners else "",cropRotation=if(keepOriginal)((rotation%360)+360)%360 else 0,
+            extractedText=existing.extractedText,ocrStatus=if(existing.extractedText.isBlank())"pending" else "Review after edit")
         saveCard(card.copy(files=card.files.map{if(it.id==fileId)replacement else it}))
         cleanupReplacedBlobs(existing)
+    }
+    private fun commitDocumentChange(change:DocumentChange) {
+        check(recoveryError==null){recoveryError?:"Vault recovery required"}
+        require(change.cards.map{it.id}.distinct().size==change.cards.size){"Duplicate document identity"}
+        require(snapshot(change.cards,change.entries).toByteArray(Charsets.UTF_8).size<=25_000_000){"The resulting document list exceeds the backup size limit; select fewer items"}
+        val oldCards=cards.toList();val oldEntries=entries.toList()
+        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            cards.clear();cards.addAll(change.cards);entries.clear();entries.addAll(change.entries)
+            try{persist()}catch(e:Exception){
+                cards.clear();cards.addAll(oldCards);entries.clear();entries.addAll(oldEntries);throw e
+            }
+        }
+    }
+    @Synchronized fun mergeDocuments(targetId:String,sources:Set<String>,move:Boolean):String {
+        (sources+targetId).forEach { id ->
+            val card=cards.firstOrNull{it.id==id}?:throw IOException("A selected document no longer exists")
+            card.files.forEach { file -> VaultBackupChecks.verifyLegacy(documentFile(file),file.bytes,file.sha256) }
+        }
+        val change=VaultDocumentActions.merge(cards.toList(),entries.toList(),targetId,sources,move,
+            ownerNames=profiles.associate{it.id to it.name})
+        commitDocumentChange(change)
+        return targetId
+    }
+    /** Generates only new blobs. Neither source bytes nor the live index change until all parts validate. */
+    @Synchronized fun splitDocument(cardId:String,selections:Map<String,Set<Int>>,move:Boolean,
+        pageCount:(VaultFile)->Int,createPdf:(VaultFile,List<Int>)->VaultFile,checkCancelled:()->Unit={}):List<String> {
+        check(recoveryError==null){recoveryError?:"Vault recovery required"}
+        val source=cards.firstOrNull{it.id==cardId}?:throw IOException("Document no longer exists")
+        require(selections.isNotEmpty()&&selections.values.all{it.isNotEmpty()}){"Choose files or pages to split"}
+        require(selections.keys.all{id->source.files.any{it.id==id}}){"A selected attachment was removed"}
+        require(selections.values.sumOf{it.size}<=100){"Split up to 100 files or pages at a time"}
+        val generated=mutableListOf<VaultFile>();val parts=mutableListOf<VaultFile>();val remainder=mutableListOf<VaultFile>()
+        val unmappedText=mutableListOf<String>()
+        var committed=false
+        val existingIds=referencedIds()+previousReferencedIds()
+        fun make(file:VaultFile,pages:List<Int>):VaultFile {
+            checkCancelled()
+            return createPdf(file,pages).also{
+                require(it.id !in existingIds&&generated.none{g->g.id==it.id}){"A split output must have a new attachment identity"}
+                generated.add(it);documentFile(it)
+            }
+        }
+        fun text(pages:List<Int>,sections:List<String>):String=if(sections.isEmpty())"" else
+            if(pages.size==1)sections[pages.single()] else pages.mapIndexed{i,p->"--- PAGE ${i+1} ---\n"+sections[p]}.joinToString("\n")
+        try {
+            source.files.forEach { file ->
+                checkCancelled()
+                val picked=selections[file.id]
+                if(picked==null){remainder.add(file);return@forEach}
+                VaultBackupChecks.verifyLegacy(documentFile(file),file.bytes,file.sha256)
+                if(file.mime=="application/pdf"||file.name.endsWith(".pdf",true)) {
+                    val count=pageCount(file)
+                    require(count>0&&picked.all{it in 0 until count}){"A selected PDF page is unavailable"}
+                    val sections=PdfPageTexts.parse(file.extractedText,count)
+                    if(sections.isEmpty()&&file.extractedText.isNotBlank())unmappedText.add(file.name+"\n"+file.extractedText)
+                    picked.sorted().forEach { index ->
+                        parts.add(make(file,listOf(index)).copy(name=file.name.substringBeforeLast('.',file.name)+" - page ${index+1}.pdf",
+                            extractedText=text(listOf(index),sections),ocrStatus=if(sections.isEmpty())"pending" else file.ocrStatus,
+                            originalId="",cropCorners="",cropRotation=0))
+                    }
+                    val rest=(0 until count).filter{it !in picked}
+                    if(move&&rest.isNotEmpty())remainder.add(make(file,rest).copy(name=file.name,
+                        extractedText=if(sections.isEmpty())file.extractedText else text(rest,sections),
+                        ocrStatus=if(sections.isEmpty()&&file.extractedText.isNotBlank())"Review after split" else file.ocrStatus,
+                        originalId=file.originalId))
+                } else {
+                    require(picked==setOf(0)){"Only PDFs have selectable internal pages"}
+                    parts.add(file)
+                }
+            }
+            checkCancelled()
+            val note=if(unmappedText.isEmpty())"" else "Original saved text (page mapping unavailable):\n"+unmappedText.joinToString("\n\n")
+            val change=VaultDocumentActions.split(cards.toList(),entries.toList(),source,parts,remainder,move,extraNotes=note)
+            commitDocumentChange(change);committed=true
+            return change.destinationIds
+        } finally {
+            if(!committed)generated.forEach{removeOrphan(it)}
+        }
+    }
+    data class RecoveryRemoval(val removed:Int,val remaining:Int)
+    @Synchronized fun clearRecovery(ids:Set<String>):RecoveryRemoval {
+        if(ids.isEmpty())return RecoveryRemoval(0,0)
+        check(recoveryError==null&&data.isFile&&validIndex(data.readText())){"Repair the document list before clearing recovery"}
+        val available=recoverableFiles().map{it.id}.toSet()
+        require(ids.all{it in available&&it !in referencedIds()}){"A selected file is now in use. Refresh recovery first."}
+        check(cards.flatMap{it.files}.all{hasDocument(it)}){"Restore missing attachments before clearing recovery"}
+        // Explicit permanent deletion also retires the older index that referenced these files.
+        // A crash before deletion leaves recoverable files; afterwards both indexes exclude them.
+        persist()
+        VaultIndexStore(context.filesDir).checkpoint(data.readBytes())
+        var removed=0
+        ids.forEach { id -> if(blob(id).delete()) {meta(id).delete();textFile(id).delete();removed++} }
+        return RecoveryRemoval(removed,ids.size-removed)
     }
     /** Retain the raw capture outside the visible page list for later re-cropping. */
     @Synchronized fun keepScanSource(cardId:String,fileId:String,raw:VaultFile,

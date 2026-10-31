@@ -19,6 +19,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -507,30 +508,41 @@ import java.util.UUID
         }
     }
 }
-@Composable fun RecoveryScreen(files:List<VaultFile>,recoveryError:String?,onRecover:(VaultFile,String)->Unit,onBackup:()->Unit) {
+@Composable fun RecoveryScreen(files:List<VaultFile>,recoveryError:String?,onRecover:(VaultFile,String)->Unit,onBackup:()->Unit,onRemove:(Set<String>)->Unit={}) {
     var name by remember{mutableStateOf("")}
     var selected by remember{mutableStateOf<VaultFile?>(null)}
+    var deleting by remember{mutableStateOf(emptySet<String>())}
+    if(deleting.isNotEmpty())AlertDialog(onDismissRequest={deleting=emptySet()},title={Text("Remove recovery files permanently?")},
+        text={Text("These files cannot be recovered again. Saved documents and originals still in use are kept. The older recovery copy of the document list is also replaced with the current list.")},
+        confirmButton={TextButton(onClick={val ids=deleting;deleting=emptySet();onRemove(ids)}){Text("Remove permanently")}},
+        dismissButton={TextButton(onClick={deleting=emptySet()}){Text("Cancel")}})
     LazyColumn(contentPadding=PaddingValues(16.dp,12.dp,16.dp,90.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-        item {Heading("Recover old imports","Preserve files from earlier failed saves")}
+        item {Heading("Recovery","Deleted files and unfinished imports stay available until you remove them permanently")}
         if(recoveryError!=null) item {
             Text(recoveryError,color=MaterialTheme.colorScheme.error)
             OutlinedButton(onClick=onBackup){Text("Open Backup & Restore")}
         }
         item{Text(VaultCounts.format(files.size,"unattached file")+" found. These are not automatically deleted. Recovery only applies to this installation.",
             style=MaterialTheme.typography.bodyMedium)}
-        items(files){file->
-            ElevatedCard {
+        if(files.isNotEmpty())item{
+            OutlinedButton(onClick={deleting=files.map{it.id}.toSet()},modifier=Modifier.fillMaxWidth()){
+                Text("Clear all recovery files")
+            }
+        }
+        items(files,key={it.id}){file->
+              ElevatedCard(Modifier.testTag("recovery-${file.id}")) {
                 Column(Modifier.padding(13.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
                     Text(if(file.name.startsWith("Recovered-",ignoreCase=true))"Recovered file" else VaultNames.label(file.name),fontWeight=FontWeight.SemiBold)
                     Text(((file.bytes/1024).coerceAtLeast(1)).toString()+" KB",style=MaterialTheme.typography.labelSmall)
-                    OutlinedButton(onClick={selected=file;name="Recovered document"}){Text("Recover into new card")}
+                    OutlinedButton(onClick={selected=file;name="Recovered document"}){Text("Recover into new document")}
+                    TextButton(onClick={deleting=setOf(file.id)}){Text("Remove permanently")}
                 }
             }
         }
     }
     if(selected!=null)AlertDialog(onDismissRequest={selected=null},title={Text("Recover document")},
         text={
-            OutlinedTextField(name,{name=it},label={Text("New card title")})
+            OutlinedTextField(name,{name=it},label={Text("New document title")})
         },
         confirmButton={TextButton(onClick={
             val file=selected
