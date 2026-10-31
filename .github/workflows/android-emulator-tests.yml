@@ -1,0 +1,60 @@
+name: Android Emulator Regression
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "scripts/run-android-regression.sh"
+      - ".github/workflows/android-emulator-tests.yml"
+      - "*.gradle.kts"
+
+concurrency:
+  group: emulator-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  emulator:
+    # ARM64 macOS supports the app's existing arm64-v8a native ABI.
+    runs-on: macos-15
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Install Android SDK 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Bundle pinned DocQuad model
+        run: |
+          mkdir -p app/src/main/assets/docquad
+          curl --fail --location --retry 4 --silent --show-error \
+            https://raw.githubusercontent.com/egdels/makeacopy/cdf0e66833e5a918b90643692e2894a25262f284/app/src/main/assets/docquad/docquadnet256_trained_opset17.ort \
+            -o app/src/main/assets/docquad/docquadnet256_trained_opset17.ort
+          test "$(git hash-object app/src/main/assets/docquad/docquadnet256_trained_opset17.ort)" = "1cfaaf7ff3fdc04c29749f62051e961fe60accdc"
+      - name: Run isolated Android tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: arm64-v8a
+          target: default
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          script: bash scripts/run-android-regression.sh --emulator-only
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-emulator-results
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/test-results/
+          if-no-files-found: warn
