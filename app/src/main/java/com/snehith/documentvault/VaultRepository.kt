@@ -660,7 +660,22 @@ class VaultRepository(private val context: Context) {
         check(recoveryError==null) { recoveryError ?: "Vault recovery required" }
         val missing=BackupIntegrity.missingPrimaries(cards.toList()){blob(it).isFile}
         if(missing.isNotEmpty())throw IOException("Backup cancelled: required attachments are missing")
-        val plan=BackupIntegrity.plan(cards.toList()){id->blob(id).isFile}
+        val planned=BackupIntegrity.plan(cards.toList()){id->blob(id).isFile}
+        val hashes=planned.availableIds.associateWith{id->
+            require(blob(id).length()<=VaultBackupChecks.MAX_BLOB_BYTES) {
+                "Attachment exceeds backup size limit: "+id
+            }
+            VaultBackupChecks.sha256(blob(id).inputStream())
+        }
+        // A recorded hash that differs means corruption. Legacy and recovered entries may
+        // have no hash or a stale size; back them up with their measured values instead.
+        val plan=planned.copy(cards=planned.cards.map{card->card.copy(files=card.files.map{f->
+            val hash=hashes[f.id]?:return@map f
+            require(f.sha256.isBlank()||hash.equals(f.sha256,true)) {
+                "Stored attachment is inconsistent: "+f.name
+            }
+            f.copy(bytes=blob(f.id).length(),sha256=hash)
+        })})
         val indexBytes=snapshot(plan.cards).toByteArray(Charsets.UTF_8)
         val textPayloads=plan.cards.flatMap{it.files}.distinctBy{it.id}
             .filter{it.extractedText.isNotBlank()}.map{it.extractedText.toByteArray(Charsets.UTF_8)}
@@ -684,19 +699,9 @@ class VaultRepository(private val context: Context) {
                 zip.putNextEntry(ZipEntry("filenames.txt"))
                 zip.write(readable.toByteArray(Charsets.UTF_8));zip.closeEntry()
                 val manifest=JSONObject()
-                val filesById=plan.cards.flatMap{it.files}.associateBy{it.id}
                 plan.availableIds.forEach{id->
                     val source=blob(id)
-                    require(source.length()<=VaultBackupChecks.MAX_BLOB_BYTES) {
-                        "Attachment exceeds backup size limit: "+id
-                    }
-                    val hash=VaultBackupChecks.sha256(source.inputStream())
-                    filesById[id]?.let { f ->
-                        require(hash.equals(f.sha256,true) && source.length()==f.bytes) {
-                            "Stored attachment is inconsistent: "+f.name
-                        }
-                    }
-                    manifest.put(id,JSONObject().put("size",source.length()).put("sha256",hash))
+                    manifest.put(id,JSONObject().put("size",source.length()).put("sha256",hashes.getValue(id)))
                     zip.putNextEntry(ZipEntry("blobs/"+id))
                     source.inputStream().use{it.copyTo(zip,65536)}
                     zip.closeEntry()

@@ -149,6 +149,24 @@ abstract class VaultStorageContract {
         catch (_:IllegalArgumentException) {}
         assertArrayEquals(before,saved.readBytes())
     }
+    @Test fun legacyIndexWithoutHashOrSizeIsStillExportable() {
+        val data=File(context.filesDir,"vault.json")
+        val root=JSONObject(data.readText())
+        root.getJSONArray("cards").getJSONObject(0).getJSONArray("files").getJSONObject(0)
+            .put("sha256","").remove("bytes")
+        data.writeText(root.toString())
+        repo=VaultRepository(context)
+        repo.restoreBackup(Uri.fromFile(backup()),"")
+        assertEquals(attachment,VaultRepository(context).cards.single().files.single())
+    }
+    @Test fun recoveredAttachmentWithoutMetadataIsExportable() {
+        val id="33333333-3333-4333-8333-333333333333"
+        File(context.filesDir,"blobs/$id.dat").writeText("fictional recovered page")
+        repo.attachRecovered(id,"Recovered fictional")
+        repo.restoreBackup(Uri.fromFile(backup()),"")
+        val recovered=VaultRepository(context).cards.flatMap{it.files}.single{it.id==id}
+        assertEquals(VaultBackupChecks.sha256("fictional recovered page".byteInputStream()),recovered.sha256)
+    }
     @Test fun legacySidecarMigratesWithoutChangingAttachmentOrFieldIds() {
         val data=File(context.filesDir,"vault.json")
         val root=JSONObject(data.readText())
