@@ -81,7 +81,7 @@ private fun categoryIcon(category:String):ImageVector=when {
         item{
             Row(verticalAlignment=Alignment.CenterVertically){
                 Column(Modifier.weight(1f)){
-                    Eyebrow("YOUR PERSONAL VAULT")
+                    Eyebrow("YOUR DOCUMENT SHELF")
                     Spacer(Modifier.height(5.dp))
                     Text("My Documents",style=MaterialTheme.typography.headlineMedium)
                     Text("Everything important, in one place.",
@@ -97,7 +97,7 @@ private fun categoryIcon(category:String):ImageVector=when {
             HubCard(Modifier.fillMaxWidth()){
                 Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
                     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(11.dp)){
-                        Eyebrow("VAULT OVERVIEW")
+                        Eyebrow("DOCUMENT OVERVIEW")
                         Text(VaultCounts.format(displayed.size,"document"),
                             style=MaterialTheme.typography.titleLarge)
                         Text(VaultCounts.format(displayed.sumOf{it.files.size},"file")+" saved",

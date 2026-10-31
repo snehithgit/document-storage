@@ -95,7 +95,7 @@ private val finderTeal=Color(0xFF58CBE4)
     val p=mockupPalette
     Column(Modifier.fillMaxSize().background(p.panel).verticalScroll(rememberScrollState())
         .padding(horizontal=18.dp,vertical=22.dp)){
-        Eyebrow("Add to vault")
+        Eyebrow("Add documents")
         Spacer(Modifier.height(10.dp))
         Text("New document",color=p.ink,fontSize=32.sp,lineHeight=34.sp,fontWeight=FontWeight.Bold)
         Spacer(Modifier.height(20.dp))

@@ -162,7 +162,7 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
     var pin by remember{mutableStateOf("")}
     var checking by remember{mutableStateOf(false)}
     var error by remember{mutableStateOf(false)}
-    AlertDialog(onDismissRequest=onDismiss,title={Text("Enter vault PIN")},
+    AlertDialog(onDismissRequest=onDismiss,title={Text("Enter app PIN")},
         text={
             Column{
                 OutlinedTextField(pin,{pin=it;error=false},
@@ -304,7 +304,7 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
         confirmButton={TextButton(onClick={choosingCard=false}){Text("Done")}})
     if(deleting)AlertDialog(onDismissRequest={deleting=false},
         title={Text("Remove "+person.name+"?")},
-        text={Text("Profile details will be removed. Documents stay in the vault.")},
+        text={Text("Profile details will be removed. Documents stay in DocShelf.")},
         confirmButton={TextButton(onClick={deleting=false;onRemovePerson()}){Text("Remove")}},
         dismissButton={TextButton(onClick={deleting=false}){Text("Cancel")}})
     conflict?.let{entry->

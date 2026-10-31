@@ -391,7 +391,7 @@ object DocumentCropEngine {
                 modifier=Modifier.weight(1.4f).heightIn(min=52.dp)){
                 Icon(Icons.Outlined.Check,null,Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(if(canRetake)"Save to vault" else "Save changes")
+                Text(if(canRetake)"Save document" else "Save changes")
             }
         }
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){

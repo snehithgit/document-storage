@@ -84,7 +84,7 @@ import kotlinx.coroutines.withContext
     val q=query.trim()
     Column(Modifier.fillMaxSize().background(p.panel).padding(horizontal=18.dp)){
         Spacer(Modifier.height(22.dp))
-        Eyebrow(profiles.firstOrNull{it.id==selectedPerson}?.name?:"My vault")
+        Eyebrow(profiles.firstOrNull{it.id==selectedPerson}?.name?:"My documents")
         Spacer(Modifier.height(10.dp))
         Text("Search",color=p.ink,fontSize=32.sp,lineHeight=34.sp,fontWeight=FontWeight.Bold)
         Spacer(Modifier.height(16.dp))

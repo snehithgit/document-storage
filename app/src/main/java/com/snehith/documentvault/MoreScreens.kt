@@ -105,7 +105,7 @@ import java.util.UUID
             // Viewer reads only the persisted OCR result. Request extraction through
             // the regular worker so language choice, errors and storage stay consistent.
             if(sourceOverride!=null && text.isBlank())
-                text="Save this PDF to the vault to read text."
+                text="Save this PDF to DocShelf to read text."
             return@LaunchedEffect
         }
         if(pdf&&session==null)return@LaunchedEffect

@@ -536,10 +536,10 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     if(activity.unlocked.value&&openWith!=null){
         AlertDialog(onDismissRequest={activity.clearOpenWith()},
             title={Text("Open PDF")},
-            text={Text("Save this file to Document Vault or view it without saving?")},
+            text={Text("Save this file to DocShelf or view it without saving?")},
             confirmButton={TextButton(onClick={
                 activity.importOpenWith(openWith)
-            }){Text("Save to vault")}},
+            }){Text("Save document")}},
             dismissButton={
                 Row{
                     TextButton(onClick={activity.clearOpenWith()}){Text("Cancel")}
@@ -587,8 +587,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         }
     }
     if(confirmRestore) {
-        AlertDialog(onDismissRequest={confirmRestore=false},title={Text("Replace current vault?")},
-            text={Text("Restoring a backup will replace every card and attachment in the current vault. This cannot be undone without your own backup.")},
+        AlertDialog(onDismissRequest={confirmRestore=false},title={Text("Replace current documents?")},
+            text={Text("Restoring a backup will replace every document and attachment currently in DocShelf. This cannot be undone without your own backup.")},
             confirmButton={TextButton(onClick={
                 confirmRestore=false
                 val uri=restoreUri
@@ -615,7 +615,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             dismissButton={TextButton(onClick={discardEditorDialog=false}){Text("Keep editing")}})
     }
     if(error.isNotBlank()) {
-        AlertDialog(onDismissRequest={error=""},title={Text("Document Vault")},text={Text(error)},
+        AlertDialog(onDismissRequest={error=""},title={Text("DocShelf")},text={Text(error)},
             confirmButton={TextButton(onClick={error=""}){Text("OK")}})
     }
 
@@ -688,7 +688,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     "templates"->"Card templates"
                                     "backup"->"Backup and restore"
                                     "recovery"->"Recovery"
-                                    else->"Document Vault"
+                                    else->"DocShelf"
                                 },maxLines=1,style=MaterialTheme.typography.titleMedium)
                             }
                         },
@@ -1025,7 +1025,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             if(externalPdfPath.isNotBlank())
                                 DocumentViewerScreen(VaultFile("shared-view",external.name,
                                     "application/pdf",external.length(),""),repo,engine,
-                                    {activity.notify("Save to vault before sharing")},sourceOverride=external)
+                                    {activity.notify("Save to DocShelf before sharing")},sourceOverride=external)
                         }
                         "viewer"->current?.let{c->c.files.firstOrNull{it.id==destination.fileId}?.let{f->
                             val docPages=rememberVaultDocumentPages(repo,c.files)
@@ -1095,7 +1095,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             startEdit(card)
                         }
                         "backup"->BackupScreen(
-                            {pwd->backupPassword="";backupExport.launch("DocumentVault_"+LocalDate.now()+".zip")},
+                            {pwd->backupPassword="";backupExport.launch("DocShelf_"+LocalDate.now()+".zip")},
                             {pwd->backupPassword="";backupImport.launch(arrayOf("*/*"))}
                         )
                         "recovery"->{
@@ -1179,7 +1179,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
         horizontalAlignment=Alignment.CenterHorizontally) {
         Icon(Icons.Outlined.Lock,null,tint=VaultColors.syntax,modifier=Modifier.size(65.dp))
         Spacer(Modifier.height(24.dp))
-        Text("Document Vault",style=MaterialTheme.typography.headlineMedium,
+        Text("DocShelf",style=MaterialTheme.typography.headlineMedium,
             fontWeight=FontWeight.Bold)
         Text("Unlock your personal document library")
         Spacer(Modifier.height(8.dp))
@@ -1187,7 +1187,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
             color=MaterialTheme.colorScheme.onSurfaceVariant,
             style=MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(30.dp))
-        OutlinedTextField(pin,{pin=it;invalid=false},label={Text("Vault PIN")},
+        OutlinedTextField(pin,{pin=it;invalid=false},label={Text("App PIN")},
             visualTransformation=PasswordVisualTransformation(),
             keyboardOptions=androidx.compose.foundation.text.KeyboardOptions(
                 keyboardType=androidx.compose.ui.text.input.KeyboardType.NumberPassword),

@@ -87,9 +87,9 @@ import androidx.compose.ui.unit.sp
         item{
             Eyebrow("About")
             Spacer(Modifier.height(10.dp))
-            Text("Document Vault",color=p.ink,fontSize=32.sp,lineHeight=34.sp,fontWeight=FontWeight.Bold)
+            Text("DocShelf",color=p.ink,fontSize=32.sp,lineHeight=34.sp,fontWeight=FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
-            Text("Version "+(pkg.versionName?:"unknown")+" · offline document wallet",
+            Text("Version "+(pkg.versionName?:"unknown")+" · offline document organiser",
                 color=p.inkMuted,fontSize=14.sp)
         }
         item{

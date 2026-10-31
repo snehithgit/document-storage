@@ -186,7 +186,7 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
         personCards.map{it.category.ifBlank{"Other"}}.distinct().sorted()
     val shownFilter=DocumentBrowseLogic.effectiveCategory(personCards,filter)
     val visible=DocumentBrowseLogic.browse(personCards,shownFilter,sort)
-    val name=profiles.firstOrNull{it.id==selectedPerson}?.name?:if(selectedPerson=="all")"My vault" else "Me"
+    val name=profiles.firstOrNull{it.id==selectedPerson}?.name?:if(selectedPerson=="all")"My documents" else "Me"
     var chooseProfile by remember{mutableStateOf(false)}
     if(chooseProfile)AlertDialog(onDismissRequest={chooseProfile=false},
         title={Text("Show documents for")},

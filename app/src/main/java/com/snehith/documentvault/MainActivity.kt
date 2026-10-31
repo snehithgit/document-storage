@@ -112,7 +112,7 @@ class MainActivity : FragmentActivity() {
                 ExpiryWorker.schedule(applicationContext)
                 loaded.value=true
             }catch(cancelled:CancellationException){throw cancelled}
-            catch(e:Exception){startupError.value="Unable to open vault: "+UserMessages.of(e,"Storage error")}
+            catch(e:Exception){startupError.value="Unable to open DocShelf: "+UserMessages.of(e,"Storage error")}
         }
     }
     fun isPrivacyScreenEnabled():Boolean = getSharedPreferences("vault_options",MODE_PRIVATE).getBoolean("blockScreenshots",false)
@@ -157,7 +157,7 @@ class MainActivity : FragmentActivity() {
                                 .fillMaxSize().padding(20.dp),
                             verticalArrangement=androidx.compose.foundation.layout.Arrangement.Center,
                             horizontalAlignment=androidx.compose.ui.Alignment.CenterHorizontally){
-                            androidx.compose.material3.Text("Cannot open Document Vault",
+                            androidx.compose.material3.Text("Cannot open DocShelf",
                                 style=androidx.compose.material3.MaterialTheme.typography.titleLarge)
                             androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.height(12.dp))
                             androidx.compose.material3.Text(failure,
@@ -208,7 +208,7 @@ class MainActivity : FragmentActivity() {
                 override fun onAuthenticationSucceeded(result:BiometricPrompt.AuthenticationResult) {onSuccess()}
                 override fun onAuthenticationError(errorCode:Int,errString:CharSequence){onError(errString.toString())}
             })
-        val info=BiometricPrompt.PromptInfo.Builder().setTitle("Unlock Document Vault")
+        val info=BiometricPrompt.PromptInfo.Builder().setTitle("Unlock DocShelf")
             .setSubtitle("Use your device biometrics")
             .setNegativeButtonText("Use PIN").build()
         prompt.authenticate(info)

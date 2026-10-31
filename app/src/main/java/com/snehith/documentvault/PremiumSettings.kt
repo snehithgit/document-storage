@@ -29,7 +29,7 @@ import kotlinx.coroutines.withContext
     onOriginalUsage:suspend ()->Long,onRemoveOriginals:()->Unit,
     originalsRevision:Long=0L,
     biometricEnabled:Boolean=false,onBiometricChanged:(Boolean)->Unit={},
-    profileName:String="My vault",cardCount:Int=0,pageCount:Int=0,peopleCount:Int=0,
+    profileName:String="My documents",cardCount:Int=0,pageCount:Int=0,peopleCount:Int=0,
     documentStyle:String="pages",onDocumentStyleChanged:(String)->Unit={},
     onStorageHealth:suspend ()->String={"Unavailable"},profileIdentity:String=profileName,hidePreviews:Boolean=true,onHidePreviewsChanged:(Boolean)->Unit={}
 ){
@@ -199,7 +199,7 @@ import kotlinx.coroutines.withContext
                     divider=false)
                 MockupSettingRow(Icons.Outlined.ViewAgenda,"Information templates",
                     "Reuse common document details",onTemplates)
-                MockupSettingRow(Icons.Outlined.Info,"About Document Vault",
+                MockupSettingRow(Icons.Outlined.Info,"About DocShelf",
                     "App version, privacy and open-source attribution",onAbout)
             }
         }

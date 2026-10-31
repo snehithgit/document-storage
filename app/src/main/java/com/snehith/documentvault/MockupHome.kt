@@ -93,7 +93,7 @@ import java.time.LocalTime
                     Spacer(Modifier.height(14.dp))
                     Text("No documents yet",color=colors.ink,fontSize=18.sp,
                         fontWeight=FontWeight.Bold)
-                    Text("Add a document to start your vault.",
+                    Text("Add a document to start your shelf.",
                         color=colors.inkMuted,fontSize=14.sp)
                 }
             }
@@ -181,7 +181,7 @@ import java.time.LocalTime
             }
         }
         item {
-            MockupSection("Vault","Backup",onBackup)
+            MockupSection("Storage","Backup",onBackup)
             Row(Modifier.fillMaxWidth()
                 .clip(RoundedCornerShape(22.dp))
                 .background(colors.panelRaised)
