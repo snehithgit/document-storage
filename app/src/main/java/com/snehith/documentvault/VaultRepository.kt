@@ -600,11 +600,27 @@ class VaultRepository(private val context: Context) {
                 }
                 zip.putNextEntry(ZipEntry("filenames.txt"))
                 zip.write(readable.toByteArray(Charsets.UTF_8));zip.closeEntry()
+                val manifest=JSONObject()
+                val filesById=plan.cards.flatMap{it.files}.associateBy{it.id}
                 plan.availableIds.forEach{id->
+                    val source=blob(id)
+                    require(source.length()<=VaultBackupChecks.MAX_BLOB_BYTES) {
+                        "Attachment exceeds backup size limit: "+id
+                    }
+                    val hash=VaultBackupChecks.sha256(source.inputStream())
+                    filesById[id]?.let { f ->
+                        require(hash.equals(f.sha256,true) && source.length()==f.bytes) {
+                            "Stored attachment is inconsistent: "+f.name
+                        }
+                    }
+                    manifest.put(id,JSONObject().put("size",source.length()).put("sha256",hash))
                     zip.putNextEntry(ZipEntry("blobs/"+id))
-                    blob(id).inputStream().use{it.copyTo(zip,65536)}
+                    source.inputStream().use{it.copyTo(zip,65536)}
                     zip.closeEntry()
                 }
+                zip.putNextEntry(ZipEntry("checksums.json"))
+                zip.write(manifest.toString().toByteArray(Charsets.UTF_8))
+                zip.closeEntry()
                 plan.cards.flatMap{it.files}.distinctBy{it.id}.forEach{file->
                     val ocr=textFile(file.id)
                     if(ocr.isFile||file.extractedText.isNotBlank()){
@@ -628,13 +644,29 @@ class VaultRepository(private val context: Context) {
         val staged=File(context.cacheDir,"restore-"+uid()).apply{mkdirs()}
         try{
             var root:String?=null
+            var manifestText:String?=null
+            var totalExtracted=0L
+            val seenEntries=mutableSetOf<String>()
             val imported=mutableMapOf<String,File>()
             val importedTexts=mutableMapOf<String,File>()
             context.contentResolver.openInputStream(uri)!!.use{input->
                 ZipInputStream(input).use{zip->
                     while(true){
                         val entry=zip.nextEntry?:break
-                        if(entry.name=="index.json"){
+                        if(!seenEntries.add(entry.name) || seenEntries.size>VaultBackupChecks.MAX_ENTRIES)
+                            throw IOException("Duplicate or excessive backup entries")
+                        if(entry.name=="checksums.json") {
+                            val buffer=ByteArrayOutputStream()
+                            val bytes=ByteArray(8192)
+                            while(true) {
+                                val n=zip.read(bytes)
+                                if(n<0)break
+                                if(buffer.size()+n>2_000_000)
+                                    throw IOException("Backup checksums manifest too large")
+                                buffer.write(bytes,0,n)
+                            }
+                            manifestText=buffer.toString("UTF-8")
+                        }else if(entry.name=="index.json"){
                             val buffer=ByteArrayOutputStream()
                             val bytes=ByteArray(65536)
                             while(true) {
@@ -658,7 +690,10 @@ class VaultRepository(private val context: Context) {
                         }else if(entry.name.matches(Regex("blobs/[a-f0-9-]{36}"))) {
                             val id=entry.name.substringAfter("/")
                             val target=File(staged,id)
-                            target.outputStream().use{zip.copyTo(it,65536)}
+                            val count=VaultBackupChecks.boundedCopy(zip,target,VaultBackupChecks.MAX_BLOB_BYTES)
+                            if(totalExtracted>VaultBackupChecks.MAX_TOTAL_BYTES-count)
+                                throw IOException("Backup exceeds total extraction limit")
+                            totalExtracted+=count
                             imported[id]=target
                         }else if(entry.name.matches(Regex("texts/[a-f0-9-]{36}\\.txt"))){
                             val id=entry.name.removePrefix("texts/").removeSuffix(".txt")
@@ -688,12 +723,37 @@ class VaultRepository(private val context: Context) {
                     if(recognized!=null)file.copy(extractedText=recognized)else file
                 })}
             val available:(String)->Boolean={id->imported[id]?.isFile==true}
+            val manifest=manifestText?.let(::JSONObject)
+            val referenced=AttachmentReferences.referencedIds(readCards)
+            if(manifest!=null) {
+                if(manifest.length()!=imported.size || imported.keys.any{!manifest.has(it)})
+                    throw IOException("Backup checksums manifest does not match payloads")
+                imported.forEach{(id,file)->
+                    val record=manifest.optJSONObject(id)
+                        ?:throw IOException("Backup checksum entry invalid")
+                    VaultBackupChecks.verify(file,record.getLong("size"),record.getString("sha256"))
+                }
+            }
+            // Strict by default: never silently drop a visible document during restore.
+            val missing=BackupIntegrity.missingPrimaries(readCards,available)
+            if(missing.isNotEmpty())throw IOException(
+                "Backup is incomplete: "+missing.size+" attachment(s) missing. Existing vault unchanged."
+            )
             val cleared=BackupIntegrity.clearMissingOriginals(readCards,available)
             // One damaged attachment must not make the whole backup unrestorable.
-            val dropped=BackupIntegrity.missingPrimaries(cleared,available)
-            restoreWarnings.addAll(dropped.map{"Attachment missing in backup, skipped: "+it})
-            val nextCards=BackupIntegrity.dropMissingPrimaries(cleared,available)
+            // Missing optional scan originals are handled without deleting visible pages.
+            val nextCards=cleared
             val ids=AttachmentReferences.referencedIds(nextCards)
+            // Old ZIP archives without checksums remain readable, but indexed hashes
+            // are always verified against actual content before changing local files.
+            nextCards.flatMap{it.files}.forEach{file->
+                imported[file.id]?.let{stored->
+                    VaultBackupChecks.verify(stored,file.bytes,file.sha256)
+                }
+            }
+            if(manifest!=null && referenced.any{it !in imported}) {
+                restoreWarnings.add("Optional originals were not included in this backup")
+            }
             val nextProfiles=mutableListOf<VaultProfile>()
             val p=json.optJSONArray("profiles")?:JSONArray()
             for(i in 0 until p.length()){val e=p.getJSONObject(i);nextProfiles.add(VaultProfile(e.getString("id"),e.getString("name")))}
