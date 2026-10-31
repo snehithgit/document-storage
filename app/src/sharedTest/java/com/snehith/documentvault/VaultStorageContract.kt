@@ -213,4 +213,16 @@ abstract class VaultStorageContract {
         repo.saveCard(repo.cards.single().copy(title="third"))
         assertArrayEquals(prior,File(context.filesDir,"vault.json.bak").readBytes())
     }
+    @Test fun unreadableLegacySidecarDoesNotCommitBlankOcr() {
+        val data=File(context.filesDir,"vault.json")
+        val root=JSONObject(data.readText())
+        root.getJSONArray("cards").getJSONObject(0).getJSONArray("files").getJSONObject(0)
+            .remove("extractedText")
+        data.writeText(root.toString())
+        File(context.filesDir,"blobs/${attachment.id}.txt").mkdir()
+        val before=data.readBytes()
+        val loaded=VaultRepository(context)
+        assertNotNull("Unreadable legacy text must require recovery",loaded.recoveryError)
+        assertArrayEquals(before,data.readBytes())
+    }
 }

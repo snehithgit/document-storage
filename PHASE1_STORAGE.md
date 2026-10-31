@@ -2,7 +2,8 @@
 
 The index is the commit record. New indexes include OCR text inline, so an OCR
 update and its document metadata share one synced, atomic file replacement.
-Legacy sidecars are read only when the inline field is absent, then migrated on
+Legacy sidecars are read only when the inline field is absent. An existing but
+unreadable sidecar rejects that index rather than migrating blank OCR. Text is migrated on
 the next successful commit. They remain available to the previous index.
 Temporary indexes are never loaded. A malformed current index falls back to the
 previous readable index; an unreadable vault stays protected against saves.
@@ -61,11 +62,11 @@ roadmap remains behind the Phase 1 gate.
 
 ## Validation recorded on 31 October 2026
 
-- Windows: 148 JVM tests passed, no failures or skipped tests.
+- Windows: 149 JVM tests passed, no failures or skipped tests.
 - Lint: passed with 0 errors and 19 warnings.
 - Debug application and instrumentation APKs: assembled successfully.
 - Merged debug manifest: no INTERNET permission.
-- Physical Android 16 ARM64 phone: 22 storage contract tests passed in the isolated
+- Physical Android 16 ARM64 phone: 23 storage contract tests passed in the isolated
   package. Storage Health was also opened through ADB and its displayed values
   checked; this is a UI smoke check, not a Compose UI regression suite.
 - No emulator was started. The broad UI/scanner/OCR/WorkManager workflows remain

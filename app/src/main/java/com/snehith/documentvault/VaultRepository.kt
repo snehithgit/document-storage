@@ -233,7 +233,7 @@ class VaultRepository(private val context: Context) {
                 val original=f.optString("originalId")
                 require(original.isBlank()||original.matches(Regex("[a-f0-9-]{36}"))) { "Invalid original identifier" }
                 val inline=f.optString("extractedText")
-                val content=if(useSidecars&&!f.has("extractedText")&&textFile(id).isFile)
+                val content=if(useSidecars&&!f.has("extractedText")&&textFile(id).exists())
                     textFile(id).readText(Charsets.UTF_8) else inline
                 VaultFile(id,f.optString("name"),f.optString("mime"),f.optLong("bytes"),
                     f.optString("sha256"),content,f.optString("ocrStatus","pending"),
