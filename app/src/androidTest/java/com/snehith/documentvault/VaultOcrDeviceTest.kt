@@ -27,8 +27,8 @@ class VaultOcrDeviceTest {
     private val created=mutableListOf<VaultCard>()
     @Before fun setup() {
         context=InstrumentationRegistry.getInstrumentation().targetContext
-        check(context.packageName=="com.snehith.documentvault.storagecheck") {
-            "OCR device tests require -PvaultDebugSuffix=.storagecheck"
+        check(context.packageName=="com.snehith.documentvault.uxcheck") {
+            "OCR device tests require -PvaultDebugSuffix=.uxcheck"
         }
         repo=VaultStorage.get(context)
     }

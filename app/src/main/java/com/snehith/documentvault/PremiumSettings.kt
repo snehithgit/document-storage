@@ -31,7 +31,7 @@ import kotlinx.coroutines.withContext
     biometricEnabled:Boolean=false,onBiometricChanged:(Boolean)->Unit={},
     profileName:String="My vault",cardCount:Int=0,pageCount:Int=0,peopleCount:Int=0,
     documentStyle:String="pages",onDocumentStyleChanged:(String)->Unit={},
-    onStorageHealth:suspend ()->String={"Unavailable"}
+    onStorageHealth:suspend ()->String={"Unavailable"},profileIdentity:String=profileName
 ){
     val context=LocalContext.current
     var dialog by rememberSaveable{mutableStateOf("")}
@@ -69,7 +69,7 @@ import kotlinx.coroutines.withContext
         else->"Settings"
     })},text={Column(verticalArrangement=Arrangement.spacedBy(9.dp)){
         when(dialog){
-            "health"->Text(health)
+            "health"->Text(health,Modifier.heightIn(max=340.dp).verticalScroll(rememberScrollState()))
             "ocr"->{
                 Text("Choose an on-device recognition model.")
                 languages.forEach{lang->
@@ -100,7 +100,7 @@ import kotlinx.coroutines.withContext
                 }
             }
             "originals"->{
-                Text("Delete retained raw scans only? The edited documents stay available. Reopening a deleted original for re-cropping will no longer be possible.")
+                Text("Delete retained original photos only? The edited documents stay available. Reopening a deleted original for re-cropping will no longer be possible.")
                 Button(onClick={onRemoveOriginals();dialog=""}){Text("Remove originals")}
             }
         }
@@ -116,15 +116,11 @@ import kotlinx.coroutines.withContext
             Spacer(Modifier.height(16.dp))
             MockupGroup{
                 Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically){
-                    Box(Modifier.size(46.dp).background(p.ink,androidx.compose.foundation.shape.CircleShape),
-                        contentAlignment=Alignment.Center){
-                        Text(DesignLogic.initials(profileName),color=p.panel,fontSize=15.sp,
-                            fontWeight=FontWeight.Bold)
-                    }
+                    PersonAvatar(profileName,46.dp,profileIdentity)
                     Spacer(Modifier.width(12.dp))
                     Column{
                         Text(profileName,color=p.ink,fontSize=16.sp,fontWeight=FontWeight.Bold)
-                        Text(VaultCounts.format(cardCount,"card")+" · "+
+                        Text(VaultCounts.format(cardCount,"document")+" · "+
                             VaultCounts.format(pageCount,"page")+" on this device",
                             color=p.inkFaint,fontSize=12.sp)
                     }
@@ -152,7 +148,7 @@ import kotlinx.coroutines.withContext
         item{
             MockupGroup{
                 MockupSettingRow(Icons.Outlined.Lock,"App lock",
-                    if(hasPin)"PIN configured (files are not encrypted)" else "Optional UI PIN",
+                    if(hasPin)"PIN configured (files are not encrypted)" else "Lock the app with a PIN",
                     {dialog="pin"},value=if(hasPin)"On" else "Off",divider=false)
                 MockupSettingRow(Icons.Outlined.Fingerprint,"Unlock with biometrics",
                     "Prompt on opening when available",

@@ -551,9 +551,7 @@ class VaultRepository(private val context: Context) {
                         file.name.contains("certificate",true)->"COC / STCW"
                         else->"Custom"
                     }
-                    newCard(kind,owner).copy(title=if(file.name.startsWith("scan-",true)||file.name.startsWith("capture-",true))
-                        "Scanned document · "+java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("dd MMM HH:mm"))
-                        else file.name.substringBeforeLast('.',file.name),files=listOf(file))
+                    newCard(kind,owner).copy(title=VaultUx.importTitle(file.name,kind,next.map{it.title},java.time.LocalDateTime.now()),files=listOf(file))
                 }
                 if(index>=0)next[index]=card else next.add(0,card)
                 last=card;count++
@@ -607,14 +605,26 @@ class VaultRepository(private val context: Context) {
     @Synchronized fun storageHealth():String {
         val files=cards.flatMap{it.files}
         val index=if(recoveryError!=null) recoveryError!! else if(data.isFile)
-            if(validIndex(data.readText())) "Readable" else "Unreadable"
+            runCatching { if(validIndex(data.readText())) "Readable" else "Unreadable" }.getOrDefault("Unreadable")
             else "Not saved yet"
         val prior=if(backup.isFile)runCatching {
             val array=JSONObject(backup.readText()).getJSONArray("cards")
             (0 until array.length()).forEach { readCard(array.getJSONObject(it)) }
             "Previous index available"
         }.getOrDefault("Previous index unreadable") else "No previous index yet"
-        return "Documents: ${cards.size}\nAttachments: ${files.size}\nMissing attachments: ${files.count{!blob(it.id).isFile}}\nRecoverable unlinked attachments: ${recoverableFiles().size}\nIndex: $index\nRecovery: $prior\nExternal backup status: unknown\nNo files were changed."
+        val missing=files.count{!blob(it.id).isFile}
+        val unlinked=recoverableFiles().size
+        val issues=buildList {
+            if(missing>0)add("$missing missing attachments need attention")
+            if(unlinked>0)add("$unlinked unlinked files are available in Recover imports")
+            if(recoveryError!=null||index=="Unreadable")add("The document list needs recovery")
+            if(prior=="Previous index unreadable")add("The previous document list cannot be read")
+        }
+        val last=context.getSharedPreferences("vault_options",Context.MODE_PRIVATE).getLong("lastBackupAt",0L)
+        val date=if(last==0L)"No date recorded yet" else java.time.Instant.ofEpochMilli(last)
+            .atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm"))
+        val summary=if(issues.isEmpty())"All good. Your documents are available." else issues.joinToString("\n")
+        return "$summary\nLast backup: $date\n\nDocuments: ${cards.size}\nAttachments: ${files.size}\nMissing attachments: $missing\nRecoverable unlinked attachments: $unlinked\nIndex: $index\nRecovery: $prior\nExternal backup status: unknown\nNo files were changed."
     }
     fun sweepOrphanBlobs() { /* Do not erase unknown imports automatically. */ }
     private fun readMeta(id:String):VaultFile?=try{
@@ -730,6 +740,8 @@ class VaultRepository(private val context: Context) {
         context.contentResolver.openOutputStream(uri,"w")?.use { output ->
             stagedZip.inputStream().use { it.copyTo(output,65536) }
         } ?: throw IOException("Cannot write backup destination")
+        context.getSharedPreferences("vault_options",Context.MODE_PRIVATE).edit()
+            .putLong("lastBackupAt",System.currentTimeMillis()).apply()
         return plan.warnings
         } finally { stagedZip.delete() }
     }

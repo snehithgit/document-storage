@@ -27,7 +27,7 @@ class ReleaseChecksDeviceTest {
     }
     /** Workflow 22: shared files carry a real filename, extension and MIME type. */
     @Test fun sharingUsesReadableNameAndType() {
-        check(context.packageName=="com.snehith.documentvault.storagecheck")
+        check(context.packageName=="com.snehith.documentvault.uxcheck")
         val id=UUID.randomUUID().toString()
         val blob=File(context.filesDir,"blobs/$id.dat").apply{parentFile!!.mkdirs()
             writeBytes("%PDF-1.4\n% fictional\n".toByteArray())}

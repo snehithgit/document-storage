@@ -14,7 +14,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.UUID
 
-/** Drives the real app in the isolated storagecheck package with fictional records,
+/** Drives the real app in the isolated uxcheck package with fictional records,
  * which are removed afterwards. Never runs against the production or .v2 app. */
 @RunWith(AndroidJUnit4::class)
 class VaultWorkflowUiTest {
@@ -23,13 +23,13 @@ class VaultWorkflowUiTest {
     private val tag=UUID.randomUUID().toString().take(6).uppercase()
     private val title="UI Fictional Licence $tag"
     private val person=VaultProfile("ui-person-$tag","UI Person $tag")
-    private val card=VaultCard(id="ui-card-$tag",title=title,category="Work",profile=person.id,
+    private val card=VaultCard(id="ui-card-$tag",title=title,category="Work",profile=person.id,expiry="2030-12-31",
         fields=listOf(DataField("Licence Number","FIC-$tag",id="ui-field-$tag")))
     private val repo get()=VaultStorage.get(context)
 
     @Before fun seed() {
-        check(context.packageName=="com.snehith.documentvault.storagecheck") {
-            "UI workflow tests require -PvaultDebugSuffix=.storagecheck"
+        check(context.packageName=="com.snehith.documentvault.uxcheck") {
+            "UI workflow tests require -PvaultDebugSuffix=.uxcheck"
         }
         // The dock renders its labels in capitals.
         compose.waitUntil(20_000){ compose.onAllNodesWithText("Cards",ignoreCase=true).fetchSemanticsNodes().isNotEmpty() }
@@ -50,6 +50,8 @@ class VaultWorkflowUiTest {
         it.config.getOrNull(SemanticsActions.OnClick)?.label==label}).performClick()
     private fun openCards() {
         compose.onAllNodesWithText("Cards",ignoreCase=true).onFirst().performClick()
+        clickLabel("Choose whose documents to show")
+        compose.onNodeWithText(person.name).performClick()
         compose.waitUntil(10_000){ compose.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty() }
     }
     private fun openEditor() {
@@ -59,7 +61,6 @@ class VaultWorkflowUiTest {
         compose.waitUntil(10_000){ compose.onAllNodesWithText("Document title").fetchSemanticsNodes().isNotEmpty() }
     }
     private fun save() {
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText(" Save"))
         compose.onNodeWithText(" Save").performClick()
         compose.waitUntil(10_000){ compose.onAllNodesWithText("Document title").fetchSemanticsNodes().isEmpty() }
     }
@@ -94,7 +95,8 @@ class VaultWorkflowUiTest {
     @Test fun categoryAndFieldEditsSurviveRestart() {
         openCards()
         openEditor()
-        compose.onNodeWithText("Work").performTextReplacement("Identity")
+        compose.onNodeWithText("Category: Work").performClick()
+        compose.onNodeWithText("Identity").performClick()
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("FIC-$tag"))
         compose.onNodeWithText("FIC-$tag").performTextReplacement("EDITED-$tag")
         save()
@@ -107,5 +109,23 @@ class VaultWorkflowUiTest {
         assertEquals("manual",saved.fields.single().source)
         pressBack()
         compose.waitUntil(10_000){ compose.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty() }
+    }
+    @Test fun newCategoryAndFixedSaveBarWork() {
+        openCards();openEditor()
+        compose.onNodeWithText(" Save").assertIsDisplayed()
+        compose.onNodeWithText("Category: Work").performClick()
+        compose.onNodeWithText("New…").performClick()
+        compose.onNodeWithText("Category name").performTextInput("Fictional category $tag")
+        compose.onNodeWithText("Add").performClick()
+        save()
+        assertEquals("Fictional category $tag",repo.cards.first{it.id==card.id}.category)
+    }
+    @Test fun expiryPickerCanClearExistingDate() {
+        openCards();openEditor()
+        compose.onNodeWithContentDescription("Choose expiry date").performScrollTo().performClick()
+        compose.onNodeWithText("Choose date").assertIsDisplayed()
+        compose.onNodeWithText("Clear").performClick()
+        save()
+        assertEquals("",repo.cards.first{it.id==card.id}.expiry)
     }
 }

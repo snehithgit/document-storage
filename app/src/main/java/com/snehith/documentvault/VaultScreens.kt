@@ -73,7 +73,8 @@ fun copyToClipboard(context:Context,label:String,value:String) {
         Text(label,modifier=Modifier.padding(horizontal=10.dp,vertical=6.dp),color=color,style=MaterialTheme.typography.labelSmall)
     }
 }
-@Composable fun CardEditorScreen(card:VaultCard,profiles:List<VaultProfile>,onSave:(VaultCard)->Unit,onCancel:()->Unit,onSaveTemplate:(CardTemplate)->Unit,onDirtyChange:(Boolean)->Unit) {
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable fun CardEditorScreen(card:VaultCard,profiles:List<VaultProfile>,onSave:(VaultCard)->Unit,onCancel:()->Unit,onSaveTemplate:(CardTemplate)->Unit,onDirtyChange:(Boolean)->Unit,categories:List<String> = emptyList()) {
     var title by rememberSaveable(card.id){mutableStateOf(card.title)}
     var category by rememberSaveable(card.id){mutableStateOf(card.category)}
     var kind by rememberSaveable(card.id){mutableStateOf(card.kind)}
@@ -93,6 +94,9 @@ fun copyToClipboard(context:Context,label:String,value:String) {
         mutableStateListOf<DataField>().apply{addAll(card.fields)}
     }
     var categoryExpanded by rememberSaveable{mutableStateOf(false)}
+    var newCategory by rememberSaveable(card.id){mutableStateOf("")}
+    var creatingCategory by rememberSaveable(card.id){mutableStateOf(false)}
+    var choosingDate by rememberSaveable(card.id){mutableStateOf(false)}
     var kindExpanded by rememberSaveable{mutableStateOf(false)}
     var profileExpanded by rememberSaveable{mutableStateOf(false)}
     var error by rememberSaveable{mutableStateOf("")}
@@ -100,8 +104,29 @@ fun copyToClipboard(context:Context,label:String,value:String) {
         tags!=card.tags||notes!=card.notes||expiry!=card.expiry||profile!=card.profile||
         fields.toList()!=card.fields
     LaunchedEffect(changed){onDirtyChange(changed)}
-    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp,8.dp,16.dp,105.dp),verticalArrangement=Arrangement.spacedBy(13.dp)){
-        item{Heading(if(card.title=="New Card")"Create Document" else "Edit Document","Save information and attach files when needed")}
+    fun save(){
+        if(title.isBlank()){error="Enter a title";return}
+        if(expiry.isNotBlank()&&!VaultExpiry.isIsoDate(expiry)){error="Choose a valid expiry date";return}
+        onSave(card.copy(title=title.trim(),kind=kind,category=category,profile=profile,tags=tags,notes=notes,
+            expiry=expiry,fields=fields.filter{it.name.isNotBlank()}))
+    }
+    if(creatingCategory)AlertDialog(onDismissRequest={creatingCategory=false},title={Text("New category")},
+        text={OutlinedTextField(newCategory,{newCategory=it},label={Text("Category name")},singleLine=true)},
+        confirmButton={TextButton(enabled=newCategory.isNotBlank(),onClick={category=newCategory.trim();creatingCategory=false}){Text("Add")}},
+        dismissButton={TextButton(onClick={creatingCategory=false}){Text("Cancel")}})
+    if(choosingDate){
+        val initial=runCatching{LocalDate.parse(expiry).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()}.getOrNull()
+        val picker=rememberDatePickerState(initialSelectedDateMillis=initial)
+        DatePickerDialog(onDismissRequest={choosingDate=false},
+            confirmButton={TextButton(enabled=picker.selectedDateMillis!=null,onClick={
+                expiry=java.time.Instant.ofEpochMilli(picker.selectedDateMillis!!).atZone(java.time.ZoneOffset.UTC).toLocalDate().toString()
+                choosingDate=false
+            }){Text("Choose date")}},
+            dismissButton={Row{TextButton(onClick={expiry="";choosingDate=false}){Text("Clear")}
+                TextButton(onClick={choosingDate=false}){Text("Cancel")}}}){DatePicker(picker)}
+    }
+    Column(Modifier.fillMaxSize().imePadding()){
+    LazyColumn(Modifier.weight(1f).fillMaxWidth(),contentPadding=PaddingValues(16.dp,8.dp,16.dp,16.dp),verticalArrangement=Arrangement.spacedBy(13.dp)){
         item{OutlinedTextField(title,{title=it},label={Text("Document title")},modifier=Modifier.fillMaxWidth(),singleLine=true)}
         item{
             Box {
@@ -114,7 +139,17 @@ fun copyToClipboard(context:Context,label:String,value:String) {
                 }
             }
         }
-        item{OutlinedTextField(category,{category=it},label={Text("Category")},modifier=Modifier.fillMaxWidth())}
+        item{Box{
+            OutlinedButton(onClick={categoryExpanded=true},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
+                Text("Category: "+category,Modifier.weight(1f));Icon(Icons.Outlined.ArrowDropDown,null)
+            }
+            DropdownMenu(expanded=categoryExpanded,onDismissRequest={categoryExpanded=false}){
+                (categories+category+listOf("Personal","Identity","Work","Scans")).filter{it.isNotBlank()}.distinct().sorted().forEach{name->
+                    DropdownMenuItem(text={Text(name)},onClick={category=name;categoryExpanded=false})
+                }
+                DropdownMenuItem(text={Text("New…")},onClick={categoryExpanded=false;newCategory="";creatingCategory=true})
+            }
+        }}
         item{
             Box {
                 OutlinedButton(onClick={profileExpanded=true},modifier=Modifier.fillMaxWidth()){
@@ -126,7 +161,9 @@ fun copyToClipboard(context:Context,label:String,value:String) {
             }
         }
         item{OutlinedTextField(tags,{tags=it},label={Text("Tags (comma-separated)")},modifier=Modifier.fillMaxWidth())}
-        item{OutlinedTextField(expiry,{expiry=it},label={Text("Expiry (YYYY-MM-DD)")},modifier=Modifier.fillMaxWidth(),singleLine=true)}
+        item{OutlinedTextField(expiry,{},label={Text("Expiry date")},readOnly=true,
+            placeholder={Text("Not set")},modifier=Modifier.fillMaxWidth(),singleLine=true,
+            trailingIcon={IconButton(onClick={choosingDate=true}){Icon(Icons.Outlined.CalendarMonth,"Choose expiry date")}})}
         item{Text("Custom fields",fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)}
         items(fields.size){i->
             ElevatedCard {
@@ -145,22 +182,21 @@ fun copyToClipboard(context:Context,label:String,value:String) {
             Icon(Icons.Outlined.Add,null);Text(" Add custom field")
         }}
         item{OutlinedTextField(notes,{notes=it},label={Text("Notes")},modifier=Modifier.fillMaxWidth(),minLines=2)}
-        if(error.isNotBlank())item{Text(error,color=MaterialTheme.colorScheme.error)}
-        item{
-            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick=onCancel,modifier=Modifier.weight(1f)){Text("Cancel")}
-                Button(onClick={
-                    if(title.isBlank()){error="Enter a title";return@Button}
-                    if(expiry.isNotBlank())try{LocalDate.parse(expiry)}catch(_:Exception){error="Use YYYY-MM-DD for expiry";return@Button}
-                    onSave(card.copy(title=title,kind=kind,category=category,profile=profile,tags=tags,notes=notes,expiry=expiry,
-                        fields=fields.filter{it.name.isNotBlank()}))
-                },modifier=Modifier.weight(1f)){Icon(Icons.Outlined.Save,null);Text(" Save")}
-            }
-        }
         item{TextButton(onClick={
             if(title.isNotBlank())onSaveTemplate(CardTemplate(java.util.UUID.randomUUID().toString(),title+" template",fields.map{it.name}.filter{it.isNotBlank()}))
         },modifier=Modifier.fillMaxWidth()){Text("Save these fields as reusable template")}}
     }
+    Surface(shadowElevation=6.dp){Column(Modifier.fillMaxWidth().padding(16.dp)){
+        if(error.isNotBlank())Text(error,color=MaterialTheme.colorScheme.error)
+        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            OutlinedButton(onClick=onCancel,modifier=Modifier.weight(1f).heightIn(min=48.dp)){Text("Cancel")}
+            Button(onClick={save()},modifier=Modifier.weight(1f).heightIn(min=48.dp)){
+                Icon(Icons.Outlined.Save,null);Text(" Save")
+            }
+        }
+    }}
+    }
+
 }
 @Composable fun ExpiriesScreen(cards:List<VaultCard>,onOpen:(VaultCard)->Unit,
     remindDays:Int=30) {

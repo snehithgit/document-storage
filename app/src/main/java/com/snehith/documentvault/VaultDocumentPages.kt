@@ -13,6 +13,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -92,7 +95,7 @@ object VaultDocumentPages {
 @Composable fun rememberVaultCategoryPageCounts(
     repo:VaultRepository,cards:List<VaultCard>
 ):List<Pair<String,Int>>{
-    val signature=cards.joinToString("|"){it.id+":"+VaultDocumentPages.identity(it.files)}
+    val signature=cards.joinToString("|"){it.id+":"+it.category+":"+VaultDocumentPages.identity(it.files)}
     var results by remember(repo,signature){
         mutableStateOf(cards.groupBy{it.category.ifBlank{"Other"}}
             .map{(category,group)->category to group.sumOf{it.files.size}}
@@ -158,13 +161,24 @@ object VaultDocumentPages {
 }
 
 @Composable fun VaultDocumentTile(card:VaultCard,repo:VaultRepository,
-    modifier:Modifier=Modifier,onClick:()->Unit
+    modifier:Modifier=Modifier,uniform:Boolean=false,privatePreview:Boolean=false,onClick:()->Unit
 ){
     val p=mockupPalette
     val pages=rememberVaultDocumentPages(repo,card.files)
     Column(modifier.clickable(onClick=onClick)){
-        VaultDocumentPaper(pages.firstOrNull(),repo,Modifier.fillMaxWidth(),
-            category=card.category,numberOfPages=pages.size,onClick=onClick)
+        val concealed=privatePreview&&card.category.equals("Identity",true)
+        Box(Modifier.fillMaxWidth().then(if(uniform)Modifier.height(184.dp) else Modifier),
+            contentAlignment=Alignment.Center){
+            VaultDocumentPaper(pages.firstOrNull(),repo,Modifier.fillMaxWidth()
+                .then(if(concealed&&android.os.Build.VERSION.SDK_INT>=31)Modifier.blur(14.dp) else Modifier),
+                category=card.category,numberOfPages=pages.size,onClick=onClick)
+            if(concealed)Column(Modifier.matchParentSize()
+                .background(p.panelRaised.copy(alpha=if(android.os.Build.VERSION.SDK_INT>=31).5f else .96f)),
+                horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){
+                Icon(Icons.Outlined.VisibilityOff,"Private preview",tint=p.inkMuted)
+                Text("Tap to view",fontSize=11.sp,color=p.inkMuted)
+            }
+        }
         Spacer(Modifier.height(9.dp))
         Text(VaultNames.title(card.title),fontSize=13.sp,fontWeight=FontWeight.SemiBold,
             color=p.ink,maxLines=1,overflow=TextOverflow.Ellipsis)
@@ -172,6 +186,7 @@ object VaultDocumentPages {
             maxLines=1)
         Spacer(Modifier.height(4.dp))
         if(card.expiry.isNotBlank())ExpiryTag(card)
+        else if(uniform)Spacer(Modifier.height(28.dp))
     }
 }
 

@@ -83,10 +83,10 @@ import androidx.compose.ui.unit.sp
         options.forEach{(key,label)->
             val on=key==selected
             Box(Modifier.weight(1f).clip(RoundedCornerShape(11.dp))
-                .background(if(on)p.panelRaised else Color.Transparent)
+                .background(if(on)p.accent else Color.Transparent)
                 .clickable(role=Role.RadioButton){onSelect(key)}.padding(vertical=10.dp),
                 contentAlignment=Alignment.Center){
-                Text(label,color=if(on)p.ink else p.inkMuted,fontSize=13.sp,
+                Text(label,color=if(on)p.accentInk else p.inkMuted,fontSize=13.sp,
                     fontWeight=if(on)FontWeight.Bold else FontWeight.Medium,maxLines=1)
             }
         }

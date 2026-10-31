@@ -88,6 +88,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
     var userProfile by rememberSaveable{mutableStateOf("all")}
     var savedCardRevision by rememberSaveable{mutableIntStateOf(0)}
     var categoryFilter by rememberSaveable{mutableStateOf("")}
+    var ocrNote by rememberSaveable{mutableStateOf("")}
     // A restore can replace the people list; never stay filtered to a missing person.
     val knownProfiles=repo.profiles.toList()
     LaunchedEffect(userProfile,knownProfiles){
@@ -305,13 +306,15 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 OcrBatchOutcome(name,
                     info.state==WorkInfo.State.SUCCEEDED &&
                         info.outputData.getString(VaultOcrWorker.KEY_ERROR).isNullOrBlank(),
-                    info.outputData.getString(VaultOcrWorker.KEY_ERROR).orEmpty())
+                    info.outputData.getString(VaultOcrWorker.KEY_ERROR).orEmpty(),
+                    info.outputData.getInt(VaultOcrWorker.KEY_FILLED,0))
             }
         }
         if(entries.size==trackedOcr.size){
             trackedOcr=emptyMap()
             val summary=OcrBatchSummary.message(entries)
             activity.notify(summary)
+            ocrNote=summary // also kept on Full Details until dismissed
         }
     }
     fun importUris(uris:List<Uri>,targetId:String?=null,addPage:Boolean=false,
@@ -634,12 +637,11 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     "attachments"->"Manage attachments"
                                     "about"->"About"
                                     "licenses"->"Open-source licenses"
-                                    "selectfields"->"Select from document"
+                                    "selectfields"->"Select from page"
                                     "scan"->"Scan"
                                     "crop"->"Crop document"
                                     "edit"->"Edit Document"
-                                    "viewer"->current?.files?.firstOrNull{it.id==viewingId}
-                                        ?.let{VaultNames.label(it.name)} ?: "Document viewer"
+                                    "viewer"->current?.let{VaultNames.title(it.title)} ?: "Document viewer"
                                     "externalviewer"->"Open PDF"
                                     "tools"->"PDF Tools"
                                     "expiry"->"Expiry and renewal"
@@ -696,7 +698,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             userProfile,options.getInt("remindDays",30),
                             {userProfile=it},{openCard(it)},
                             {navigateRoot("cards")},{navigateRoot("more")},
-                            {navigate("expiry")},documentStyle,repo)
+                            {navigate("expiry")},documentStyle,repo,onBackup={navigate("backup")})
                         "people"->PeopleScreen(repo.profiles.toList(),repo.entries.toList(),
                             repo.cards.toList(),
                             {person->selectedPersonId=person.id;navigate("person")},
@@ -783,16 +785,15 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 enabled->biometricEnabled=enabled
                                 options.edit().putBoolean("biometricUnlock",enabled).apply()
                             },
-                            profileName=repo.profiles.firstOrNull{it.id==(if(userProfile=="all")"self" else userProfile)}?.name?:"Me",
+                            profileName=if(userProfile=="all")"Everyone" else repo.profiles.firstOrNull{it.id==userProfile}?.name?:"Me",
                             cardCount=VaultPersonFilter.filter(repo.cards.toList(),userProfile).size,
-                            pageCount=VaultPersonFilter.filter(repo.cards.toList(),userProfile)
-                                .sumOf{it.files.size},
+                            pageCount=rememberVaultPageTotal(repo,VaultPersonFilter.filter(repo.cards.toList(),userProfile)),
                             peopleCount=repo.profiles.size,
                             documentStyle=documentStyle,
                             onDocumentStyleChanged={style->
                                 documentStyle=style
                                 options.edit().putString("documentStyle",style).apply()
-                            },onStorageHealth={repo.storageHealth()})
+                            },onStorageHealth={repo.storageHealth()},profileIdentity=userProfile)
                         "detail"->current?.let{c->VaultNavDetail(c,repo,
                             {f,page->viewingId=f.id;viewingPage=page;navigate("viewer")},
                             {f->activity.share(f)},{f->activity.shareAsPdf(f)},{activity.shareAll(c.files)},
@@ -850,12 +851,13 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     }catch(cancelled:CancellationException){throw cancelled}
                                     catch(e:Exception){error="Cannot create person: "+UserMessages.of(e,"Error")}
                                 }
-                            })}
-                        "selectfields"->current?.let{c->SelectDocumentTextPage(c,
+                            },note=ocrNote,onDismissNote={ocrNote=""})}
+                        "selectfields"->current?.let{c->SelectDocumentTextPage(c,repo,
                             {f->scope.launch{
                                 try{withContext(Dispatchers.IO){
-                                    val latest=repo.cards.firstOrNull{it.id==c.id}?:return@withContext
-                                    repo.updateCard(c.id){it.copy(fields=it.fields+f)}
+                                    if(repo.cards.none{it.id==c.id})return@withContext
+                                    repo.updateCard(c.id){it.copy(fields=
+                                        VaultFieldUpdates.pick(it.fields,f.name,f.value,f.page))}
                                 };popBack()}
                                 catch(cancelled:CancellationException){throw cancelled}
                                 catch(e:Exception){error="Cannot save selected field: "+UserMessages.of(e,"Error")}
@@ -966,7 +968,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {goBack()},
                             {t->scope.launch {try{withContext(Dispatchers.IO){repo.saveTemplate(t)};activity.notify("Saved template "+t.name)}
                                 catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error=UserMessages.of(e,"Unable to save template")}}},
-                             {editorDirty=it})}
+                             {editorDirty=it},categories=repo.cards.map{it.category})}
                         "externalviewer"->{
                             val external=File(externalPdfPath)
                             if(externalPdfPath.isNotBlank())

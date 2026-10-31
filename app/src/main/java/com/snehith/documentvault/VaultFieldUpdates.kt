@@ -23,6 +23,29 @@ object VaultFieldUpdates {
         val orderedIds=ordered.map{it.id}.toSet()
         return ordered+updated.filter{it.id !in orderedIds}
     }
+    private fun key(name:String)=name.lowercase().filter{it.isLetterOrDigit()}
+        .replace("number","no")
+    /** A value picked from a page fills the field of that name (keeping its ID) rather
+     * than adding a near-duplicate such as "CDC No." beside an empty "CDC Number". */
+    fun pick(fields:List<DataField>,name:String,value:String,page:Int):List<DataField> {
+        val index=fields.indexOfFirst{key(it.name)==key(name)}
+        val picked=DataField(name,value,page,"selected")
+        if(index<0)return fields+picked
+        return fields.mapIndexed{i,f->if(i==index)picked.copy(id=f.id,name=f.name) else f}
+    }
+    /** Field names to offer when saving a picked value: empty fields first. */
+    fun nameSuggestions(card:VaultCard):List<String> {
+        val template=FieldSuggestions.templates.firstOrNull{it.name.equals(card.kind,true)}?.fieldNames.orEmpty()
+        return (card.fields.filter{it.value.isBlank()}.map{it.name}+card.fields.map{it.name}+template)
+            .filter{it.isNotBlank()}.distinctBy{key(it)}
+    }
+    /** Dates, long numbers and ID-like codes are the values people usually pick. */
+    fun likelyValue(line:String):Boolean {
+        val text=line.trim()
+        return Regex("\\b(?:\\d{1,2}[/.-]\\d{1,2}[/.-]\\d{2,4}|\\d{4}[/.-]\\d{1,2}[/.-]\\d{1,2})\\b").containsMatchIn(text) ||
+            Regex("\\d{5,}").containsMatchIn(text.replace(" ","")) ||
+            Regex("\\b[A-Z]{1,4}\\d{4,}\\b").containsMatchIn(text)
+    }
     /** A changed value is the user's: it leaves review and later OCR runs keep it. */
     fun edited(existing:DataField?,name:String,value:String):DataField {
         val changed=existing==null||existing.value!=value
@@ -33,13 +56,16 @@ object VaultFieldUpdates {
     }
 }
 
-data class OcrBatchOutcome(val filename:String,val success:Boolean,val error:String="")
+data class OcrBatchOutcome(val filename:String,val success:Boolean,val error:String="",val filled:Int=0)
 object OcrBatchSummary {
     fun message(outcomes:List<OcrBatchOutcome>):String {
         if(outcomes.isEmpty())return "No files read"
         val successful=outcomes.count{it.success}
         val failures=outcomes.filterNot{it.success}
-        if(failures.isEmpty())return "Reading complete: $successful of ${outcomes.size} files"
+        val filled=outcomes.sumOf{it.filled}
+        if(failures.isEmpty())return if(filled==0)
+            "Text was read, but no details were recognised. Use “Select from page” to pick them."
+            else "Reading complete: "+VaultCounts.format(filled,"detail")+" filled. Please check them."
         return "$successful of ${outcomes.size} read; failed: "+
             failures.joinToString(", "){it.filename}
     }

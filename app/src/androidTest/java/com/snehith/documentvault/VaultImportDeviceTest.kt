@@ -11,7 +11,7 @@ import java.io.File
 @RunWith(AndroidJUnit4::class)
 class VaultImportDeviceTest:VaultImportContract() {
     override fun appContext():Context=InstrumentationRegistry.getInstrumentation().targetContext.also {
-        check(it.packageName=="com.snehith.documentvault.storagecheck") { "Isolated storagecheck package required" }
+        check(it.packageName=="com.snehith.documentvault.uxcheck") { "Isolated uxcheck package required" }
     }
     override fun fixtureUri(file:File):Uri=appContext().let {
         FileProvider.getUriForFile(it,it.packageName+".provider",file)

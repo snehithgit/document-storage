@@ -169,7 +169,9 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
     onPeople:()->Unit={},documentStyle:String="pages",savedCardRevision:Int=0){
     val colors=mockupPalette
     var filter by rememberSaveable{mutableStateOf("All")}
-    var listView by rememberSaveable{mutableStateOf(false)}
+    var listView by rememberSaveable{mutableStateOf(true)}
+    var sort by rememberSaveable{mutableStateOf("Recent")}
+    var sortMenu by remember{mutableStateOf(false)}
     // The category selected before an edit may no longer match the saved card.
     LaunchedEffect(savedCardRevision){filter="All"}
     LaunchedEffect(selectedCategory){
@@ -183,11 +185,11 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
     val categories=listOf("All")+
         personCards.map{it.category.ifBlank{"Other"}}.distinct().sorted()
     val shownFilter=DocumentBrowseLogic.effectiveCategory(personCards,filter)
-    val visible=DocumentBrowseLogic.browse(personCards,shownFilter,"Recent")
+    val visible=DocumentBrowseLogic.browse(personCards,shownFilter,sort)
     val name=profiles.firstOrNull{it.id==selectedPerson}?.name?:if(selectedPerson=="all")"My vault" else "Me"
     var chooseProfile by remember{mutableStateOf(false)}
     if(chooseProfile)AlertDialog(onDismissRequest={chooseProfile=false},
-        title={Text("Show cards for")},
+        title={Text("Show documents for")},
         text={Column{
             (listOf(VaultProfile("all","Everyone"))+profiles).forEach{person->
                 TextButton(onClick={chooseProfile=false;onPerson(person.id)},
@@ -211,14 +213,8 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
                 Text("${personCards.size} documents · $totalPages pages",
                     color=colors.inkMuted,fontSize=14.sp)
             }
-            Box(Modifier.size(42.dp).background(colors.ink,
-                androidx.compose.foundation.shape.CircleShape)
-                .clickable(onClickLabel="Choose whose documents to show",onClick={chooseProfile=true}),
-                contentAlignment=Alignment.Center){
-                Text(DesignLogic.initials(profiles.firstOrNull{
-                    it.id==(if(selectedPerson=="all")"self" else selectedPerson)}?.name?:"Me"),color=colors.panel,
-                    fontSize=14.sp,fontWeight=FontWeight.Bold)
-            }
+            PersonAvatar(profiles.firstOrNull{it.id==selectedPerson}?.name?:"Everyone",42.dp,selectedPerson,
+                Modifier.clickable(onClickLabel="Choose whose documents to show",onClick={chooseProfile=true}))
         }
         Row(Modifier.fillMaxWidth().padding(horizontal=18.dp),
             verticalAlignment=Alignment.CenterVertically,
@@ -234,12 +230,22 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
                     color=colors.inkFaint,fontSize=14.sp,maxLines=1,
                     overflow=TextOverflow.Ellipsis)
             }
+            Box {
+                IconButton(onClick={sortMenu=true},modifier=Modifier.size(48.dp)){
+                    Icon(Icons.Outlined.Sort,"Sort documents: $sort",tint=colors.ink)
+                }
+                DropdownMenu(expanded=sortMenu,onDismissRequest={sortMenu=false}){
+                    listOf("Recent","Name","Expiry").forEach{option->
+                        DropdownMenuItem(text={Text(option)},onClick={sort=option;sortMenu=false})
+                    }
+                }
+            }
             if(documentStyle!="wallet"){
                 Row(Modifier.clip(RoundedCornerShape(12.dp))
                     .background(colors.panelRaised).border(1.dp,colors.line,RoundedCornerShape(12.dp))
                     .padding(3.dp)){
                     listOf(false,true).forEach{list->
-                        Box(Modifier.size(34.dp,32.dp)
+                        Box(Modifier.size(48.dp)
                             .clip(RoundedCornerShape(9.dp))
                             .background(if(listView==list)colors.ink else colors.panelRaised)
                             .clickable{listView=list},contentAlignment=Alignment.Center){
@@ -277,7 +283,7 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
         }
         if(visible.isEmpty()){
             Box(Modifier.fillMaxSize().padding(18.dp),contentAlignment=Alignment.Center){
-                Text("No cards in this category.",color=colors.inkMuted,
+                Text("No documents in this category.",color=colors.inkMuted,
                     fontSize=14.sp)
             }
         }else if(documentStyle!="wallet"&&listView){
@@ -357,8 +363,6 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
             Row(verticalAlignment=Alignment.CenterVertically){
                 Column(Modifier.weight(1f)){
                     Eyebrow(card.category.ifBlank{"Personal"})
-                    Text(VaultCounts.format(card.files.size,"attachment"),
-                        color=palette.inkMuted,fontSize=13.sp)
                 }
                 Box{
                     IconButton(onClick={showMore=true},modifier=Modifier.size(48.dp)){
@@ -427,11 +431,15 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
                         }
                     }
                     Spacer(Modifier.height(8.dp))
-                    Text(VaultCounts.format(pages.size,"page")+" · "+
-                        VaultCounts.format(card.files.size,"attachment")+
-                        " · "+VaultPageLayout.kind(chosenPage?.aspect?:.75f),
+                    Text(VaultCounts.format(pages.size,"page")+" · "+VaultPageLayout.kind(chosenPage?.aspect?:.75f),
                         color=palette.inkFaint,fontSize=12.sp)
                 }
+            }
+        }
+        if(card.expiry.isBlank()&&(card.category.equals("Identity",true)||card.kind in
+            setOf("Passport","Driving Licence","Medical","Seafarer CDC")))item{
+            OutlinedButton(onClick=onEdit,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
+                Icon(Icons.Outlined.Event,null);Text(" Add expiry date")
             }
         }
         if(documentStyle!="wallet")item{

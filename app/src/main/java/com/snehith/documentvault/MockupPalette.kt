@@ -34,7 +34,7 @@ object MockupColors {
         good=Color(0xFF6FD9A9),goodSoft=Color(0xFF0F2E22),
         warning=Color(0xFFF0B45A),warningSoft=Color(0xFF33270F),
         danger=Color(0xFFF08A72),dangerSoft=Color(0xFF38190F),
-        dock=Color(0xFFE8F1F3),dockInk=Color(0xFF0B1416),dockDim=Color(0xFF5E7176)
+        dock=Color(0xFF070C0E),dockInk=Color(0xFFE8F1F3),dockDim=Color(0xFF92A7AE)
     )
 }
 val mockupPalette:MockupPalette

@@ -24,6 +24,7 @@ abstract class VaultStorageContract {
         context=object:android.content.ContextWrapper(app) {
             override fun getFilesDir()=File(root,"files").apply{mkdirs()}
             override fun getCacheDir()=File(root,"cache").apply{mkdirs()}
+            override fun getSharedPreferences(name:String,mode:Int)=app.getSharedPreferences("fixture-${root.name}-$name",mode)
         }
         repo=VaultRepository(context)
         val id="11111111-1111-4111-8111-111111111111"
@@ -265,5 +266,18 @@ abstract class VaultStorageContract {
         val loaded=VaultRepository(context)
         assertNotNull("Unreadable legacy text must require recovery",loaded.recoveryError)
         assertArrayEquals(before,data.readBytes())
+    }
+    @Test fun onlySuccessfulExportUpdatesLastBackupDate() {
+        val prefs=context.getSharedPreferences("vault_options",Context.MODE_PRIVATE)
+        assertEquals(0L,prefs.getLong("lastBackupAt",0L))
+        assertTrue(repo.storageHealth().contains("Last backup: No date recorded yet"))
+        backup()
+        val saved=prefs.getLong("lastBackupAt",0L)
+        assertTrue(saved>0L)
+        assertTrue(repo.storageHealth().contains("Last backup:"))
+        repo.documentFile(attachment).writeText("corrupt fixture")
+        try { backup();fail("Corrupt attachment must stop export") }
+        catch(_:IllegalArgumentException) {}
+        assertEquals(saved,prefs.getLong("lastBackupAt",0L))
     }
 }

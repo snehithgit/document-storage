@@ -28,6 +28,7 @@ class VaultOcrWorker(appContext:Context,params:WorkerParameters):CoroutineWorker
         const val KEY_PAGE="page"
         const val KEY_TOTAL="total"
         const val KEY_ERROR="error"
+        const val KEY_FILLED="filled"
     }
     override suspend fun doWork():Result {
         val cardId=inputData.getString(KEY_CARD)?:return Result.success(workDataOf(KEY_ERROR to "Card ID missing"))
@@ -48,9 +49,14 @@ class VaultOcrWorker(appContext:Context,params:WorkerParameters):CoroutineWorker
             if(isStopped)throw CancellationException("OCR cancelled")
             if(result.text.isBlank())return Result.success(workDataOf(KEY_FILE to fileId,
                 KEY_ERROR to "No text was recognized. Existing details were kept."))
-            repo.updateCard(cardId){latest->OcrMerge.apply(latest,fileId,result)?:latest}
+            var filled=0
+            repo.updateCard(cardId){latest->
+                val merged=OcrMerge.apply(latest,fileId,result)?:latest
+                filled=OcrMerge.filledCount(latest.fields,merged.fields)
+                merged
+            }
             setProgress(workDataOf(KEY_PAGE to result.pageCount,KEY_TOTAL to result.pageCount))
-            Result.success(workDataOf(KEY_CARD to cardId, KEY_FILE to fileId))
+            Result.success(workDataOf(KEY_CARD to cardId, KEY_FILE to fileId,KEY_FILLED to filled))
         }catch(c:CancellationException){throw c}
         catch(e:Exception){
             // A file-level failure must not cancel subsequent items in a WorkManager chain.

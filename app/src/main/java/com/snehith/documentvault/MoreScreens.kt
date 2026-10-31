@@ -237,6 +237,7 @@ import java.util.UUID
 @Composable fun PdfToolsScreen(card:VaultCard,repo:VaultRepository,
     onAdd:()->Unit,onExport:(String,List<VaultFile>,Int,Int)->Unit,
     onEnhance:(VaultFile,Int)->Unit={_,_->}) {
+    var task by rememberSaveable(card.id){mutableStateOf(if(card.files.size==1)"Pages" else "Merge")}
     // Prefer the first PDF for page operations; other attachments can be added for combining.
     var selected by rememberSaveable(card.id){mutableStateOf(
         card.files.firstOrNull{it.mime=="application/pdf"||it.name.endsWith(".pdf",true)}
@@ -268,11 +269,12 @@ import java.util.UUID
         item {
             Eyebrow("PDF Studio · "+VaultNames.title(card.title))
             Spacer(Modifier.height(10.dp))
-            Text("Make one PDF",color=p.ink,fontSize=32.sp,lineHeight=34.sp,
+            Text(if(task=="Merge")"Merge files" else if(task=="Pages")"Pages" else "Rotate & more",color=p.ink,fontSize=32.sp,lineHeight=34.sp,
                 fontWeight=FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
-            Text("Choose files and use the arrows to set the order. The original files stay unchanged.",
-                color=p.inkMuted,fontSize=14.sp)
+            Text("Choose a task. Your original files stay unchanged.",color=p.inkMuted,fontSize=14.sp)
+            Spacer(Modifier.height(12.dp))
+            MockupSegment(listOf("Merge" to "Merge","Pages" to "Pages","Rotate" to "Rotate & more"),task,{task=it})
             Spacer(Modifier.height(14.dp))
             OutlinedButton(onClick=onAdd,shape=RoundedCornerShape(16.dp),
                 border=BorderStroke(1.dp,p.line),
@@ -338,7 +340,7 @@ import java.util.UUID
                 }
             }
         }
-        item{
+        if(task=="Merge")item{
             Button(onClick={onExport("combine",selectedFiles,1,1)},
                 enabled=combining,shape=RoundedCornerShape(16.dp),
                 colors=ButtonDefaults.buttonColors(containerColor=p.accent,contentColor=p.accentInk),
@@ -348,13 +350,13 @@ import java.util.UUID
                 Text("Save combined PDF to document",style=MaterialTheme.typography.titleMedium)
             }
         }
-        item{
+        if(task=="Merge")item{
             OutlinedButton(onClick={onExport("export-combine",selectedFiles,1,1)},
                 enabled=combining,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
                 Text("Export combined PDF…")
             }
         }
-        if(onlyPdf)item{
+        if(onlyPdf&&task!="Merge")item{
             MockupSectionHeader("Pages in PDF",VaultCounts.format(pdfPageCount,"page"))
             Text("Tap a page to choose the export range. All pages remain in the original PDF.",
                 color=p.inkMuted,fontSize=12.sp)
@@ -378,8 +380,8 @@ import java.util.UUID
                 }
             }
         }
-        item{
-            Text("Other PDF tools",color=p.ink,fontSize=17.sp,fontWeight=FontWeight.Bold)
+        if(task!="Merge")item{
+            Text(if(task=="Pages")"Export pages" else "Rotate and enhance",color=p.ink,fontSize=17.sp,fontWeight=FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
                 OutlinedTextField(fromPage,{fromPage=it},label={Text("First page")},
@@ -391,22 +393,22 @@ import java.util.UUID
             if(onlyPdf&&!validRange)
                 Text("Choose a range from 1 to "+pdfPageCount+".",
                     color=p.warning,fontSize=12.sp)
-            OutlinedButton(onClick={
+            if(task=="Pages")OutlinedButton(onClick={
                 onExport("split",selectedFiles,startIndex?:1,endIndex?:1)
             },enabled=validRange,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
                 Text("Export selected pages")
             }
-            OutlinedButton(onClick={onExport("rotate",selectedFiles,1,pdfPageCount)},
+            if(task=="Rotate")OutlinedButton(onClick={onExport("rotate",selectedFiles,1,pdfPageCount)},
                 enabled=onlyPdf,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
                 Text("Rotate all PDF pages 90°")
             }
-            if(pdfFile!=null)OutlinedButton(
+            if(pdfFile!=null&&task=="Rotate")OutlinedButton(
                 onClick={onEnhance(pdfFile,((startIndex?:1)-1).coerceIn(0,
                     (pdfPageCount-1).coerceAtLeast(0)))},
                 enabled=validRange,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
                 Text("Enhance page "+(startIndex?:1)+" (save PDF copy)")
             }
-            OutlinedButton(onClick={onExport("searchable",selectedFiles,1,pdfPageCount)},
+            if(task=="Rotate")OutlinedButton(onClick={onExport("searchable",selectedFiles,1,pdfPageCount)},
                 enabled=onlyPdf&&selectedFiles[0].extractedText.isNotBlank(),
                 modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
                 Text("Make searchable PDF")
@@ -490,7 +492,7 @@ import java.util.UUID
             MockupGroup{
                 Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
                     Text("Restore from ZIP",color=p.ink,fontSize=17.sp,fontWeight=FontWeight.Bold)
-                    Text("Replaces the card index on this device. Back up first if you have new cards. "+
+                    Text("Replaces the document list on this device. Back up first if you have new documents. "+
                         "You will be asked to confirm before existing documents are replaced.",
                         color=p.inkMuted,fontSize=13.sp)
                     OutlinedButton(onClick={onRestore("")},shape=RoundedCornerShape(16.dp),

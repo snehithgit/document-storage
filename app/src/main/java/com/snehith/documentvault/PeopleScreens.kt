@@ -22,6 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -70,13 +71,13 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
         Toast.makeText(application,"Copied",Toast.LENGTH_SHORT).show()
 }
 
-@Composable private fun PersonAvatar(name:String,size:androidx.compose.ui.unit.Dp=46.dp){
-    val initials=name.trim().split(Regex("\\s+")).filter{it.isNotBlank()}.take(2)
-        .joinToString(""){it.take(1).uppercase()}.ifBlank{"?"}
-    val p=mockupPalette
-    Box(Modifier.size(size).background(p.dock,CircleShape),
+@Composable fun PersonAvatar(name:String,size:androidx.compose.ui.unit.Dp=46.dp,
+    identity:String=name,modifier:Modifier=Modifier){
+    val colors=listOf(0xFF315D90,0xFF6B4078,0xFF20695A,0xFF8A4C2E,0xFF5448A0,0xFF32636D)
+    Box(modifier.size(size).background(Color(colors[VaultUx.avatarColor(identity)]),CircleShape),
         contentAlignment=Alignment.Center){
-        Text(initials,color=p.dockInk,fontSize=(size.value*.34f).sp,
+        if(identity=="all")Icon(Icons.Outlined.Groups,"Everyone",tint=Color.White)
+        else Text(VaultUx.initials(name),color=Color.White,fontSize=(size.value*.34f).sp,
             fontWeight=FontWeight.Bold)
     }
 }
@@ -120,27 +121,15 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
                 Row(Modifier.fillMaxWidth().padding(14.dp),
                     verticalAlignment=Alignment.CenterVertically,
                     horizontalArrangement=Arrangement.spacedBy(14.dp)){
-                    PersonAvatar(person.name,52.dp)
+                    PersonAvatar(person.name,52.dp,person.id)
                     Column(Modifier.weight(1f)){
                         Text(person.name,color=p.ink,fontSize=16.sp,
                             fontWeight=FontWeight.Bold,maxLines=1)
                         Spacer(Modifier.height(3.dp))
                         Text(VaultCounts.format(personEntries.size,"field")+" · "+
-                            VaultCounts.format(documents,"card"),
+                            VaultCounts.format(documents,"document"),
                             color=p.inkFaint,fontSize=12.sp)
-                        Spacer(Modifier.height(9.dp))
-                        Row(Modifier.fillMaxWidth(.82f),
-                            horizontalArrangement=Arrangement.spacedBy(3.dp)){
-                            listOf("Identity","Contact","Other").forEach{section->
-                                val active=personEntries.any{
-                                    if(section=="Other")it.section!="Identity"&&it.section!="Contact"
-                                    else it.section.equals(section,true)
-                                }
-                                Box(Modifier.weight(1f).height(4.dp)
-                                    .background(if(active)p.accent else p.line,
-                                        RoundedCornerShape(3.dp)))
-                            }
-                        }
+
                     }
                     Icon(Icons.Outlined.ChevronRight,null,
                         modifier=Modifier.size(20.dp),tint=p.ink)
@@ -259,6 +248,7 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
     var deleting by rememberSaveable(person.id){mutableStateOf(false)}
     var choosingCard by rememberSaveable(person.id){mutableStateOf(false)}
     var profileMenu by remember{mutableStateOf(false)}
+    var confirmCopy by rememberSaveable(person.id){mutableStateOf(false)}
     var conflict by remember{mutableStateOf<ProfileEntry?>(null)}
     var label by rememberSaveable(person.id){mutableStateOf("")}
     var value by rememberSaveable(person.id){mutableStateOf("")}
@@ -278,6 +268,13 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
             action()
         }
     }
+    fun copyAll(){guarded(rows.any{it.entry.sensitive}){
+        copyAndClearLater(context,person.name,ProfileLogic.asText(rows,true),rows.any{it.entry.sensitive})
+    }}
+    if(confirmCopy)AlertDialog(onDismissRequest={confirmCopy=false},title={Text("Copy private details?")},
+        text={Text("This includes private values. They will be copied to your clipboard.")},
+        confirmButton={TextButton(onClick={confirmCopy=false;copyAll()}){Text("Copy all")}},
+        dismissButton={TextButton(onClick={confirmCopy=false}){Text("Cancel")}})
     if(adding)AlertDialog(onDismissRequest={adding=false},title={Text("Add detail")},
         text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
             OutlinedTextField(label,{label=it},label={Text("Field name")},singleLine=true)
@@ -337,13 +334,13 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
                 Row(Modifier.fillMaxWidth().padding(16.dp),
                     verticalAlignment=Alignment.CenterVertically,
                     horizontalArrangement=Arrangement.spacedBy(14.dp)){
-                    PersonAvatar(person.name,52.dp)
+                    PersonAvatar(person.name,52.dp,person.id)
                     Column(Modifier.weight(1f)){
                         Text(person.name,color=p.ink,fontSize=20.sp,
                             fontWeight=FontWeight.Bold,maxLines=1)
                         Spacer(Modifier.height(4.dp))
                         Text(VaultCounts.format(rows.size,"field")+" · "+
-                            VaultCounts.format(cards.count{it.profile==person.id},"card"),
+                            VaultCounts.format(cards.count{it.profile==person.id},"document"),
                             color=p.inkMuted,fontSize=12.sp)
                     }
                     Box{
@@ -362,10 +359,7 @@ fun copyAndClearLater(context:Context,label:String,value:String,sensitive:Boolea
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
                 val actions=listOf(
                     Triple("Copy all",Icons.Outlined.ContentCopy,{
-                        guarded(rows.any{it.entry.sensitive}){
-                            copyAndClearLater(context,person.name,ProfileLogic.asText(rows,true),
-                                rows.any{it.entry.sensitive})
-                        }
+                        if(rows.any{it.entry.sensitive})confirmCopy=true else copyAll()
                     }),
                     Triple("From cards",Icons.Outlined.CreditCard,{choosingCard=true}),
                     Triple("Add field",Icons.Outlined.Add,{adding=true})

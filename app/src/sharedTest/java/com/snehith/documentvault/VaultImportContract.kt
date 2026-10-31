@@ -30,6 +30,7 @@ abstract class VaultImportContract {
         context=object:android.content.ContextWrapper(app) {
             override fun getFilesDir()=File(root,"files").apply{mkdirs()}
             override fun getCacheDir()=File(root,"cache").apply{mkdirs()}
+            override fun getSharedPreferences(name:String,mode:Int)=app.getSharedPreferences("fixture-${root.name}-$name",mode)
         }
         repo=VaultRepository(context)
     }

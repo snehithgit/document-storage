@@ -29,7 +29,8 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
     onFetchDetails:()->Unit,fetchingDetails:Boolean,
     profiles:List<VaultProfile> = emptyList(),
     onAddToProfile:(String,List<DataField>)->Unit={_,_->},
-    onCreatePerson:(String,List<DataField>)->Unit={_,_->}){
+    onCreatePerson:(String,List<DataField>)->Unit={_,_->},
+    note:String="",onDismissNote:()->Unit={}){
     val context=LocalContext.current
     var tab by rememberSaveable(card.id){mutableStateOf("All")}
     var editId by rememberSaveable(card.id){mutableStateOf("")}
@@ -51,9 +52,9 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
     val fields=card.fields
     val rows=fields.filter { f ->
         when(tab) {
-            "Scanned" -> f.source=="extracted"
-            "Picked" -> f.source=="selected"
-            "Added" -> f.source=="manual"
+            "Auto-read" -> f.source=="extracted"
+            "Selected" -> f.source=="selected"
+            "Typed" -> f.source=="manual"&&f.value.isNotBlank()
             else -> true
         }
     }
@@ -112,24 +113,34 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                 Text("Values read from pages are suggestions. Check them against the document. "+
                     "They do not verify identity.",color=p.ink,fontSize=12.sp,lineHeight=17.sp)
             }
+            if(note.isNotBlank())Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                .background(p.accentSoft).padding(start=12.dp),verticalAlignment=Alignment.CenterVertically){
+                Icon(Icons.Outlined.Info,null,Modifier.size(18.dp),tint=p.accent)
+                Spacer(Modifier.width(10.dp))
+                Text(note,color=p.ink,fontSize=13.sp,lineHeight=18.sp,modifier=Modifier.weight(1f))
+                IconButton(onClick=onDismissNote,modifier=Modifier.size(48.dp)){
+                    Icon(Icons.Outlined.Close,"Dismiss message",Modifier.size(18.dp),tint=p.inkMuted)
+                }
+            }
+            // The two ways to fill details come first; editing tools sit below them.
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
                 Button(onClick=onFetchDetails,
                     enabled=!fetchingDetails&&card.files.any{DetailFetchPlan.supported(it)},
                     modifier=Modifier.weight(1f).heightIn(min=48.dp)){
                     Icon(Icons.Outlined.AutoAwesome,null,Modifier.size(19.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(if(fetchingDetails)"Reading…" else "Get Details")
+                    Text(if(fetchingDetails)"Reading…" else "Get details")
                 }
-                OutlinedButton(onClick={edit(null)},modifier=Modifier.weight(1f).heightIn(min=48.dp)){
-                    Icon(Icons.Outlined.Add,null,Modifier.size(19.dp))
-                    Spacer(Modifier.width(5.dp))
-                    Text("Add Field")
+                OutlinedButton(onClick=onSelect,modifier=Modifier.weight(1f).heightIn(min=48.dp)){
+                    Icon(Icons.Outlined.TextSnippet,null,Modifier.size(19.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Select from page")
                 }
             }
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
-                TextButton(onClick=onSelect){
-                    Icon(Icons.Outlined.TextSnippet,null,Modifier.size(19.dp))
-                    Text(" Select from page")
+                TextButton(onClick={edit(null)}){
+                    Icon(Icons.Outlined.Add,null,Modifier.size(19.dp))
+                    Text(" Add field")
                 }
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick={
@@ -149,7 +160,7 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
             }
             Row(Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                listOf("All","Picked","Scanned","Added").forEach{option->
+                listOf("All","Auto-read","Selected","Typed").forEach{option->
                     MockupChip(option,tab==option){tab=option}
                 }
             }
@@ -191,8 +202,8 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                                         modifier=Modifier.weight(1f,fill=false))
                                     if(field.confidence>0f&&field.confidence<.75f)
                                         MockupTag("Review",p.warning,p.warningSoft)
-                                    else if(field.source=="manual")
-                                        MockupTag("Manual",p.inkMuted,p.line.copy(alpha=.5f))
+                                    else if(field.source=="manual"&&field.value.isNotBlank())
+                                        MockupTag("Typed",p.inkMuted,p.line.copy(alpha=.5f))
                                 }
                                 SelectionContainer{
                                     Text(if(field.value.isBlank())"Not entered" else
@@ -214,7 +225,8 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
                             IconButton(onClick={copyToClipboard(context,field.name,field.value)},
                                 enabled=field.value.isNotBlank(),modifier=Modifier.size(48.dp)){
                                 Icon(Icons.Outlined.ContentCopy,"Copy "+field.name,
-                                    modifier=Modifier.size(20.dp),tint=p.accent)
+                                    modifier=Modifier.size(20.dp),
+                                    tint=if(field.value.isNotBlank())p.accent else p.line)
                             }
                             IconButton(onClick={edit(field)},modifier=Modifier.size(48.dp)){
                                 Icon(Icons.Outlined.Edit,"Edit "+field.name,
@@ -286,12 +298,15 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
     }
 }
 
-@Composable fun SelectDocumentTextPage(card:VaultCard,onAdd:(DataField)->Unit,onRunOcr:(VaultFile)->Unit){
+@Composable fun SelectDocumentTextPage(card:VaultCard,repo:VaultRepository,
+    onAdd:(DataField)->Unit,onRunOcr:(VaultFile)->Unit){
     var selectedFile by rememberSaveable(card.id){mutableIntStateOf(0)}
     var query by rememberSaveable(card.id){mutableStateOf("")}
     var candidate by rememberSaveable(card.id){mutableStateOf<String?>(null)}
     var label by rememberSaveable(card.id){mutableStateOf("")}
     var chosenPage by rememberSaveable(card.id){mutableIntStateOf(-1)}
+    var showPage by rememberSaveable(card.id){mutableStateOf(true)}
+    var previewPage by rememberSaveable(card.id){mutableIntStateOf(0)}
     val file=card.files.getOrNull(selectedFile)
     var pg=0
     val choices=(file?.extractedText?:"").lineSequence().mapNotNull{line->
@@ -300,61 +315,87 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
         else if(line.trim().length in 2..220 && (query.isBlank()||line.contains(query,true)))pg to line.trim() else null
     }.take(351).toList()
     val truncated=choices.size>350
-    if(candidate!=null)AlertDialog(onDismissRequest={candidate=null},title={Text("Save selected detail")},
-        text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
-            OutlinedTextField(label,{label=it},label={Text("Field name")})
-            OutlinedTextField(candidate?:"",{candidate=it},label={Text("Value")},minLines=2)
+    val likely=choices.take(350).filter{VaultFieldUpdates.likelyValue(it.second)}
+    val suggestions=remember(card.fields,card.kind){VaultFieldUpdates.nameSuggestions(card)}
+    val p=mockupPalette
+    if(candidate!=null)AlertDialog(onDismissRequest={candidate=null},title={Text("Save as a detail")},
+        text={Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
+            OutlinedTextField(candidate?:"",{candidate=it},label={Text("Value")},minLines=1,
+                modifier=Modifier.fillMaxWidth())
+            if(suggestions.isNotEmpty()){
+                Text("Which detail is this?",style=MaterialTheme.typography.labelMedium)
+                Row(Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement=Arrangement.spacedBy(7.dp)){
+                    suggestions.forEach{name->
+                        FilterChip(selected=label==name,onClick={label=name},label={Text(name)})
+                    }
+                }
+            }
+            OutlinedTextField(label,{label=it},label={Text("Detail name")},singleLine=true,
+                modifier=Modifier.fillMaxWidth())
         }},
         confirmButton={TextButton(onClick={
             if(label.isNotBlank()&&!candidate.isNullOrBlank()){
                 onAdd(DataField(label.trim(),candidate!!.trim(),chosenPage,"selected"))
                 candidate=null;label=""
             }
-        }){Text("Save field")}},
+        },enabled=label.isNotBlank()&&!candidate.isNullOrBlank()){Text("Save")}},
         dismissButton={TextButton(onClick={candidate=null}){Text("Cancel")}})
-    Column(Modifier.fillMaxSize().background(dNavy).padding(14.dp)){
-        Text("Choose information from a page",color=VaultColors.syntax,style=MaterialTheme.typography.labelSmall)
-        Spacer(Modifier.height(7.dp))
-        Text("Recognized text",color=MaterialTheme.colorScheme.onSurface,
-            style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.SemiBold)
-        Text("Tap a line to save it as a document detail.",color=dMuted,
-            style=MaterialTheme.typography.bodySmall)
-        Spacer(Modifier.height(10.dp))
-        Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(7.dp)){
-            card.files.forEachIndexed{i,f->FilterChip(selected=i==selectedFile,onClick={selectedFile=i},
+    @Composable fun lineCard(page:Int,line:String){
+        Card(onClick={candidate=line;label="";chosenPage=page;previewPage=page},
+            colors=CardDefaults.cardColors(containerColor=dPanel),
+            shape=RoundedCornerShape(11.dp),
+            border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
+            Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically){
+                Text("Page "+(page+1),color=VaultColors.lineNumber,
+                    style=MaterialTheme.typography.labelSmall,modifier=Modifier.width(52.dp))
+                Text(line,color=MaterialTheme.colorScheme.onSurface,
+                    style=MaterialTheme.typography.bodyMedium,
+                    modifier=Modifier.weight(1f))
+                Icon(Icons.Outlined.Add,null,tint=VaultColors.syntax,modifier=Modifier.size(18.dp))
+            }
+        }
+    }
+    Column(Modifier.fillMaxSize().background(dNavy).padding(14.dp),
+        verticalArrangement=Arrangement.spacedBy(8.dp)){
+        Text("Tap a line to save it as a detail of this document.",color=dMuted,
+            style=MaterialTheme.typography.bodyMedium)
+        if(card.files.size>1)Row(Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement=Arrangement.spacedBy(7.dp)){
+            card.files.forEachIndexed{i,f->FilterChip(selected=i==selectedFile,
+                onClick={selectedFile=i;previewPage=0},
                 label={Text(VaultNames.title(f.name).take(24))})}
         }
         if(file==null)Text("Attach a document first.",color=dMuted)
         else if(file.extractedText.isBlank()){
-            Spacer(Modifier.height(15.dp))
-            Text("Extract details to select text from this document.",color=dMuted)
-            Button(onClick={onRunOcr(file)}){Text("Get Details")}
+            Text("Read the text on this document first, then pick the details you need.",color=dMuted)
+            Button(onClick={onRunOcr(file)}){Text("Get details")}
         }else{
+            // The page itself, so a value can be checked against where it came from.
+            Row(verticalAlignment=Alignment.CenterVertically){
+                Text("Page "+(previewPage+1),color=p.inkMuted,style=MaterialTheme.typography.labelMedium,
+                    modifier=Modifier.weight(1f))
+                TextButton(onClick={showPage=!showPage}){Text(if(showPage)"Hide page" else "Show page")}
+            }
+            if(showPage)Box(Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(14.dp))
+                .background(p.panelRaised),contentAlignment=Alignment.Center){
+                VaultThumbnail(file,repo,Modifier.fillMaxSize(),maxEdge=900,pageIndex=previewPage)
+            }
             OutlinedTextField(query,{query=it},modifier=Modifier.fillMaxWidth(),
-                label={Text("Find text")},singleLine=true,leadingIcon={Icon(Icons.Outlined.Search,null)})
-            Spacer(Modifier.height(8.dp))
-            if(truncated) Text("Showing first 350 matches. Refine search to see more.",
-                color=dMuted,style=MaterialTheme.typography.bodySmall)
+                placeholder={Text("Find text")},singleLine=true,leadingIcon={Icon(Icons.Outlined.Search,null)})
             LazyColumn(
-                modifier=Modifier.weight(1f).fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.background),
-                contentPadding=PaddingValues(bottom=16.dp),
+                modifier=Modifier.weight(1f).fillMaxWidth(),
+                contentPadding=PaddingValues(top=4.dp,bottom=16.dp),
                 verticalArrangement=Arrangement.spacedBy(8.dp)){
-                items(choices.take(350)){(page,line)->
-                    Card(onClick={candidate=line;label="";chosenPage=page},
-                        colors=CardDefaults.cardColors(containerColor=dPanel),
-                        shape=RoundedCornerShape(11.dp),
-                        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
-                        Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically){
-                            Text((page+1).toString().padStart(2,'0'),color=VaultColors.lineNumber,
-                                style=MaterialTheme.typography.labelSmall,modifier=Modifier.width(30.dp))
-                            Text(line,color=MaterialTheme.colorScheme.onSurface,
-                                style=MaterialTheme.typography.bodyMedium,
-                                modifier=Modifier.weight(1f))
-                            Icon(Icons.Outlined.Add,null,tint=VaultColors.syntax,modifier=Modifier.size(18.dp))
-                        }
-                    }
+                if(truncated)item{Text("Showing the first 350 lines. Search to narrow them down.",
+                    color=dMuted,style=MaterialTheme.typography.bodySmall)}
+                if(likely.isNotEmpty()&&query.isBlank()){
+                    item{MockupSectionHeader("Likely values",VaultCounts.format(likely.size,"line"))}
+                    items(likely){(page,line)->lineCard(page,line)}
+                    item{Spacer(Modifier.height(6.dp));MockupSectionHeader("All text",
+                        VaultCounts.format(choices.take(350).size,"line"))}
                 }
+                items(choices.take(350)){(page,line)->lineCard(page,line)}
             }
         }
     }

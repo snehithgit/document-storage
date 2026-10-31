@@ -13,6 +13,7 @@ object OcrMerge {
         val titleIsGeneric=latest.title.isBlank() ||
             latest.title.startsWith("Scan ",true) ||
             latest.title.startsWith("Scanned document",true) ||
+            latest.title.startsWith("Document · ",true) ||
             latest.title.equals(current.name.substringBeforeLast('.'),true)
         val identity=smart?.kind in setOf("Passport","Aadhaar","PAN","Driving Licence")
         return latest.copy(
@@ -26,6 +27,11 @@ object OcrMerge {
                 !smart.fullName.isNullOrBlank())smart.title else latest.title,
             expiry=if(latest.expiry.isBlank())smart?.expiry?:"" else latest.expiry
         )
+    }
+    /** Fields that gained or changed a value, for the result message. */
+    fun filledCount(before:List<DataField>,after:List<DataField>):Int {
+        val old=before.associateBy{it.id}
+        return after.count{f->f.value.isNotBlank()&&old[f.id]?.value!=f.value}
     }
     /** Manual and selected values are never replaced. A blank field is filled in place,
      * keeping its ID for linked profile entries; an earlier extraction is replaced only

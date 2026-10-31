@@ -25,7 +25,7 @@ Version numbers are unchanged; bump them when this candidate is approved.
 - Merged release manifest: no `INTERNET`; `allowBackup=false`. WorkManager adds
   `ACCESS_NETWORK_STATE`, which cannot transmit data without `INTERNET`.
 - Physical phone (TECNO LJ8, Android 16, arm64, 256 MB app heap), isolated
-  `.storagecheck` package, Wi-Fi ADB: 62/62 instrumentation tests passed in one
+  `.uxcheck` package, Wi-Fi ADB: 62/62 instrumentation tests passed in one
   full run.
 
 ## Workflow coverage
@@ -54,7 +54,7 @@ Version numbers are unchanged; bump them when this candidate is approved.
 Old indexes (no `formatVersion`, OCR sidecars, missing hashes and sizes) and old
 backups (no manifest, blob-only manifest) are covered by the storage contract on
 both JVM and device. Each phase was installed over the previous one in the
-`.storagecheck` package, keeping its data. An upgrade from the production
+`.uxcheck` package, keeping its data. An upgrade from the production
 v2.2.0 install itself was not run, because the production app must not be touched.
 
 ## Known risks

@@ -14,7 +14,7 @@ import java.io.File
 import java.time.LocalDate
 import java.util.UUID
 
-/** Seeds fictional documents for a manual UI audit of the isolated storagecheck app.
+/** Seeds fictional documents for a manual UI audit of the isolated uxcheck app.
  * Skipped unless run with `-e auditSeed true`; the records are left in place on purpose. */
 @RunWith(AndroidJUnit4::class)
 class AuditSeedDeviceTest {
@@ -48,7 +48,7 @@ class AuditSeedDeviceTest {
     @Test fun seedFictionalVault() {
         Assume.assumeTrue("Run with -e auditSeed true",
             InstrumentationRegistry.getArguments().getString("auditSeed")=="true")
-        check(context.packageName=="com.snehith.documentvault.storagecheck")
+        check(context.packageName=="com.snehith.documentvault.uxcheck")
         val today=LocalDate.now()
         val asha=VaultProfile("audit-asha","Asha Fictional");val ravi=VaultProfile("audit-ravi","Ravi Fictional")
         repo.saveProfile(asha);repo.saveProfile(ravi)

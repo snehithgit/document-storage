@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -37,7 +38,7 @@ import java.time.LocalTime
     cards:List<VaultCard>,profiles:List<VaultProfile>,profile:String,
     reminderDays:Int,onProfile:(String)->Unit,onOpen:(VaultCard)->Unit,
     onAllCards:()->Unit,onSettings:()->Unit,onExpiries:()->Unit,
-    documentStyle:String="pages",repo:VaultRepository
+    documentStyle:String="pages",repo:VaultRepository,onBackup:()->Unit={}
 ) {
     val colors=mockupPalette
     val displayed=cards.filter{profile=="all"||it.profile==profile}
@@ -74,11 +75,8 @@ import java.time.LocalTime
                         color=colors.ink,fontSize=32.sp,lineHeight=33.sp,
                         fontWeight=FontWeight.Bold,letterSpacing=(-0.9f).sp)
                 }
-                Box(Modifier.size(42.dp).clip(CircleShape).background(colors.ink)
-                    .clickable(onClickLabel="Open settings",onClick=onSettings),contentAlignment=Alignment.Center){
-                    Text(DesignLogic.initials(first),fontSize=14.sp,
-                        color=colors.panel,fontWeight=FontWeight.Bold)
-                }
+                PersonAvatar(profiles.firstOrNull{it.id==profile}?.name?:"Everyone",42.dp,profile,
+                    Modifier.clickable(onClickLabel="Open settings",onClick=onSettings))
             }
         }
         item{MockupSection(if(documentStyle=="wallet")"Your cards" else "Recent documents",
@@ -93,7 +91,7 @@ import java.time.LocalTime
                             tint=colors.inkFaint,modifier=Modifier.size(28.dp))
                     }
                     Spacer(Modifier.height(14.dp))
-                    Text("No cards yet",color=colors.ink,fontSize=18.sp,
+                    Text("No documents yet",color=colors.ink,fontSize=18.sp,
                         fontWeight=FontWeight.Bold)
                     Text("Add a document to start your vault.",
                         color=colors.inkMuted,fontSize=14.sp)
@@ -107,9 +105,17 @@ import java.time.LocalTime
                         val height=maxWidth/1.586f + step*(stack.size-1)
                         Box(Modifier.fillMaxWidth().height(height)){
                             stack.forEachIndexed{index,card->
-                                CardFace(card,
-                                    Modifier.fillMaxWidth().offset(y=step*index)
-                                        .zIndex(index.toFloat()),onClick={onOpen(card)})
+                                val concealed=card.category.equals("Identity",true)
+                                Box(Modifier.fillMaxWidth().aspectRatio(1.586f).offset(y=step*index)
+                                    .zIndex(index.toFloat()).clickable{onOpen(card)}){
+                                    CardFace(card,Modifier.fillMaxWidth()
+                                        .then(if(concealed&&android.os.Build.VERSION.SDK_INT>=31)Modifier.blur(14.dp) else Modifier),
+                                        onClick={onOpen(card)})
+                                    if(concealed)Box(Modifier.matchParentSize().background(colors.panelRaised.copy(
+                                        alpha=if(android.os.Build.VERSION.SDK_INT>=31).5f else .96f)),contentAlignment=Alignment.Center){
+                                        Text("Private preview · tap to view",color=colors.inkMuted,fontSize=12.sp)
+                                    }
+                                }
                             }
                         }
                     }
@@ -120,7 +126,7 @@ import java.time.LocalTime
                         .padding(vertical=4.dp),
                         horizontalArrangement=Arrangement.spacedBy(14.dp)){
                         displayed.take(8).forEach{card->
-                            VaultDocumentTile(card,repo,Modifier.width(138.dp)){
+                            VaultDocumentTile(card,repo,Modifier.width(138.dp),uniform=true,privatePreview=true){
                                 onOpen(card)
                             }
                         }
@@ -175,7 +181,7 @@ import java.time.LocalTime
             }
         }
         item {
-            MockupSection("Vault","Stored locally")
+            MockupSection("Vault","Backup",onBackup)
             Row(Modifier.fillMaxWidth()
                 .clip(RoundedCornerShape(22.dp))
                 .background(colors.panelRaised)
@@ -254,7 +260,7 @@ private fun mockupCategoryColor(category:String,colors:MockupPalette):Color =
         Column(horizontalAlignment=Alignment.CenterHorizontally){
             Text(pages.toString(),color=colors.ink,fontWeight=FontWeight.Bold,
                 fontSize=26.sp,lineHeight=27.sp)
-            MockupEyebrow("FILES",colors.inkFaint)
+            MockupEyebrow("PAGES",colors.inkFaint)
         }
     }
 }

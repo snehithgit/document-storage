@@ -131,7 +131,7 @@ import kotlinx.coroutines.withContext
         }
         Spacer(Modifier.height(10.dp))
         MockupSectionHeader(
-            if(q.isEmpty())VaultCounts.format(results.size,"card") else VaultCounts.format(results.size,"result"),
+            if(q.isEmpty())VaultCounts.format(results.size,"document") else VaultCounts.format(results.size,"result"),
             if(q.isEmpty())null else "Best matches first")
         Spacer(Modifier.height(10.dp))
         if(q.isNotEmpty()&&results.isEmpty()&&!searching){
