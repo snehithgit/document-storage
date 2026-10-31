@@ -81,7 +81,7 @@ class MainActivity : FragmentActivity() {
                 loaded.value=true
                 notify("Backup restored")
             }catch(cancelled:CancellationException){throw cancelled}
-            catch(e:Exception){startupError.value="Restore failed: "+(e.message?:"Invalid backup")}
+            catch(e:Exception){startupError.value="Restore failed: "+UserMessages.of(e,"Invalid backup")}
         }
     }
     private fun initializeVault(destination:String="home"){
@@ -112,7 +112,7 @@ class MainActivity : FragmentActivity() {
                 ExpiryWorker.schedule(applicationContext)
                 loaded.value=true
             }catch(cancelled:CancellationException){throw cancelled}
-            catch(e:Exception){startupError.value="Unable to open vault: "+(e.message?:"Storage error")}
+            catch(e:Exception){startupError.value="Unable to open vault: "+UserMessages.of(e,"Storage error")}
         }
     }
     fun isPrivacyScreenEnabled():Boolean = getSharedPreferences("vault_options",MODE_PRIVATE).getBoolean("blockScreenshots",false)
@@ -244,7 +244,7 @@ class MainActivity : FragmentActivity() {
             }catch(cancelled:CancellationException){temporary?.parentFile?.deleteRecursively();throw cancelled}
             catch(e:Exception){
                 temporary?.parentFile?.deleteRecursively()
-                notify(e.message?:"Could not create PDF")
+                notify(UserMessages.of(e,"Could not create PDF"))
             }
         }
     }
@@ -275,7 +275,7 @@ class MainActivity : FragmentActivity() {
             }catch(cancelled:CancellationException){throw cancelled}
             catch(e:Exception) {
                 lastShareAt=0L
-                notify(e.message?:"Unable to share document")
+                notify(UserMessages.of(e,"Unable to share document"))
             }
         }
     }

@@ -90,7 +90,7 @@ import java.util.UUID
             session=opened
             pageCount=opened.pageCount
             page=page.coerceIn(0,(pageCount-1).coerceAtLeast(0))
-        }catch(e:Exception){error=e.message?:"Unable to open PDF"}
+        }catch(e:Exception){error=UserMessages.of(e,"Unable to open PDF")}
         finally{loading=false}
     }
     LaunchedEffect(file.id,page,showText,session,decodedEdge) {
@@ -113,7 +113,7 @@ import java.util.UUID
             error=""
             loading=false
         }catch(cancelled:kotlinx.coroutines.CancellationException){throw cancelled}
-        catch(e:Exception){error=e.message?:"Unable to preview document";loading=false}
+        catch(e:Exception){error=UserMessages.of(e,"Unable to preview document");loading=false}
     }
     Column(Modifier.fillMaxSize().background(Color.Black).padding(horizontal=12.dp,vertical=8.dp),
         verticalArrangement=Arrangement.spacedBy(8.dp)){

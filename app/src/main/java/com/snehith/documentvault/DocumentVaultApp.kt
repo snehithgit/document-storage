@@ -141,7 +141,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 withContext(Dispatchers.IO){repo.changeEntries(add=created)}
                 activity.notify(VaultCounts.format(created.size,"detail")+" added")
             }catch(cancelled:CancellationException){throw cancelled}
-            catch(e:Exception){error="Could not update person: "+(e.message?:"Storage error")}
+            catch(e:Exception){error="Could not update person: "+UserMessages.of(e,"Storage error")}
         }
     }
     fun startEdit(card:VaultCard){
@@ -192,7 +192,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 busy=""
                 navigate("crop")
             }catch(cancelled:CancellationException){throw cancelled}
-            catch(e:Exception){error="Cannot enhance page: "+(e.message?:"Error")}
+            catch(e:Exception){error="Cannot enhance page: "+UserMessages.of(e,"Error")}
             finally{busy=""}
         }
     }
@@ -365,7 +365,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                     }
                 }catch(cancelled:CancellationException){throw cancelled}
                 catch(e:Exception){
-                    error="Scan preparation failed: "+(e.message?:"Unknown error")
+                    error="Scan preparation failed: "+UserMessages.of(e,"Unknown error")
                     if(retakePending){
                         cameraPath=previousCapturePath;retakePending=false
                         previousCapturePath=""
@@ -401,7 +401,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 }
             }catch(cancelled:CancellationException){throw cancelled}
             catch(e:Exception){
-                error="Unable to reopen scan: "+(e.message?:"Image unavailable")
+                error="Unable to reopen scan: "+UserMessages.of(e,"Image unavailable")
                 null
             }
             if(recovered!=null){
@@ -434,7 +434,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 cameraPending=false
                 if(retake){cameraPath=previousCapturePath;retakePending=false}
                 else cameraPath=""
-                error="Could not start camera: "+(e.message?:"Storage error")
+                error="Could not start camera: "+UserMessages.of(e,"Storage error")
             }
         }
     }
@@ -469,7 +469,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 ocrLanguage="Tesseract: "+lang
                 options.edit().putString("ocrLanguage",ocrLanguage).apply()
                 activity.notify("Installed "+lang+" offline OCR")
-            }catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error=e.message?:"Could not install language"}
+            }catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error=UserMessages.of(e,"Could not install language")}
             finally{busy=""}
         }
     }
@@ -556,8 +556,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                 if(uri!=null){
                     operations.start("Restoring ZIP backup"){
                         val warnings=repo.restoreBackup(uri,backupPassword)
-                        VaultJobResult(note=if(warnings.isEmpty())"Restore complete" else
-                            "Restore complete; ${warnings.size} damaged attachments were skipped",destination="home")
+                        VaultJobResult(note=UserMessages.restored(warnings),destination="home")
                     }
                 }
             }){Text("Replace and restore")}},
@@ -706,7 +705,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     repo.saveProfile(VaultProfile(UUID.randomUUID().toString(),name))
                                 }}
                                 catch(cancelled:CancellationException){throw cancelled}
-                                catch(e:Exception){error=e.message?:"Cannot add person"}
+                                catch(e:Exception){error=UserMessages.of(e,"Cannot add person")}
                             }})
                         "person"->repo.profiles.firstOrNull{it.id==selectedPersonId}?.let{person->
                             PersonScreen(person,repo.entries.toList(),repo.cards.toList(),repo.hasPin(),
@@ -716,7 +715,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                         repo.changeEntries(removeIds=setOf(entry.id))
                                     }}
                                     catch(cancelled:CancellationException){throw cancelled}
-                                    catch(e:Exception){error=e.message?:"Cannot remove detail"}
+                                    catch(e:Exception){error=UserMessages.of(e,"Cannot remove detail")}
                                 }},
                                 {entry,alternative->scope.launch{
                                     try{withContext(Dispatchers.IO){
@@ -725,12 +724,12 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                             value=alternative.value)))
                                     }}
                                     catch(cancelled:CancellationException){throw cancelled}
-                                    catch(e:Exception){error=e.message?:"Cannot update source"}
+                                    catch(e:Exception){error=UserMessages.of(e,"Cannot update source")}
                                 }},
                                 {entry->scope.launch{
                                     try{withContext(Dispatchers.IO){repo.changeEntries(add=listOf(entry))}}
                                     catch(cancelled:CancellationException){throw cancelled}
-                                    catch(e:Exception){error=e.message?:"Cannot add detail"}
+                                    catch(e:Exception){error=UserMessages.of(e,"Cannot add detail")}
                                 }},
                                 {cardId->repo.cards.firstOrNull{it.id==cardId}?.let(::openCard)},
                                 {scope.launch{
@@ -739,7 +738,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                         if(userProfile==person.id)userProfile="all"
                                         replaceRoute("people")
                                     }catch(cancelled:CancellationException){throw cancelled}
-                                    catch(e:Exception){error=e.message?:"Cannot remove person"}
+                                    catch(e:Exception){error=UserMessages.of(e,"Cannot remove person")}
                                 }}
                             )
                         }
@@ -763,7 +762,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 options.edit().putString("displayTheme",value).apply()
                             },
                             {enabled->privacyScreen=enabled;activity.setPrivacyScreenEnabled(enabled)},
-                            {pin,old->try{repo.setPin(pin,old);activity.notify("PIN saved")}catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error=e.message?:"PIN failed"}},
+                            {pin,old->try{repo.setPin(pin,old);activity.notify("PIN saved")}catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error=UserMessages.of(e,"PIN failed")}},
                             {pin->if(repo.checkPin(pin)){repo.clearPin(pin);activity.notify("PIN removed")} else activity.notify("Wrong PIN")},
                             {navigate("profiles")},{navigate("templates")},{navigate("backup")},{navigate("recovery")},
                             {modelPicker.launch(arrayOf("*/*"))},{
@@ -806,7 +805,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 selectedCardId=""
                                 backStack=emptyList();route="cards"
                               }catch(cancelled:CancellationException){throw cancelled}
-                              catch(e:Exception){error=e.message?:"Delete failed"}
+                              catch(e:Exception){error=UserMessages.of(e,"Delete failed")}
                               finally{busy=""}}},
                             {fetchDetailsForCard(c)},runningOcr!=null,
                             {file,page->startEnhance(c,file,page)},documentStyle)}
@@ -814,15 +813,15 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {f->viewingId=f.id;viewingPage=0;navigate("viewer")},
                             {f,name->scope.launch {
                                 try{withContext(Dispatchers.IO){repo.renameFile(c.id,f.id,name)}}
-                                catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error="Rename failed: "+(e.message?:"Invalid filename")}
+                                catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error="Rename failed: "+UserMessages.of(e,"Invalid filename")}
                             }},
                             {f->scope.launch {
                                 try{withContext(Dispatchers.IO){repo.removeFile(c.id,f.id)}}
-                                catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error="Remove failed: "+(e.message?:"Storage error")}
+                                catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error="Remove failed: "+UserMessages.of(e,"Storage error")}
                             }},
                             {ids->scope.launch {
                                 try{withContext(Dispatchers.IO){repo.reorderFiles(c.id,ids)}}
-                                catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error="Reorder failed: "+(e.message?:"Storage error")}
+                                catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error="Reorder failed: "+UserMessages.of(e,"Storage error")}
                             }})}
                         "about"->VaultAboutScreen{navigate("licenses")}
                         "licenses"->VaultLicensesScreen()
@@ -833,7 +832,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                             c.fields,updated.fields,latest.fields))
                                     }
                                 }}
-                                catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error=e.message?:"Cannot save field"}}},
+                                catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error=UserMessages.of(e,"Cannot save field")}}},
                             {navigate("selectfields")},
                             {fetchDetailsForCard(c)},runningOcr!=null,
                             repo.profiles.toList(),
@@ -849,7 +848,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                         }
                                         activity.notify("Person created")
                                     }catch(cancelled:CancellationException){throw cancelled}
-                                    catch(e:Exception){error="Cannot create person: "+(e.message?:"Error")}
+                                    catch(e:Exception){error="Cannot create person: "+UserMessages.of(e,"Error")}
                                 }
                             })}
                         "selectfields"->current?.let{c->SelectDocumentTextPage(c,
@@ -859,7 +858,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     repo.updateCard(c.id){it.copy(fields=it.fields+f)}
                                 };popBack()}
                                 catch(cancelled:CancellationException){throw cancelled}
-                                catch(e:Exception){error="Cannot save selected field: "+(e.message?:"Error")}
+                                catch(e:Exception){error="Cannot save selected field: "+UserMessages.of(e,"Error")}
                             }},
                             {_->fetchDetailsForCard(c)})}
                         "crop"->{
@@ -961,12 +960,12 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     if(backStack.lastOrNull()=="detail")popBack()
                                     else completeToCard(saved.id)
                                     activity.notify("Document saved")
-                                }catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error="Cannot save card: "+(e.message?:"Storage error")}
+                                }catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error="Cannot save card: "+UserMessages.of(e,"Storage error")}
                                 finally{busy=""}
                             }},
                             {goBack()},
                             {t->scope.launch {try{withContext(Dispatchers.IO){repo.saveTemplate(t)};activity.notify("Saved template "+t.name)}
-                                catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error=e.message?:"Unable to save template"}}},
+                                catch(cancelled:CancellationException){throw cancelled}catch(e:Exception){error=UserMessages.of(e,"Unable to save template")}}},
                              {editorDirty=it})}
                         "externalviewer"->{
                             val external=File(externalPdfPath)

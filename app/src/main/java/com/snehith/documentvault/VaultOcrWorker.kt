@@ -55,7 +55,7 @@ class VaultOcrWorker(appContext:Context,params:WorkerParameters):CoroutineWorker
         catch(e:Exception){
             // A file-level failure must not cancel subsequent items in a WorkManager chain.
             Result.success(workDataOf(KEY_FILE to inputData.getString(KEY_FILE),
-                KEY_ERROR to (e.message?:"OCR failed")))
+                KEY_ERROR to (UserMessages.of(e,"Text could not be read from this file"))))
         }
     }
 }

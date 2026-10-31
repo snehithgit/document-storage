@@ -213,7 +213,8 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
             }
             Box(Modifier.size(42.dp).background(colors.ink,
                 androidx.compose.foundation.shape.CircleShape)
-                .clickable(onClick={chooseProfile=true}),contentAlignment=Alignment.Center){
+                .clickable(onClickLabel="Choose whose documents to show",onClick={chooseProfile=true}),
+                contentAlignment=Alignment.Center){
                 Text(DesignLogic.initials(profiles.firstOrNull{
                     it.id==(if(selectedPerson=="all")"self" else selectedPerson)}?.name?:"Me"),color=colors.panel,
                     fontSize=14.sp,fontWeight=FontWeight.Bold)

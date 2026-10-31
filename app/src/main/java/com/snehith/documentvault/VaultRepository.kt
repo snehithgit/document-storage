@@ -663,7 +663,7 @@ class VaultRepository(private val context: Context) {
         val planned=BackupIntegrity.plan(cards.toList()){id->blob(id).isFile}
         val hashes=planned.availableIds.associateWith{id->
             require(blob(id).length()<=VaultBackupChecks.MAX_BLOB_BYTES) {
-                "Attachment exceeds backup size limit: "+id
+                "An attachment is larger than the 512 MB backup limit. No backup was written."
             }
             VaultBackupChecks.sha256(blob(id).inputStream())
         }
@@ -672,7 +672,7 @@ class VaultRepository(private val context: Context) {
         val plan=planned.copy(cards=planned.cards.map{card->card.copy(files=card.files.map{f->
             val hash=hashes[f.id]?:return@map f
             require(f.sha256.isBlank()||hash.equals(f.sha256,true)) {
-                "Stored attachment is inconsistent: "+f.name
+                "\""+VaultNames.label(f.name)+"\" appears damaged in the vault. No backup was written."
             }
             f.copy(bytes=blob(f.id).length(),sha256=hash)
         })})
@@ -680,13 +680,13 @@ class VaultRepository(private val context: Context) {
         val textPayloads=plan.cards.flatMap{it.files}.distinctBy{it.id}
             .filter{it.extractedText.isNotBlank()}.map{it.extractedText.toByteArray(Charsets.UTF_8)}
         require(indexBytes.size<=25_000_000 && textPayloads.all{it.size<=5_000_000}) {
-            "Vault text exceeds backup size limits"
+            "The recognized text in this vault is too large for one backup file."
         }
         require(plan.availableIds.size+textPayloads.size+4<=VaultBackupChecks.MAX_ENTRIES) {
-            "Vault exceeds backup entry limit"
+            "This vault has too many files for one backup file."
         }
         val total=plan.availableIds.sumOf{blob(it).length()}+textPayloads.sumOf{it.size.toLong()}+indexBytes.size
-        require(total<=VaultBackupChecks.MAX_TOTAL_BYTES-6_000_000L) { "Vault exceeds backup extraction limit" }
+        require(total<=VaultBackupChecks.MAX_TOTAL_BYTES-6_000_000L) { "This vault is larger than the 2 GB backup limit." }
         val stagedZip=File(context.cacheDir,"export-"+uid()+".zip")
         try {
         stagedZip.outputStream().use{output->
@@ -717,7 +717,7 @@ class VaultRepository(private val context: Context) {
                 }
                 zip.putNextEntry(ZipEntry("checksums.json"))
                 val manifestBytes=manifest.toString().toByteArray(Charsets.UTF_8)
-                require(manifestBytes.size<=2_000_000) { "Backup checksum manifest too large" }
+                require(manifestBytes.size<=2_000_000) { "This vault has too many files for one backup file." }
                 zip.write(manifestBytes);zip.closeEntry()
                 if(plan.warnings.isNotEmpty()){
                     zip.putNextEntry(ZipEntry("missing-files.txt"))
@@ -885,7 +885,7 @@ class VaultRepository(private val context: Context) {
             imported.forEach { (id,file) ->
                 if(blob(id).isFile && (blob(id).length()!=file.length() ||
                     VaultBackupChecks.sha256(blob(id).inputStream())!=VaultBackupChecks.sha256(file.inputStream())))
-                    throw IOException("Backup attachment conflicts with a stored attachment. Existing vault unchanged.")
+                    throw IOException("This backup contains a different version of a file already in your vault. Your vault was not changed.")
             }
             val created=mutableSetOf<String>()
             try{imported.forEach{(id,file)->if(!blob(id).isFile) {

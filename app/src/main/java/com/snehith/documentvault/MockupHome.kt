@@ -75,7 +75,7 @@ import java.time.LocalTime
                         fontWeight=FontWeight.Bold,letterSpacing=(-0.9f).sp)
                 }
                 Box(Modifier.size(42.dp).clip(CircleShape).background(colors.ink)
-                    .clickable(onClick=onSettings),contentAlignment=Alignment.Center){
+                    .clickable(onClickLabel="Open settings",onClick=onSettings),contentAlignment=Alignment.Center){
                     Text(DesignLogic.initials(first),fontSize=14.sp,
                         color=colors.panel,fontWeight=FontWeight.Bold)
                 }

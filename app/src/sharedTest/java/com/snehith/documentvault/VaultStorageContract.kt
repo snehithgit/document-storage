@@ -66,6 +66,12 @@ abstract class VaultStorageContract {
     @Test fun incorrectBlobHashRejected() {
         val e=entries(backup());e["blobs/${attachment.id}"]="corrupt".toByteArray();rejects(zip(e))
     }
+    @Test fun damagedBackupReportsPlainMessage() {
+        val e=entries(backup());e["blobs/${attachment.id}"]="corrupt".toByteArray()
+        val failure=try { repo.restoreBackup(Uri.fromFile(zip(e)),"");null } catch(x:Exception){x}
+        assertEquals("This backup file is damaged or incomplete. Your vault was not changed.",
+            UserMessages.of(failure!!,"Restore failed"))
+    }
     @Test fun incorrectOcrHashRejected() {
         val e=entries(backup());e["texts/${attachment.id}.txt"]="tampered".toByteArray();rejects(zip(e))
     }

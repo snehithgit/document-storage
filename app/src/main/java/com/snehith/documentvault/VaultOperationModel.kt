@@ -27,7 +27,7 @@ class VaultOperationModel:ViewModel(){
                 val result=withContext(Dispatchers.IO){operation()}
                 mutable.value=VaultJobState(result=result,sequence=ticket)
             }catch(cancelled:CancellationException){throw cancelled}
-            catch(e:Exception){mutable.value=VaultJobState(error=e.message?:"Operation failed",
+            catch(e:Exception){mutable.value=VaultJobState(error=UserMessages.of(e,"Something went wrong. Please try again."),
                 sequence=ticket)}
         }
         return true
