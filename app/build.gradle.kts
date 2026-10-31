@@ -32,7 +32,7 @@ android {
     }
     buildTypes {
         debug {
-            applicationIdSuffix = ".v2"
+            applicationIdSuffix = providers.gradleProperty("vaultDebugSuffix").getOrElse(".v2")
             versionNameSuffix = "-test"
         }
         release {
@@ -40,6 +40,10 @@ android {
             isShrinkResources = false
             if (releaseKeysAvailable) signingConfig = signingConfigs.getByName("vaultRelease")
         }
+    }
+    sourceSets {
+        getByName("test").java.srcDir("src/sharedTest/java")
+        getByName("androidTest").java.srcDir("src/sharedTest/java")
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {
@@ -53,6 +57,7 @@ android {
 }
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))

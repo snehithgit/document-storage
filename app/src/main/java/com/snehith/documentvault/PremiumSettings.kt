@@ -30,10 +30,13 @@ import kotlinx.coroutines.withContext
     originalsRevision:Long=0L,
     biometricEnabled:Boolean=false,onBiometricChanged:(Boolean)->Unit={},
     profileName:String="My vault",cardCount:Int=0,pageCount:Int=0,peopleCount:Int=0,
-    documentStyle:String="pages",onDocumentStyleChanged:(String)->Unit={}
+    documentStyle:String="pages",onDocumentStyleChanged:(String)->Unit={},
+    onStorageHealth:suspend ()->String={"Unavailable"}
 ){
     val context=LocalContext.current
     var dialog by rememberSaveable{mutableStateOf("")}
+    var health by remember{mutableStateOf("Checking...")}
+    LaunchedEffect(dialog){if(dialog=="health")health=withContext(kotlinx.coroutines.Dispatchers.IO){onStorageHealth()}}
     var originalBytes by remember{mutableLongStateOf(0L)}
     LaunchedEffect(originalsRevision,keepOriginal){
         originalBytes=withContext(kotlinx.coroutines.Dispatchers.IO){onOriginalUsage()}
@@ -59,12 +62,14 @@ import kotlinx.coroutines.withContext
     }
     if(dialog.isNotBlank()&&dialog!="ocr")AlertDialog(onDismissRequest={dialog=""},title={Text(when(dialog){
         "ocr"->"Offline OCR language"
+        "health"->"Storage Health"
         "pin"->"App lock"
         "remind"->"Expiry reminders"
         "originals"->"Remove saved originals?"
         else->"Settings"
     })},text={Column(verticalArrangement=Arrangement.spacedBy(9.dp)){
         when(dialog){
+            "health"->Text(health)
             "ocr"->{
                 Text("Choose an on-device recognition model.")
                 languages.forEach{lang->
@@ -164,6 +169,8 @@ import kotlinx.coroutines.withContext
             MockupGroup{
                 MockupSettingRow(Icons.Outlined.Backup,"Backup and restore",
                     "Export an ordinary ZIP of all files and details",onBackups,divider=false)
+                MockupSettingRow(Icons.Outlined.CheckCircle,"Storage Health",
+                    "Check documents and recovery files",{dialog="health"})
                 MockupSettingRow(Icons.Outlined.Restore,"Recover imports",
                     "Find any unlinked files from failed saves",onRecovery)
                 MockupSettingRow(Icons.Outlined.Notifications,"Expiry reminders",
