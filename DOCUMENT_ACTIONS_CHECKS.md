@@ -13,11 +13,11 @@ This change continues `release/ux-audit-improvements` without merging the branch
 
 ## Related protections
 
-Document and profile-link changes commit together and roll back together if saving fails. Shared blobs remain protected while any document uses them. Stale selections and conflicting shared-attachment metadata are rejected. Failed or cancelled splits remove generated outputs without changing source documents. PDF OCR page sections are remapped; legacy text with no page mapping is retained in notes rather than repeated as if it were page-specific. Splits are limited to 100 selected items and bounded metadata/index size.
+Document and profile-link changes commit together and roll back together if saving fails. Shared blobs remain protected while any document uses them. Stale selections and conflicting shared-attachment metadata are rejected. Merging earlier documents cannot create indirect renewal-history loops; the former link is retained in notes. Failed or cancelled splits remove generated outputs without changing source documents. PDF OCR page sections are remapped; legacy text with no page mapping is retained in notes rather than repeated as if it were page-specific. Splits are limited to 100 selected items and bounded metadata/index size.
 
 ## Validation
 
-- Host regression suite: 255 tests, 254 passed, one existing device-only PDF test skipped; zero failures.
+- Host regression suite: 256 tests, 255 passed, one existing device-only PDF test skipped; zero failures.
 - New shared storage tests cover replacement, retained originals, permanent recovery removal, atomic merge/split, profile links, stale selections, cancellation and failed persistence.
 - New Android PDF tests render generated red/green/blue pages to check selected-page enhancement and splitting with remaining pages.
 - Expanded Compose tests cover editing different documents, activity recreation, immediate preferences, global preview visibility, merge Copy, split Move and recovery confirmation/refresh.

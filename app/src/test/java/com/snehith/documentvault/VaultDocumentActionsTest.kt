@@ -23,4 +23,15 @@ class VaultDocumentActionsTest {
         assertTrue(ProfileLogic.resolve(change.entries.single(),change.cards).sourceMissing)
         assertEquals("OLD",ProfileLogic.resolve(change.entries.single(),change.cards).value)
     }
+    @Test fun movingAnEarlierDocumentDoesNotCreateAnIndirectHistoryCycle(){
+        val target=VaultCard(id="target",previousId="middle")
+        val middle=VaultCard(id="middle",previousId="source")
+        val source=VaultCard(id="source")
+        val change=VaultDocumentActions.merge(listOf(target,middle,source),emptyList(),target.id,setOf(source.id),true)
+        assertEquals("",change.cards.first{it.id==target.id}.previousId)
+        assertTrue(change.cards.first{it.id==target.id}.notes.contains("Previous document before merge: middle"))
+        assertEquals(target.id,change.cards.first{it.id==middle.id}.previousId)
+        val copied=VaultDocumentActions.merge(listOf(target,middle,source),emptyList(),target.id,setOf(source.id),false)
+        assertEquals("middle",copied.cards.first{it.id==target.id}.previousId)
+    }
 }

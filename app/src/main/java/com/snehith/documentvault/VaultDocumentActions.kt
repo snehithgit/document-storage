@@ -56,8 +56,18 @@ object VaultDocumentActions {
             }
         }).filter{it.isNotBlank()}.joinToString("\n\n")
         val tags=(listOf(target)+selected).flatMap{it.tags.split(',')}.map{it.trim()}.filter{it.isNotBlank()}.distinct().joinToString(", ")
-        val merged=target.copy(files=files,fields=fields,notes=notes,tags=tags,
-            previousId=target.previousId.takeUnless{move&&it in sources}.orEmpty())
+        // Contracting a history chain through a moved source must not create a cycle:
+        // destination -> intermediate -> source would otherwise become destination -> intermediate -> destination.
+        val byId=cards.associateBy{it.id};val visited=mutableSetOf(targetId)
+        var history=target.previousId;var loopsAfterMove=false
+        while(move&&history.isNotBlank()&&visited.add(history)){
+            if(history in sources){loopsAfterMove=true;break}
+            history=byId[history]?.previousId.orEmpty()
+        }
+        val mergedNotes=if(loopsAfterMove)listOf(notes,"Previous document before merge: "+target.previousId)
+            .filter{it.isNotBlank()}.joinToString("\n\n") else notes
+        val merged=target.copy(files=files,fields=fields,notes=mergedNotes,tags=tags,
+            previousId=if(loopsAfterMove)"" else target.previousId)
         val next=cards.filterNot{move&&it.id in sources}.map { card ->
             if(card.id==targetId)merged else if(move&&card.previousId in sources)card.copy(previousId=targetId) else card
         }
