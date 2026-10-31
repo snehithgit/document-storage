@@ -352,7 +352,10 @@ object DocumentCropEngine {
         if(validationMessage.isNotBlank())
             Text(validationMessage,color=MaterialTheme.colorScheme.error,
                 style=MaterialTheme.typography.bodySmall)
-        ScanEnhanceControls(settings,{updateSettings(it)})
+        ScanEnhanceControls(settings,{next->
+            showResult=ScanPreviewMode.afterSettingsChange(showResult,settings,next)
+            updateSettings(next)
+        })
         MockupActionRow(buildList{
             add(MockupAction(Icons.Outlined.AutoFixHigh,"Auto edges",enabled=!busy,
                 onClick={redetect()}))

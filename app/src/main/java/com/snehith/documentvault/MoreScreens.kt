@@ -2,7 +2,11 @@ package com.snehith.documentvault
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.*
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,8 +35,10 @@ import java.time.LocalDate
 import java.io.File
 import java.util.UUID
 
+/** [onSwipeBeyond] moves to the neighbouring attachment; true when there was one. */
 @Composable fun DocumentViewerScreen(file:VaultFile,repo:VaultRepository,
-    engine:DocumentEngine,onShare:()->Unit,sourceOverride:File?=null,initialPage:Int=0) {
+    engine:DocumentEngine,onShare:()->Unit,sourceOverride:File?=null,initialPage:Int=0,
+    onSwipeBeyond:((Int)->Boolean)?=null) {
     val pdf=file.mime=="application/pdf"||file.name.endsWith(".pdf",true)
     val isImage=file.mime.startsWith("image/")
     val context=LocalContext.current
@@ -149,14 +155,33 @@ import java.util.UUID
                 }
             }else{
                 val picture=bitmap
+                val swipeDistance=with(androidx.compose.ui.platform.LocalDensity.current){72.dp.toPx()}
                 if(picture!=null && !picture.isRecycled){
                     Image(picture.asImageBitmap(),"Document page",
                         modifier=Modifier.fillMaxSize()
-                            .pointerInput(file.id,page){
-                                detectTransformGestures{_,move,factor,_->
-                                    zoom=(zoom*factor).coerceIn(1f,5f)
-                                    panX=(panX+move.x).coerceIn(-1100f,1100f)
-                                    panY=(panY+move.y).coerceIn(-1800f,1800f)
+                            .pointerInput(file.id,page,pageCount){
+                                // Two fingers or a zoomed page: pinch and pan. One finger at
+                                // normal size: a clear sideways swipe turns the page.
+                                awaitEachGesture {
+                                    awaitFirstDown(requireUnconsumed=false)
+                                    var dragX=0f;var dragY=0f
+                                    do {
+                                        val event=awaitPointerEvent()
+                                        val pan=event.calculatePan()
+                                        if(event.changes.size>1||zoom>1.01f){
+                                            zoom=(zoom*event.calculateZoom()).coerceIn(1f,5f)
+                                            panX=if(zoom<=1.01f)0f else (panX+pan.x).coerceIn(-1100f,1100f)
+                                            panY=if(zoom<=1.01f)0f else (panY+pan.y).coerceIn(-1800f,1800f)
+                                        }else{dragX+=pan.x;dragY+=pan.y}
+                                        event.changes.forEach{if(it.positionChanged())it.consume()}
+                                    } while(event.changes.any{it.pressed})
+                                    if(zoom<=1.01f&&kotlin.math.abs(dragX)>swipeDistance&&
+                                        kotlin.math.abs(dragX)>kotlin.math.abs(dragY)*1.5f){
+                                        val delta=if(dragX<0)1 else -1
+                                        if(pdf&&page+delta in 0 until pageCount){
+                                            page+=delta;zoom=1f;panX=0f;panY=0f
+                                        }else onSwipeBeyond?.invoke(delta)
+                                    }
                                 }
                             }
                             .graphicsLayer(scaleX=zoom,scaleY=zoom,rotationZ=rotation.toFloat(),
@@ -202,7 +227,8 @@ import java.util.UUID
                     Icon(Icons.Outlined.ChevronRight,"Next page")
                 }
             }
-        }else if(!showText)Text("Pinch to zoom. Drag to move the page.",
+        }else if(!showText)Text(if(onSwipeBeyond!=null)"Swipe for the next page. Pinch to zoom."
+            else "Pinch to zoom. Drag to move the page.",
             style=MaterialTheme.typography.bodySmall,
             modifier=Modifier.fillMaxWidth(),
             color=MaterialTheme.colorScheme.onSurfaceVariant)

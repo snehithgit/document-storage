@@ -10,6 +10,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
+/** The corner view shows the untouched photo, so a filter change must switch to the
+ * processed preview or it looks as if nothing happened. */
+object ScanPreviewMode {
+    fun afterSettingsChange(showingResult:Boolean,old:ScanSettings,next:ScanSettings):Boolean =
+        showingResult||old!=next
+}
+
 @Composable fun ScanEnhanceControls(settings:ScanSettings,onChange:(ScanSettings)->Unit){
     Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
         Text("Filters",color=mockupPalette.ink,style=MaterialTheme.typography.titleSmall)
@@ -22,10 +29,11 @@ import kotlin.math.roundToInt
         var showAdjust by remember{mutableStateOf(false)}
         Row(verticalAlignment=Alignment.CenterVertically){
             TextButton(onClick={showAdjust=!showAdjust}){
-                Text(if(showAdjust)"Hide adjustments" else "Adjust brightness, contrast, sharpness")
+                // Short label: the long one pushed the shadow switch off narrow screens.
+                Text(if(showAdjust)"Hide adjustments" else "Adjust")
             }
             Spacer(Modifier.weight(1f))
-            Text("Shadows",style=MaterialTheme.typography.labelMedium)
+            Text("Remove shadows",style=MaterialTheme.typography.labelMedium)
             Spacer(Modifier.width(5.dp))
             Switch(checked=settings.removeShadows,
                 onCheckedChange={onChange(settings.copy(removeShadows=it))})

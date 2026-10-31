@@ -387,13 +387,31 @@ fun vaultValidity(card:VaultCard,remindDays:Int=30):Pair<String,Color> {
             }else{
                 Column(Modifier.fillMaxWidth().padding(vertical=6.dp),
                     horizontalAlignment=Alignment.CenterHorizontally){
+                    // Swipe between every page (PDF pages and separate images alike);
+                    // the dots and the page strip below follow the same position.
+                    val pager=androidx.compose.foundation.pager.rememberPagerState(
+                        initialPage=activePage){pages.size.coerceAtLeast(1)}
+                    LaunchedEffect(pager.settledPage){
+                        if(pager.settledPage<pages.size)activePage=pager.settledPage
+                    }
+                    LaunchedEffect(activePage,pages.size){
+                        if(activePage<pages.size&&pager.currentPage!=activePage)
+                            pager.animateScrollToPage(activePage)
+                    }
                     Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
                         .background(palette.accentSoft).padding(vertical=18.dp),
                         contentAlignment=Alignment.Center){
-                        VaultDocumentPaper(chosenPage,repo,
-                            Modifier.fillMaxWidth(
-                                VaultPageLayout.widthFraction(chosenPage?.aspect?:.75f)),
-                            maxEdge=1050,onClick={viewSelected()})
+                        androidx.compose.foundation.pager.HorizontalPager(pager,
+                            Modifier.fillMaxWidth(),pageSpacing=16.dp,
+                            verticalAlignment=Alignment.CenterVertically){index->
+                            val page=pages.getOrNull(index)
+                            Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center){
+                                VaultDocumentPaper(page,repo,
+                                    Modifier.fillMaxWidth(
+                                        VaultPageLayout.widthFraction(page?.aspect?:.75f)),
+                                    maxEdge=1050,onClick={page?.let{onFile(it.file,it.index)}})
+                            }
+                        }
                     }
                     if(pages.size>1){
                         Spacer(Modifier.height(12.dp))

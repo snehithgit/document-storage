@@ -68,6 +68,14 @@ object VaultDocumentPages {
             }
         }
     fun identity(files:List<VaultFile>)=files.joinToString(";"){it.id+":"+it.sha256+":"+it.bytes}
+    /** Swiping past the end of one attachment continues into the next one: forward opens
+     * its first page, backward the previous attachment's last page. Null at either end. */
+    fun neighbour(pages:List<VaultDocumentPage>,fileId:String,delta:Int):Pair<String,Int>? {
+        val files=pages.map{it.file.id}.distinct()
+        val target=files.getOrNull(files.indexOf(fileId).takeIf{it>=0}?.plus(delta)?:return null)?:return null
+        val targetPages=pages.filter{it.file.id==target}
+        return target to (if(delta>0)0 else (targetPages.maxOfOrNull{it.index}?:0))
+    }
 }
 
 @Composable fun rememberVaultDocumentPages(repo:VaultRepository,files:List<VaultFile>):List<VaultDocumentPage>{

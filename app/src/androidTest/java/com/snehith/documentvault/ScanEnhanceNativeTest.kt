@@ -41,6 +41,40 @@ class ScanEnhanceNativeTest {
         }
     }
 
+    /** Every filter choice must visibly change a shaded, coloured fictional page. */
+    @Test fun everyFilterAndShadowRemovalVisiblyChangesThePage(){
+        assertTrue(OpenCVLoader.initLocal())
+        val page=Bitmap.createBitmap(400,300,Bitmap.Config.ARGB_8888)
+        val canvas=android.graphics.Canvas(page);val paint=android.graphics.Paint()
+        for(x in 0 until 400){ // left-to-right shadow over a warm paper tone
+            val shade=(150+x*90/400)
+            paint.color=android.graphics.Color.rgb(shade,shade-12,shade-30)
+            canvas.drawLine(x.toFloat(),0f,x.toFloat(),300f,paint)
+        }
+        paint.color=android.graphics.Color.rgb(30,40,90);paint.textSize=34f
+        repeat(5){canvas.drawText("FICTIONAL LINE $it",20f,50f+it*50f,paint)}
+        val base=ScanEnhance.apply(page,ScanSettings())
+        fun difference(a:Bitmap,b:Bitmap):Double {
+            var total=0L
+            for(y in 0 until a.height step 4)for(x in 0 until a.width step 4){
+                val p=a.getPixel(x,y);val q=b.getPixel(x,y)
+                total+=kotlin.math.abs(android.graphics.Color.red(p)-android.graphics.Color.red(q))+
+                    kotlin.math.abs(android.graphics.Color.green(p)-android.graphics.Color.green(q))+
+                    kotlin.math.abs(android.graphics.Color.blue(p)-android.graphics.Color.blue(q))
+            }
+            return total.toDouble()/((a.width/4)*(a.height/4))
+        }
+        try{
+            val variants=ScanEnhance.presets.filter{it!="Original"}.map{ScanSettings(preset=it)}+
+                ScanSettings(removeShadows=true)
+            variants.forEach{settings->
+                val out=ScanEnhance.apply(page,settings)
+                try{ assertTrue("$settings changed too little",difference(base,out)>6.0) }
+                finally{out.recycle()}
+            }
+        }finally{base.recycle();page.recycle()}
+    }
+
     @Test fun shadowRemovalRetainsColorAndOpaqueAlpha(){
         assertTrue(OpenCVLoader.initLocal())
         val solid=Mat(72,72,CvType.CV_8UC4,Scalar(54.0,112.0,180.0,255.0))

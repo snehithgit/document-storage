@@ -974,10 +974,16 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     "application/pdf",external.length(),""),repo,engine,
                                     {activity.notify("Save to vault before sharing")},sourceOverride=external)
                         }
-                        "viewer"->current?.files?.firstOrNull{it.id==viewingId}?.let{f->
+                        "viewer"->current?.let{c->c.files.firstOrNull{it.id==viewingId}?.let{f->
+                            val docPages=rememberVaultDocumentPages(repo,c.files)
                             DocumentViewerScreen(f,repo,engine,{activity.share(f)},
-                                initialPage=viewingPage)
-                        }
+                                initialPage=viewingPage,
+                                onSwipeBeyond=if(c.files.size>1){delta->
+                                    VaultDocumentPages.neighbour(docPages,f.id,delta)?.let{(id,page)->
+                                        viewingId=id;viewingPage=page;true
+                                    }?:false
+                                } else null)
+                        }}
                         "tools"->current?.let{c->PdfToolsScreen(c,repo,
                             {addToCardId=c.id},
                             {op,files,from,to->
