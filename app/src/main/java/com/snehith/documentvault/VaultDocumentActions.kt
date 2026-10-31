@@ -11,7 +11,7 @@ object VaultDocumentActions {
         "edit" -> "edit:$session"
         "detail","fulldetails","selectfields","attachments","tools" -> "$route:$cardId"
         "merge-documents","split-document" -> "$route:$cardId:$session"
-        "person" -> "$route:$personId"
+        "person","profile-documents" -> "$route:$personId"
         "viewer" -> "$route:$cardId:$fileId:$session"
         "crop" -> "$route:$session"
         else -> route

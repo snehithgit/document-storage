@@ -685,6 +685,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                     "expiry"->"Expiry and renewal"
                                     "profiles"->"Family profiles"
                                     "person"->"Profile"
+                                    "profile-documents"->"Profile documents"
                                     "templates"->"Card templates"
                                     "backup"->"Backup and restore"
                                     "recovery"->"Recovery"
@@ -716,7 +717,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         "edit"->DocumentScreen(route,editing?.id.orEmpty().ifBlank{selectedCardId},session=editorSession,editorJson=editingJson)
                         "crop"->DocumentScreen(route,scanTarget.orEmpty(),session=cropSessionId)
                         "viewer"->DocumentScreen(route,selectedCardId,session=viewSession,fileId=viewingId,page=viewingPage)
-                        "person"->DocumentScreen(route,personId=selectedPersonId)
+                        "person","profile-documents"->DocumentScreen(route,personId=selectedPersonId)
                         "merge-documents","split-document"->DocumentScreen(route,selectedCardId,session=actionSession)
                         "detail","fulldetails","selectfields","attachments","tools"->DocumentScreen(route,selectedCardId)
                         else->DocumentScreen(route)
@@ -753,7 +754,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             {navigate("expiry")},documentStyle,repo,onBackup={navigate("backup")},hidePreviews=hideHomePreviews)
                         "people"->PeopleScreen(repo.profiles.toList(),repo.entries.toList(),
                             repo.cards.toList(),
-                            {person->selectedPersonId=person.id;navigate("person")},
+                            {person->selectedPersonId=person.id;navigate("profile-documents")},
                             {name->scope.launch{
                                 try{withContext(Dispatchers.IO){
                                     repo.saveProfile(VaultProfile(UUID.randomUUID().toString(),name))
@@ -761,6 +762,16 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                                 catch(cancelled:CancellationException){throw cancelled}
                                 catch(e:Exception){error=UserMessages.of(e,"Cannot add person")}
                             }})
+                        "profile-documents"->{
+                            val person=repo.profiles.firstOrNull{it.id==destination.personId}
+                            if(person!=null)ProfileDocumentsScreen(person,repo.cards.toList(),repo,hideHomePreviews,
+                                {openCard(it)},{selectedPersonId=person.id;navigate("person")},
+                                {userProfile="all";categoryFilter="All";navigateRoot("cards")})
+                            else Column(Modifier.padding(18.dp)){
+                                Text("This profile is no longer available.")
+                                TextButton(onClick={navigateRoot("people")}){Text("Open profiles")}
+                            }
+                        }
                         "person"->repo.profiles.firstOrNull{it.id==destination.personId}?.let{person->
                             PersonScreen(person,repo.entries.toList(),repo.cards.toList(),repo.hasPin(),
                                 {pin->repo.checkPin(pin)},
@@ -799,7 +810,8 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                         "cards"->VaultNavCards(repo.cards.toList(),repo,
                             {openCard(it)},{navigate("scan")},categoryFilter,
                             {navigate("search")},repo.profiles.toList(),userProfile,
-                            {userProfile=it},{categoryFilter=""},{navigateRoot("people")},
+                            {id->userProfile=id;if(id!="all"){selectedPersonId=id;navigate("profile-documents")}},
+                            {categoryFilter=""},{navigateRoot("people")},
                             documentStyle,savedCardRevision,hidePreviews=hideHomePreviews)
                         "search"->VaultNavSearch(repo.cards.toList(),repo,
                             {openCard(it)},repo.profiles.toList(),userProfile,{userProfile=it},hidePreviews=hideHomePreviews)

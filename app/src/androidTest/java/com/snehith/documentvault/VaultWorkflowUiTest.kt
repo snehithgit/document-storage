@@ -88,8 +88,6 @@ class VaultWorkflowUiTest {
     /** Workflows 2 and 6: change owner while a person filter is active. */
     @Test fun ownerChangeUnderPersonFilterKeepsDocumentListed() {
         openCards()
-        clickLabel("Choose whose documents to show")
-        compose.onNodeWithText(person.name).performClick()
         compose.onAllNodesWithText(title).onFirst().assertExists()
         openEditor()
         compose.onNodeWithText("Profile: "+person.name).performClick()
@@ -97,6 +95,8 @@ class VaultWorkflowUiTest {
         save()
         assertEquals("self",repo.cards.first{it.id==card.id}.profile)
         pressBack()
+        compose.onAllNodesWithText(title).assertCountEquals(0)
+        compose.onNodeWithText("All documents").performClick()
         compose.waitUntil(10_000){ compose.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty() }
     }
     /** Workflows 3 and 5: change category and a field, then restart the activity. */
@@ -177,6 +177,7 @@ class VaultWorkflowUiTest {
         compose.onNodeWithContentDescription("Hide identity previews").performScrollTo().assertIsOn().performClick().assertIsOff()
         openCards()
         compose.onAllNodesWithContentDescription("Hidden identity preview").assertCountEquals(0)
+        compose.onNodeWithText("All documents").performClick()
         compose.onNodeWithContentDescription("Settings").performClick()
         compose.onNodeWithContentDescription("Hide identity previews").performScrollTo().performClick().assertIsOn()
         openCards()
@@ -231,6 +232,27 @@ class VaultWorkflowUiTest {
         remove();compose.onAllNodesWithText("Remove permanently").filterToOne(hasAnyAncestor(isDialog())).performClick()
         compose.waitUntil(10_000){!repo.hasDocument(loose)}
         compose.waitUntil(10_000){compose.onAllNodesWithTag("recovery-${loose.id}").fetchSemanticsNodes().isEmpty()}
+    }
+    @Test fun profileDocumentsAreDedicatedAndNeverIncludeOtherOwners() {
+        val other=card.copy(id="ui-other-$tag",title="UI Other Owner $tag",profile="self")
+        compose.runOnIdle{repo.saveCard(other);extraIds.add(other.id)}
+        compose.onNodeWithContentDescription("People").performClick()
+        compose.onNodeWithText(person.name).performClick()
+        compose.onNodeWithText("Search this profile").assertExists()
+        compose.onNodeWithText(title).assertExists()
+        compose.onAllNodesWithText(other.title).assertCountEquals(0)
+        compose.onNodeWithText("Search this profile").performTextInput("no-match-$tag")
+        compose.onAllNodesWithText(title).assertCountEquals(0)
+        compose.activityRule.scenario.recreate()
+        compose.waitUntil(10_000){compose.onAllNodesWithText("Search this profile").fetchSemanticsNodes().isNotEmpty()}
+        compose.onNodeWithText("Search this profile").assertTextContains("no-match-$tag")
+        compose.onNodeWithText("Search this profile").performTextClearance()
+        compose.onNodeWithText("Profile details").performClick()
+        compose.onNodeWithContentDescription("Profile options").assertExists()
+        pressBack()
+        compose.onNodeWithText(title).assertExists()
+        compose.onNodeWithText("All documents").performClick()
+        compose.onNodeWithText(other.title).assertExists()
     }
 
 }

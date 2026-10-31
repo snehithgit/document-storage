@@ -108,7 +108,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: DocumentVault-debug-apk
+          name: DocShelf-test-apk
           path: app/build/outputs/apk/debug/*.apk
           retention-days: 30
       - name: Package complete changed source files
@@ -144,7 +144,11 @@ jobs:
             chmod 600 "$RUNNER_TEMP/document-vault.jks"
             echo "VAULT_KEYSTORE_PATH=$RUNNER_TEMP/document-vault.jks" >> "$GITHUB_ENV"
           else
-            echo "Release signing not configured; test APK only."
+            if [ "${{ github.event_name }}" != "pull_request" ]; then
+              echo "::error::Persistent DocShelf signing secrets are required for release builds."
+              exit 1
+            fi
+            echo "Release signing is unavailable for this pull request; test APK only."
           fi
       - name: Assemble consistently signed release APK
         if: env.VAULT_KEYSTORE_PATH != ''
@@ -157,10 +161,27 @@ jobs:
           test -n "$VAULT_KEY_ALIAS"
           test -n "$VAULT_KEY_PASSWORD"
           gradle --no-daemon --stacktrace :app:assembleRelease
+      - name: Verify persistent release signing identity
+        if: env.VAULT_KEYSTORE_PATH != '' && success()
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, os, pathlib, re, subprocess
+          certificate=pathlib.Path("signing/docshelf-release-certificate.pem").read_text()
+          der=base64.b64decode("".join(line for line in certificate.splitlines() if not line.startswith("---")))
+          expected=hashlib.sha256(der).hexdigest()
+          tools=pathlib.Path(os.environ["ANDROID_HOME"])/"build-tools/35.0.0"
+          apk="app/build/outputs/apk/release/app-release.apk"
+          report=subprocess.check_output([str(tools/"apksigner"),"verify","--print-certs",apk],text=True)
+          actual=re.search(r"Signer #1 certificate SHA-256 digest: ([0-9a-f]+)",report)
+          assert actual and actual.group(1)==expected, "Release signing certificate changed"
+          manifest=subprocess.check_output([str(tools/"aapt"),"dump","badging",apk],text=True)
+          assert "package: name='com.snehith.documentvault' " in manifest, "Release package identity changed"
+          print("Verified stable DocShelf package and signing certificate.")
+          PY
       - name: Upload signed release APK
         if: env.VAULT_KEYSTORE_PATH != '' && success()
         uses: actions/upload-artifact@v4
         with:
-          name: DocumentVault-signed-release-apk
+          name: DocShelf-signed-release-apk
           path: app/build/outputs/apk/release/*.apk
           retention-days: 30
