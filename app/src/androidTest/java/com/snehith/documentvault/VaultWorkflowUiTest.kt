@@ -220,8 +220,9 @@ class VaultWorkflowUiTest {
         val staged=File(context.cacheDir,"shared/ui-recovery-$tag.txt").apply{parentFile!!.mkdirs();writeText("Fictional recovery fixture $tag")}
         val loose=repo.importFile(FileProvider.getUriForFile(context,context.packageName+".provider",staged))
         compose.onNodeWithContentDescription("Settings").performClick()
-        compose.onNodeWithText("Recover imports").performScrollTo().performClick()
-        compose.waitUntil(10_000){compose.onAllNodesWithTag("recovery-${loose.id}").fetchSemanticsNodes().isNotEmpty()}
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Recover imports"))
+        compose.onNodeWithText("Recover imports").performClick()
+        compose.waitUntil(10_000){compose.onAllNodesWithText("Clear all recovery files").fetchSemanticsNodes().isNotEmpty()}
         fun remove(){
             compose.onNode(hasScrollAction()).performScrollToNode(hasTestTag("recovery-${loose.id}"))
             compose.onAllNodesWithText("Remove permanently").filterToOne(hasAnyAncestor(hasTestTag("recovery-${loose.id}"))).performClick()

@@ -36,7 +36,7 @@ class DocumentActionsEngineDeviceTest {
         repo=VaultRepository(context);engine=DocumentEngine(context,repo)
     }
     private fun staged(extension:String)=File(context.cacheDir,"${UUID.randomUUID()}.$extension")
-    private fun uri(file:File):Uri=FileProvider.getUriForFile(context,context.packageName+".provider",file)
+    private fun uri(file:File):Uri=FileProvider.getUriForFile(context.applicationContext,context.packageName+".provider",file)
     private fun source():VaultCard {
         val pdf=staged("pdf")
         val doc=PdfDocument()
