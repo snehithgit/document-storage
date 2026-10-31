@@ -92,6 +92,19 @@ abstract class VaultImportContract {
         assertEquals(2,VaultRepository(context).cards.single().files.size)
         assertTrue(repo.cards.single().files.all{it.mime=="image/png"&&repo.hasDocument(it)})
     }
+    /** Workflow 12: re-editing a scanned page replaces it in place and keeps the original. */
+    @Test fun reEditingScannedPageReplacesItWithoutExtraPage() {
+        importFiles(source("front.png",png(180)),source("back.png",png(20)),group=true)
+        val card=repo.cards.single();val front=card.files[0]
+        val edited=repo.importFile(source("front-edited.png",png(90)))
+        repo.replaceImageFile(card.id,front.id,edited,"0.1,0.1;0.9,0.1;0.9,0.9;0.1,0.9",90)
+        val saved=VaultRepository(context).cards.single().files
+        assertEquals(listOf(edited.id,card.files[1].id),saved.map{it.id})
+        assertEquals(front.id,saved[0].originalId)
+        assertEquals(front.name,saved[0].name)
+        assertEquals(90,saved[0].cropRotation)
+        assertTrue("the original is retained for re-cropping",repo.hasDocument(front))
+    }
     /** Robolectric's PdfRenderer always reports zero pages; real PDF parsing runs on device. */
     protected open val rendersPdf=true
     @Test fun pdfAndDocxImportAndReopen() {
