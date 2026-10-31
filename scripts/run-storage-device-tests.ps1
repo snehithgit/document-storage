@@ -23,6 +23,8 @@ try {
             if ($null -eq $index.cards -or @($index.cards).Count -gt 0) {
                 throw "The test app contains records. Use an empty disposable test installation; no data was cleared."
             }
+        } else {
+            throw "Cannot verify the existing test installation. Nothing was cleared or installed."
         }
     }
     & $Adb -s $Serial install -r "app/build/outputs/apk/debug/app-debug.apk"
