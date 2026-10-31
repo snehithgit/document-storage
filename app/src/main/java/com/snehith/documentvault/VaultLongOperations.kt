@@ -4,75 +4,23 @@ import android.content.Context
 import android.graphics.Matrix
 import android.graphics.PointF
 import android.net.Uri
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import androidx.core.content.FileProvider
 import java.io.File
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /** Disk, native crop and multi-file import operations. Caller runs these on Dispatchers.IO. */
 object VaultLongOperations {
     data class ImportResult(val cardId:String?,val count:Int,val skipped:Int)
-    fun importDocuments(
+    suspend fun importDocuments(
         repo:VaultRepository, uris:List<Uri>, targetId:String?,
         profile:String, originalUri:Uri?=null,corners:String="",rotation:Int=0,
         groupAsOne:Boolean=false
     ):ImportResult {
-        var last:VaultCard?=null
-        var count=0
-        var skipped=0
-        for(uri in uris) {
-            ImportTargetPolicy.requireAvailable(targetId,repo.cards.map{it.id}.toSet())
-            val file=repo.importFile(uri)
-            try {
-                if(repo.isDuplicate(file.sha256,profile)) {
-                    skipped++
-                    repo.removeOrphan(file)
-                    continue
-                }
-                val nextTarget=VaultImportGrouping.nextTarget(targetId,last?.id,groupAsOne)
-                val existing=nextTarget?.let{id->repo.cards.firstOrNull{it.id==id}}
-                val card=if(existing!=null)existing.copy(files=existing.files+file)
-                else {
-                    val kind=when {
-                        file.name.contains("passport",true)->"Passport"
-                        file.name.contains("cdc",true)->"Seafarer CDC"
-                        file.name.contains("medical",true)->"Medical"
-                        file.name.contains("certificate",true)->"COC / STCW"
-                        else->"Custom"
-                    }
-                    repo.newCard(kind,profile).copy(
-                        title=if(file.name.startsWith("scan-",true)||file.name.startsWith("capture-",true))
-                            "Scanned document · "+LocalDateTime.now()
-                                .format(DateTimeFormatter.ofPattern("dd MMM HH:mm"))
-                        else file.name.substringBeforeLast('.',file.name),
-                        files=listOf(file))
-                }
-                repo.saveCard(card)
-                last=card
-                count++
-            }catch(cancelled:CancellationException){throw cancelled}
-            catch(e:Exception){
-                // The new blob must not be orphaned if its index write failed.
-                if(repo.cards.none{card->card.files.any{it.id==file.id}})repo.removeOrphan(file)
-                throw e
-            }
+        val job=kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
+        return repo.importDocuments(uris,targetId,profile,originalUri,corners,rotation,groupAsOne) {
+            job?.ensureActive()
         }
-        val result=last?:return ImportResult(null,count,skipped)
-        if(originalUri!=null){
-            try {
-                val retained=repo.importFile(originalUri)
-                try {repo.keepScanSource(result.id,result.files.last().id,retained,corners,rotation)}
-                catch(cancelled:CancellationException){throw cancelled}
-                catch(e:Exception){repo.removeOrphan(retained);throw e}
-            }catch(cancelled:CancellationException){throw cancelled}
-            catch(e:Exception){
-                // Saved page remains usable if the optional raw camera cache was removed.
-                skipped++
-            }
-        }
-        return ImportResult(result.id,count,skipped)
     }
     fun correctedUri(
         context:Context,sourcePath:String,rotation:Int,

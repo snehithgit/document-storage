@@ -154,7 +154,10 @@ class VaultRepository(private val context: Context) {
         blob(file.originalId.ifBlank{file.id}).also {
             if(!it.isFile)throw FileNotFoundException("Original image is unavailable")
         }
-    fun removeOrphan(file:VaultFile){
+    @Synchronized fun removeOrphan(file:VaultFile){
+        require(file.id.matches(Regex("[a-f0-9-]{36}"))) { "Invalid attachment identifier" }
+        if(file.id in referencedIds())throw IOException("This file is now attached to a document. Refresh the list.")
+        if(file.id in previousReferencedIds())throw IOException("This file is still kept for vault recovery.")
         blob(file.id).delete();meta(file.id).delete();textFile(file.id).delete()
     }
 
@@ -351,13 +354,13 @@ class VaultRepository(private val context: Context) {
         cleanupReplacedBlobs(target)
     }
     private fun referencedIds():Set<String> = AttachmentReferences.referencedIds(cards.toList())
+    private fun previousReferencedIds():Set<String> = runCatching {
+        val a=JSONObject(backup.readText()).getJSONArray("cards")
+        AttachmentReferences.referencedIds((0 until a.length()).map{readCard(a.getJSONObject(it))})
+    }.getOrDefault(emptySet())
     private fun cleanupReplacedBlobs(file:VaultFile){
         // The rolling index must keep its attachments too, until a later commit.
-        val previous=runCatching {
-            val a=JSONObject(backup.readText()).getJSONArray("cards")
-            AttachmentReferences.referencedIds((0 until a.length()).map{readCard(a.getJSONObject(it))})
-        }.getOrDefault(emptySet())
-        val kept=referencedIds()+previous
+        val kept=referencedIds()+previousReferencedIds()
         listOf(file.id,file.originalId).filter{it.isNotBlank() && it !in kept}.forEach{id->
             blob(id).delete();meta(id).delete()
             // OCR text is document content: it must go with the document.
@@ -468,7 +471,7 @@ class VaultRepository(private val context: Context) {
     /** The same file may legitimately belong to two people (shared address proof). */
     fun isDuplicate(sha:String,profile:String)=
         cards.any { c->c.profile==profile && c.files.any{it.sha256==sha} }
-    fun importFile(uri:Uri):VaultFile {
+    @Synchronized fun importFile(uri:Uri,checkCancelled:()->Unit={}):VaultFile {
         require(uri.scheme=="content"){"Import only from Android's file picker or share menu"}
         val name=VaultNames.importLabel(filename(uri),
             java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("dd MMM HH:mm",java.util.Locale.ENGLISH)))
@@ -479,15 +482,17 @@ class VaultRepository(private val context: Context) {
             "png"->"image/png";"jpg","jpeg"->"image/jpeg";else->"application/octet-stream"
         }
         val id=uid()
+        val staged=File(blobDir,id+".import.tmp")
         val digest=MessageDigest.getInstance("SHA-256")
         var size=0L
         val sample=ByteArray(32)
         var sampleLength=0
         try {
             context.contentResolver.openInputStream(uri)?.use { input ->
-                FileOutputStream(blob(id)).use{output->
+                FileOutputStream(staged).use{output->
                     val buffer=ByteArray(65536)
                     while(true) {
+                        checkCancelled()
                         val n=input.read(buffer)
                         if(n<0)break
                         if(n==0)continue
@@ -496,16 +501,88 @@ class VaultRepository(private val context: Context) {
                             System.arraycopy(buffer,0,sample,sampleLength,copy)
                             sampleLength+=copy
                         }
+                        if(size>VaultBackupChecks.MAX_BLOB_BYTES-n)throw IOException("The selected file exceeds the 512 MB import limit")
                         output.write(buffer,0,n);digest.update(buffer,0,n);size+=n
                     }
                     output.fd.sync()
                 }
             } ?: throw IOException("Cannot read selected file")
             val media=VaultFileTypes.resolve(name,mime,sample.copyOf(sampleLength))
+            VaultImportValidation.validate(staged,media)
+            checkCancelled()
+            if(!staged.renameTo(blob(id)))throw IOException("Cannot store the selected file")
             val file=VaultFile(id,media.name,media.mime,size,digest.digest().joinToString(""){"%02x".format(it)})
             try{writeMeta(file)}catch(_:Exception) { /* preserve imported bytes */ }
             return file
         }catch(e:Exception){blob(id).delete();meta(id).delete();throw e}
+        finally{staged.delete()}
+    }
+    /** Stage the entire selection and commit its document changes exactly once. */
+    @Synchronized fun importDocuments(
+        uris:List<Uri>,targetId:String?,profile:String,originalUri:Uri?=null,
+        corners:String="",rotation:Int=0,groupAsOne:Boolean=false,
+        checkCancelled:()->Unit={}
+    ):VaultLongOperations.ImportResult {
+        check(recoveryError==null) { recoveryError ?: "Vault recovery required" }
+        ImportTargetPolicy.requireAvailable(targetId,cards.map{it.id}.toSet())
+        val owner=targetId?.let{id->cards.first{it.id==id}.profile}?:profile
+        require(profiles.any{it.id==owner}) { "The selected person is no longer available" }
+        val before=cards.toList()
+        val next=before.toMutableList()
+        val staged=mutableListOf<VaultFile>()
+        val hashes=before.filter{it.profile==owner}.flatMap{it.files}.map{it.sha256}.toMutableSet()
+        var last:VaultCard?=null
+        var skipped=0
+        var count=0
+        var committed=false
+        try {
+            uris.forEach { uri ->
+                checkCancelled()
+                val file=importFile(uri,checkCancelled)
+                staged.add(file)
+                if(!hashes.add(file.sha256)) { skipped++;return@forEach }
+                val nextTarget=VaultImportGrouping.nextTarget(targetId,last?.id,groupAsOne)
+                val index=next.indexOfFirst{it.id==nextTarget}
+                val card=if(index>=0)next[index].copy(files=next[index].files+file) else {
+                    val kind=when {
+                        file.name.contains("passport",true)->"Passport"
+                        file.name.contains("cdc",true)->"Seafarer CDC"
+                        file.name.contains("medical",true)->"Medical"
+                        file.name.contains("certificate",true)->"COC / STCW"
+                        else->"Custom"
+                    }
+                    newCard(kind,owner).copy(title=if(file.name.startsWith("scan-",true)||file.name.startsWith("capture-",true))
+                        "Scanned document · "+java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("dd MMM HH:mm"))
+                        else file.name.substringBeforeLast('.',file.name),files=listOf(file))
+                }
+                if(index>=0)next[index]=card else next.add(0,card)
+                last=card;count++
+            }
+            if(last==null)return VaultLongOperations.ImportResult(null,0,skipped)
+            if(originalUri!=null) {
+                try {
+                    val original=importFile(originalUri,checkCancelled).also{staged.add(it)}
+                    val card=last!!
+                    val revised=card.copy(files=card.files.mapIndexed { i,file ->
+                        if(i==card.files.lastIndex)file.copy(originalId=original.id,cropCorners=corners,
+                            cropRotation=((rotation%360)+360)%360) else file
+                    })
+                    next[next.indexOfFirst{it.id==card.id}]=revised
+                    last=revised
+                } catch(cancelled:kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch(_:Exception) { skipped++ } // Optional originals never discard a valid page.
+            }
+            checkCancelled()
+            androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+                cards.clear();cards.addAll(next)
+                try{persist()}catch(e:Exception){cards.clear();cards.addAll(before);throw e}
+            }
+            committed=true
+            return VaultLongOperations.ImportResult(last!!.id,count,skipped)
+        } finally {
+            val kept=if(committed)referencedIds() else emptySet()
+            staged.filter{it.id !in kept}.forEach{removeOrphan(it)}
+        }
     }
     private fun filename(uri:Uri):String {
         var name=""
@@ -544,33 +621,31 @@ class VaultRepository(private val context: Context) {
         val o=JSONObject(meta(id).readText())
         VaultFile(id,o.getString("name"),o.getString("mime"),o.getLong("size"),o.getString("sha"),"","Recovered attachment")
     }catch(_:Exception){null}
-    fun recoverableFiles():List<VaultFile> {
+    @Synchronized fun recoverableFiles():List<VaultFile> {
         val linked=referencedIds() // Includes deliberately hidden retained scan originals.
-        return blobDir.listFiles()?.filter {it.name.endsWith(".dat") && it.name.removeSuffix(".dat") !in linked}
+        val previous=runCatching {
+            val array=JSONObject(backup.readText()).getJSONArray("cards")
+            (0 until array.length()).flatMap{readCard(array.getJSONObject(it)).files}.associateBy{it.id}
+        }.getOrDefault(emptyMap())
+        return blobDir.listFiles()?.filter {it.isFile&&it.name.endsWith(".dat") &&
+            it.name.removeSuffix(".dat").matches(Regex("[a-f0-9-]{36}"))&&it.name.removeSuffix(".dat") !in linked}
             ?.map {f->
                 val id=f.name.removeSuffix(".dat")
-                readMeta(id)?:VaultFile(id,"Recovered-"+id.take(8),"application/octet-stream",f.length(),"","","Recovered attachment")
+                previous[id]?:readMeta(id)?:VaultFile(id,"Recovered-"+id.take(8),"application/octet-stream",f.length(),"","","Recovered attachment")
             }?:emptyList()
     }
-    fun attachRecovered(id:String,cardTitle:String) {
+    @Synchronized fun attachRecovered(id:String,cardTitle:String) {
         val found=recoverableFiles().firstOrNull{it.id==id}?:return
         val raw=documentFile(found)
-        val magic=ByteArray(8)
-        raw.inputStream().use{it.read(magic)}
-        val pdf=magic.copyOfRange(0,4).contentEquals("%PDF".toByteArray())
-        val png=magic.contentEquals(byteArrayOf(-119,80,78,71,13,10,26,10))
-        val jpg=(magic[0].toInt()and 0xff)==0xff&&(magic[1].toInt()and 0xff)==0xd8
-        val (ext,mime)=when {
-            pdf->".pdf" to "application/pdf"
-            png->".png" to "image/png"
-            jpg->".jpg" to "image/jpeg"
-            magic[0]==80.toByte()&&magic[1]==75.toByte()->".docx" to "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            else->".txt" to "text/plain"
-        }
+        val magic=raw.inputStream().use{input->ByteArray(32).let{bytes->bytes.copyOf(input.read(bytes).coerceAtLeast(0))}}
+        val media=VaultFileTypes.resolve(found.name,found.mime,magic)
+        VaultImportValidation.validate(raw,media)
         val title=cardTitle.ifBlank{found.name.substringBeforeLast('.',found.name)}
-        val finalFile=if(found.mime=="application/octet-stream")
-            found.copy(name=title+ext,mime=mime,bytes=raw.length())
-        else found
+        val finalFile=found.copy(name=media.name,mime=media.mime,bytes=raw.length(),
+            sha256=VaultBackupChecks.sha256(raw.inputStream()),
+            extractedText=if(found.extractedText.isNotBlank())found.extractedText else
+                if(textFile(id).exists())textFile(id).readText(Charsets.UTF_8) else "",
+            originalId=found.originalId.takeIf{it.isNotBlank()&&blob(it).isFile}?:"")
         saveCard(VaultCard(title=title,kind="Recovered",category="Recovered",files=listOf(finalFile)))
     }
     fun newCard(kind:String="Custom",profile:String="self"):VaultCard {
