@@ -11,6 +11,9 @@ object VaultBackupChecks {
     const val MAX_TOTAL_BYTES = 2L * 1024 * 1024 * 1024
     const val MAX_ENTRIES = 10000
     fun sha256(input: InputStream): String {
+        return input.use { sha256Open(it) }
+    }
+    private fun sha256Open(input: InputStream): String {
         val digest = MessageDigest.getInstance("SHA-256")
         val buffer = ByteArray(65536)
         while (true) {
@@ -26,6 +29,12 @@ object VaultBackupChecks {
         if (expectedHash.isBlank() || expectedHash.length != 64 ||
             !sha256(file.inputStream()).equals(expectedHash, ignoreCase = true))
             throw IOException("Backup attachment checksum mismatch")
+    }
+    /** Legacy indexes sometimes omitted hashes; absent metadata is not corruption. */
+    fun verifyLegacy(file: File, expectedSize: Long, expectedHash: String) {
+        if (expectedSize > 0 && file.length() != expectedSize)
+            throw IOException("Backup attachment size mismatch")
+        if (expectedHash.isNotBlank()) verify(file, file.length(), expectedHash)
     }
     fun boundedCopy(input: InputStream, target: File, limit: Long): Long {
         var copied = 0L

@@ -788,7 +788,7 @@ private data class PdfJob(val op:String,val files:List<VaultFile>,val from:Int,v
                             onDocumentStyleChanged={style->
                                 documentStyle=style
                                 options.edit().putString("documentStyle",style).apply()
-                            })
+                            },onStorageHealth={repo.storageHealth()})
                         "detail"->current?.let{c->VaultNavDetail(c,repo,
                             {f,page->viewingId=f.id;viewingPage=page;navigate("viewer")},
                             {f->activity.share(f)},{f->activity.shareAsPdf(f)},{activity.shareAll(c.files)},
