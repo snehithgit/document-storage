@@ -13,22 +13,20 @@ import androidx.work.*
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 
 class ExpiryWorker(context:Context,params:WorkerParameters):Worker(context,params) {
     override fun doWork():Result {
         return try {
-            val store=VaultRepository(applicationContext)
+            val store=VaultStorage.get(applicationContext)
             val today=LocalDate.now()
             val days=applicationContext.getSharedPreferences("vault_options",Context.MODE_PRIVATE).getInt("remindDays",30)
-            val renewedIds=store.cards.map{it.previousId}.filter{it.isNotBlank()}.toSet()
-            val invalid=store.cards.filter { it.expiry.isNotBlank() &&
-                runCatching { LocalDate.parse(it.expiry) }.isFailure }
-            val expiring=store.cards.filter{it.id !in renewedIds}.mapNotNull { card ->
-                try {
-                    val date=LocalDate.parse(card.expiry)
-                    val remaining=ChronoUnit.DAYS.between(today,date)
-                    if(remaining in -30L..days.toLong())card to remaining else null
-                } catch(_:Exception){null}
+            val active=VaultExpiryRules.active(store.cards.toList())
+            val invalid=active.filter{VaultExpiryRules.status(it,days,today)=="Check expiry"}
+            val expiring=active.mapNotNull{card->
+                if(VaultExpiryRules.status(card,days,today) in setOf("Expired","Expiring"))
+                    VaultExpiryRules.daysLeft(card,today)?.let{card to it}
+                else null
             }.sortedBy{it.second}
             if(expiring.isNotEmpty()||invalid.isNotEmpty()) {
                 val manager=applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -53,7 +51,8 @@ class ExpiryWorker(context:Context,params:WorkerParameters):Worker(context,param
                 }
             }
             Result.success()
-        } catch(_:Exception){if(runAttemptCount>=2)Result.failure()else Result.retry()}
+        } catch(cancelled:CancellationException){throw cancelled}
+        catch(_:Exception){if(runAttemptCount>=2)Result.failure()else Result.retry()}
     }
     companion object {
         fun schedule(context:Context) {

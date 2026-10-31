@@ -42,6 +42,7 @@ class Phase0LogicTest {
         assertEquals("Scanned document",VaultNames.title(uuid))
         assertEquals("Scanned document.jpg",VaultNames.label(uuid))
         assertEquals("Aadhaar front",VaultNames.title("Aadhaar front.png"))
+        assertEquals("Scanned document.jpg",VaultNames.label("scan-132044214982946341.jpg"))
     }
     @Test fun pluralsUseCorrectCount() {
         assertEquals("1 file",VaultCounts.format(1,"file"))

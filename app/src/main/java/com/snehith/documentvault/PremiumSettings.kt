@@ -16,6 +16,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.withContext
 
 @Composable fun PremiumSettings(
     hasPin:Boolean,languages:List<String>,currentScript:String,privacyScreen:Boolean,
@@ -23,20 +25,43 @@ import androidx.compose.ui.unit.dp
     onPrivacyScreenChanged:(Boolean)->Unit,onPin:(String,String)->Unit,onClearPin:(String)->Unit,
     onProfiles:()->Unit,onTemplates:()->Unit,onBackups:()->Unit,onRecovery:()->Unit,
     onImportLanguage:()->Unit,onScript:(String)->Unit,onRemindDays:(Int)->Unit,
-    keepOriginal:Boolean,onKeepOriginalChanged:(Boolean)->Unit,onAbout:()->Unit
+    keepOriginal:Boolean,onKeepOriginalChanged:(Boolean)->Unit,onAbout:()->Unit,
+    onOriginalUsage:suspend ()->Long,onRemoveOriginals:()->Unit,
+    originalsRevision:Long=0L,
+    biometricEnabled:Boolean=false,onBiometricChanged:(Boolean)->Unit={},
+    profileName:String="My vault",cardCount:Int=0,pageCount:Int=0,peopleCount:Int=0,
+    documentStyle:String="pages",onDocumentStyleChanged:(String)->Unit={}
 ){
     val context=LocalContext.current
     var dialog by rememberSaveable{mutableStateOf("")}
+    var originalBytes by remember{mutableLongStateOf(0L)}
+    LaunchedEffect(originalsRevision,keepOriginal){
+        originalBytes=withContext(kotlinx.coroutines.Dispatchers.IO){onOriginalUsage()}
+    }
     var pin by remember{mutableStateOf("")}
     var old by remember{mutableStateOf("")}
     var confirm by remember{mutableStateOf("")}
     var days by rememberSaveable{mutableStateOf(
         context.getSharedPreferences("vault_options",android.content.Context.MODE_PRIVATE)
             .getInt("remindDays",30).toString())}
-    if(dialog.isNotBlank())AlertDialog(onDismissRequest={dialog=""},title={Text(when(dialog){
+    if(dialog=="ocr")MockupSheet({dialog=""},"OCR language",
+        "Bundled scripts work offline out of the box. Language packs are files you supply."){
+        languages.forEach{lang->
+            MockupOptionRow(lang,"",lang==currentScript){onScript(lang)}
+        }
+        OutlinedButton(onClick={onImportLanguage();dialog=""},
+            modifier=Modifier.fillMaxWidth().heightIn(min=50.dp),
+            shape=RoundedCornerShape(16.dp)){
+            Text("Add an offline recognition language")
+        }
+        Button(onClick={dialog=""},modifier=Modifier.fillMaxWidth().heightIn(min=52.dp),
+            shape=RoundedCornerShape(16.dp)){Text("Done")}
+    }
+    if(dialog.isNotBlank()&&dialog!="ocr")AlertDialog(onDismissRequest={dialog=""},title={Text(when(dialog){
         "ocr"->"Offline OCR language"
         "pin"->"App lock"
         "remind"->"Expiry reminders"
+        "originals"->"Remove saved originals?"
         else->"Settings"
     })},text={Column(verticalArrangement=Arrangement.spacedBy(9.dp)){
         when(dialog){
@@ -48,7 +73,7 @@ import androidx.compose.ui.unit.dp
                     }
                 }
                 OutlinedButton(onClick={onImportLanguage();dialog=""}){
-                    Text("Import Tesseract .traineddata")
+                    Text("Add an offline recognition language")
                 }
             }
             "pin"->{
@@ -69,102 +94,112 @@ import androidx.compose.ui.unit.dp
                     Text("Save reminder")
                 }
             }
+            "originals"->{
+                Text("Delete retained raw scans only? The edited documents stay available. Reopening a deleted original for re-cropping will no longer be possible.")
+                Button(onClick={onRemoveOriginals();dialog=""}){Text("Remove originals")}
+            }
         }
     }},confirmButton={TextButton(onClick={dialog=""}){Text("Close")}})
-    LazyColumn(Modifier.fillMaxSize().background(VaultNavy),
-        contentPadding=PaddingValues(15.dp,12.dp,15.dp,100.dp),
+    val p=mockupPalette
+    LazyColumn(Modifier.fillMaxSize().background(p.panel),
+        contentPadding=PaddingValues(18.dp,22.dp,18.dp,110.dp),
         verticalArrangement=Arrangement.spacedBy(10.dp)){
         item{
-            VaultHeader("Settings","Your offline document workspace")
-            Spacer(Modifier.height(14.dp))
-            Text("ORGANIZE",color=VaultSky,fontWeight=FontWeight.Bold)
-        }
-        item {NavySettingRow(Icons.Outlined.People,"Family profiles","Manage your personal and family cards",onProfiles)}
-        item {NavySettingRow(Icons.Outlined.ViewAgenda,"Card templates","Your reusable document field layouts",onTemplates)}
-        item{
-            Spacer(Modifier.height(5.dp))
-            Text("DATA & BACKUP",color=VaultSky,fontWeight=FontWeight.Bold)
-        }
-        item{NavySettingRow(Icons.Outlined.Backup,"Backup and restore","Export an ordinary ZIP of all files and details",onBackups)}
-        item{NavySettingRow(Icons.Outlined.Restore,"Recover imports","Find any unlinked files from failed saves",onRecovery)}
-        item{
-            Spacer(Modifier.height(5.dp))
-            Text("OCR & SCANNING",color=VaultSky,fontWeight=FontWeight.Bold)
-        }
-        item{NavySettingRow(Icons.Outlined.Translate,"OCR language",currentScript,{dialog="ocr"})}
-        item{
-            HubCard(Modifier.fillMaxWidth()){
-                Row(verticalAlignment=Alignment.CenterVertically){
-                    HubIcon(Icons.Outlined.Collections)
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)){
-                        Text("Keep untouched scan original",fontWeight=FontWeight.SemiBold)
-                        Text("Adds the raw camera photo beside the enhanced page",
-                            color=MaterialTheme.colorScheme.onSurfaceVariant,
-                            style=MaterialTheme.typography.bodySmall)
+            Eyebrow("Settings")
+            Spacer(Modifier.height(10.dp))
+            Text("Preferences",color=p.ink,fontSize=32.sp,lineHeight=34.sp,fontWeight=FontWeight.Bold)
+            Spacer(Modifier.height(16.dp))
+            MockupGroup{
+                Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically){
+                    Box(Modifier.size(46.dp).background(p.ink,androidx.compose.foundation.shape.CircleShape),
+                        contentAlignment=Alignment.Center){
+                        Text(DesignLogic.initials(profileName),color=p.panel,fontSize=15.sp,
+                            fontWeight=FontWeight.Bold)
                     }
-                    Switch(checked=keepOriginal,onCheckedChange=onKeepOriginalChanged)
-                }
-            }
-        }
-        item{
-            Spacer(Modifier.height(5.dp))
-            Text("APPEARANCE / PRIVACY",color=VaultColors.syntax,
-                style=MaterialTheme.typography.labelMedium)
-        }
-        item{
-            HubCard(Modifier.fillMaxWidth()){
-                Row(verticalAlignment=Alignment.CenterVertically){
-                    HubIcon(Icons.Outlined.DarkMode)
-                    Spacer(Modifier.width(10.dp))
-                    Column {
-                        Text("Appearance",fontWeight=FontWeight.SemiBold)
-                        Text("Code-editor black · no bright surfaces",color=MaterialTheme.colorScheme.onSurfaceVariant,
-                            style=MaterialTheme.typography.bodySmall)
-                    }
-                }
-                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                    listOf("system" to "System","light" to "Graphite","dark" to "OLED black").forEach{(mode,label)->
-                        FilterChip(selected=themeMode==mode,onClick={onThemeModeChanged(mode)},
-                            label={Text(label)})
+                    Spacer(Modifier.width(12.dp))
+                    Column{
+                        Text(profileName,color=p.ink,fontSize=16.sp,fontWeight=FontWeight.Bold)
+                        Text(VaultCounts.format(cardCount,"card")+" · "+
+                            VaultCounts.format(pageCount,"page")+" on this device",
+                            color=p.inkFaint,fontSize=12.sp)
                     }
                 }
             }
         }
+        item{MockupSectionHeader("Scanning")}
         item{
-            Surface(color=VaultPanel,shape=RoundedCornerShape(14.dp)){
-                Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically){
-                    Icon(Icons.Outlined.VisibilityOff,null,tint=VaultSky)
-                    Spacer(Modifier.width(13.dp))
-                    Column(Modifier.weight(1f)){
-                        Text("Block screenshots",color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.SemiBold)
-                        Text("Optional · off allows normal screenshots",color=VaultMuted,style=MaterialTheme.typography.bodySmall)
-                    }
-                    Switch(checked=privacyScreen,onCheckedChange=onPrivacyScreenChanged)
+            MockupGroup{
+                MockupSettingRow(Icons.Outlined.Translate,"OCR language","Read text offline",
+                    {dialog="ocr"},value=currentScript,divider=false)
+                MockupSettingRow(Icons.Outlined.Collections,"Keep untouched scan original",
+                    "Keeps the original for later editing without adding another visible page",
+                    {onKeepOriginalChanged(!keepOriginal)},
+                    trailing={MockupSwitch(keepOriginal,onKeepOriginalChanged)})
+                MockupSettingRow(Icons.Outlined.Image,"Retained original photos",
+                    if(originalBytes>=1024*1024)
+                        String.format(java.util.Locale.US,"%.1f MB",originalBytes/1048576.0)
+                    else "${originalBytes/1024} KB",
+                    if(originalBytes>0)({dialog="originals"}) else null,
+                    value=if(originalBytes>0)"Remove" else null)
+            }
+        }
+        item{MockupSectionHeader("Security")}
+        item{
+            MockupGroup{
+                MockupSettingRow(Icons.Outlined.Lock,"App lock",
+                    if(hasPin)"PIN configured (files are not encrypted)" else "Optional UI PIN",
+                    {dialog="pin"},value=if(hasPin)"On" else "Off",divider=false)
+                MockupSettingRow(Icons.Outlined.Fingerprint,"Unlock with biometrics",
+                    "Prompt on opening when available",
+                    {onBiometricChanged(!biometricEnabled)},
+                    trailing={MockupSwitch(biometricEnabled,onBiometricChanged)})
+                MockupSettingRow(Icons.Outlined.VisibilityOff,"Block screenshots",
+                    "Optional · off allows normal screenshots",
+                    {onPrivacyScreenChanged(!privacyScreen)},
+                    trailing={MockupSwitch(privacyScreen,onPrivacyScreenChanged)})
+            }
+        }
+        item{MockupSectionHeader("Data")}
+        item{
+            MockupGroup{
+                MockupSettingRow(Icons.Outlined.Backup,"Backup and restore",
+                    "Export an ordinary ZIP of all files and details",onBackups,divider=false)
+                MockupSettingRow(Icons.Outlined.Restore,"Recover imports",
+                    "Find any unlinked files from failed saves",onRecovery)
+                MockupSettingRow(Icons.Outlined.Notifications,"Expiry reminders",
+                    "Notify before documents expire",{dialog="remind"})
+            }
+        }
+        item{MockupSectionHeader("Appearance")}
+        item{
+            MockupGroup(Modifier.padding(0.dp)){
+                Column(Modifier.padding(14.dp),
+                    verticalArrangement=Arrangement.spacedBy(12.dp)){
+                    MockupSegment(listOf("system" to "System","light" to "Light",
+                        "dark" to "Dark"),themeMode,onThemeModeChanged)
+                    Eyebrow("Document style")
+                    MockupSegment(listOf("pages" to "Pages",
+                        "wallet" to "Wallet cards"),documentStyle,onDocumentStyleChanged)
                 }
             }
         }
-        item{NavySettingRow(Icons.Outlined.Lock,"App lock",if(hasPin)"PIN configured (files are not encrypted)" else "Optional PIN / biometrics",{dialog="pin"})}
-        item{NavySettingRow(Icons.Outlined.Notifications,"Expiry reminders","Notify before documents expire",{dialog="remind"})}
-        item{NavySettingRow(Icons.Outlined.Info,"About Document Vault","App version, privacy and open-source attribution",onAbout)}
-        item {
-            Spacer(Modifier.height(8.dp))
-            Text("Document Vault • Local-only files • No encryption. The optional PIN protects the app interface, not files or exported ZIPs.",
-                color=VaultMuted,style=MaterialTheme.typography.bodySmall)
-        }
-    }
-}
-@Composable private fun NavySettingRow(
-    icon:androidx.compose.ui.graphics.vector.ImageVector,title:String,subtitle:String,onClick:()->Unit){
-    Card(onClick=onClick,colors=CardDefaults.cardColors(containerColor=VaultPanel),shape=RoundedCornerShape(13.dp),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline)){
-        Row(Modifier.fillMaxWidth().padding(13.dp),verticalAlignment=Alignment.CenterVertically){
-            Icon(icon,null,tint=VaultColors.syntax)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)){
-                Text(title,color=MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.SemiBold)
-                Text(subtitle,color=VaultMuted,style=MaterialTheme.typography.bodySmall)
+        item{MockupSectionHeader("People")}
+        item{
+            MockupGroup{
+                MockupSettingRow(Icons.Outlined.People,"Family profiles",
+                    "Organize documents for your family",onProfiles,
+                    value=VaultCounts.format(peopleCount,"person","people"),
+                    divider=false)
+                MockupSettingRow(Icons.Outlined.ViewAgenda,"Information templates",
+                    "Reuse common document details",onTemplates)
+                MockupSettingRow(Icons.Outlined.Info,"About Document Vault",
+                    "App version, privacy and open-source attribution",onAbout)
             }
-            Icon(Icons.Outlined.ChevronRight,null,tint=MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        item{
+            MockupNote(Icons.Outlined.Shield,
+                "No internet permission. Files and backups are not encrypted. "+
+                "The PIN locks this app only.",modifier=Modifier.padding(top=4.dp))
         }
     }
 }
