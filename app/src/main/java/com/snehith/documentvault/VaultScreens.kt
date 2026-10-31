@@ -136,7 +136,7 @@ fun copyToClipboard(context:Context,label:String,value:String) {
                             label={Text("Field name")},modifier=Modifier.weight(1f),singleLine=true)
                         IconButton(onClick={fields.removeAt(i)}){Icon(Icons.Outlined.Close,"Remove field")}
                     }
-                    OutlinedTextField(fields[i].value,{value->fields[i]=fields[i].copy(value=value,source="manual")},
+                    OutlinedTextField(fields[i].value,{value->fields[i]=fields[i].copy(value=value,source="manual",confidence=0f)},
                         label={Text("Value")},modifier=Modifier.fillMaxWidth())
                 }
             }

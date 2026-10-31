@@ -46,34 +46,9 @@ class VaultOcrWorker(appContext:Context,params:WorkerParameters):CoroutineWorker
             }
             currentCoroutineContext().ensureActive()
             if(isStopped)throw CancellationException("OCR cancelled")
-            val smart=result.document
-            repo.updateCard(cardId){latest->
-                val current=latest.files.firstOrNull{it.id==fileId}
-                    ?:throw java.io.IOException("Attachment was removed")
-                val revised=current.copy(extractedText=result.text,ocrStatus=result.method)
-                val titleIsGeneric=latest.title.isBlank() ||
-                    latest.title.startsWith("Scan ",true) ||
-                    latest.title.startsWith("Scanned document",true) ||
-                    latest.title.equals(current.name.substringBeforeLast('.'),true)
-                val fields=latest.fields.toMutableList()
-                result.fields.filter{it.name.isNotBlank()&&it.value.isNotBlank()}.forEach{f->
-                    val index=fields.indexOfFirst{it.name.equals(f.name,true)}
-                    if(index<0)fields.add(f)
-                    else if(fields[index].value.isBlank())fields[index]=f
-                }
-                val identity=smart?.kind in setOf("Passport","Aadhaar","PAN","Driving Licence")
-                latest.copy(
-                    files=latest.files.map{if(it.id==fileId)revised else it},
-                    fields=fields,
-                    category=if(identity && (latest.category=="Personal"||
-                        latest.category.isBlank()))"Identity" else latest.category,
-                    kind=smart?.kind?.takeIf{latest.kind=="Custom"||
-                        latest.kind=="Recovered"}?:latest.kind,
-                    title=if(titleIsGeneric&&smart!=null&&smart.confidence>=.7f&&
-                        !smart.fullName.isNullOrBlank())smart.title else latest.title,
-                    expiry=if(latest.expiry.isBlank())smart?.expiry?:"" else latest.expiry
-                )
-            }
+            if(result.text.isBlank())return Result.success(workDataOf(KEY_FILE to fileId,
+                KEY_ERROR to "No text was recognized. Existing details were kept."))
+            repo.updateCard(cardId){latest->OcrMerge.apply(latest,fileId,result)?:latest}
             setProgress(workDataOf(KEY_PAGE to result.pageCount,KEY_TOTAL to result.pageCount))
             Result.success(workDataOf(KEY_CARD to cardId, KEY_FILE to fileId))
         }catch(c:CancellationException){throw c}

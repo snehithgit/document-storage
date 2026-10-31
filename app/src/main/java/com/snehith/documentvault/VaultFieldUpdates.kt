@@ -23,6 +23,14 @@ object VaultFieldUpdates {
         val orderedIds=ordered.map{it.id}.toSet()
         return ordered+updated.filter{it.id !in orderedIds}
     }
+    /** A changed value is the user's: it leaves review and later OCR runs keep it. */
+    fun edited(existing:DataField?,name:String,value:String):DataField {
+        val changed=existing==null||existing.value!=value
+        return DataField(name,value,existing?.page?:-1,
+            if(changed)"manual" else existing!!.source,
+            existing?.id?:java.util.UUID.randomUUID().toString(),
+            if(changed)0f else existing!!.confidence)
+    }
 }
 
 data class OcrBatchOutcome(val filename:String,val success:Boolean,val error:String="")

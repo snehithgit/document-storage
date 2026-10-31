@@ -87,10 +87,7 @@ private val dMuted:Color @Composable get()=MaterialTheme.colorScheme.onSurfaceVa
         confirmButton={TextButton(onClick={
             if(fieldName.isNotBlank()){
                 val existing=fields.firstOrNull{it.id==editId}
-                val item=DataField(fieldName.trim(),fieldValue.trim(),
-                    existing?.page?:-1,existing?.source?:"manual",
-                    existing?.id?:java.util.UUID.randomUUID().toString(),
-                    existing?.confidence?:0f)
+                val item=VaultFieldUpdates.edited(existing,fieldName.trim(),fieldValue.trim())
                 onSave(card.copy(fields=if(existing==null)fields+item
                     else fields.map{if(it.id==existing.id)item else it}))
                 editId=""
